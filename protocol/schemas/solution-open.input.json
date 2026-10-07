@@ -9,7 +9,7 @@
   ],
   "properties": {
     "path": {
-      "description": "Absolute path of a .sln, .slnx, .csproj or .vbproj file.",
+      "description": "Absolute path of a .sln, .slnx, .csproj, .vbproj or .fsproj file.",
       "type": "string",
       "minLength": 1
     }

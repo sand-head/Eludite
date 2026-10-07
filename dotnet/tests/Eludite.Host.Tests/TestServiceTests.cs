@@ -34,8 +34,11 @@ public sealed class TestServiceTests
         var discover = await host.CallAsync("eludite/test/discover", new { });
         var containers = discover.GetProperty("containers").EnumerateArray().ToList();
         var names = containers.Select(c => c.GetProperty("name").GetString()).ToList();
-        Assert.Equal(["Corpus.XunitV3 (net10.0)", "Corpus.XunitV3 (net472)", "Corpus.Xunit2", "Corpus.MSTest", "Corpus.NUnit", "Corpus.Many"], names);
-        Assert.Equal(["mtp", "mtp", "vstest", "mtp", "vstest", "mtp"], containers.Select(c => c.GetProperty("protocol").GetString()));
+        // Brief 0063: the Visual Basic (.vbproj, MSTest on MTP) and F# (.fsproj, NUnit on VSTest) projects are containers like the C# ones.
+        Assert.Equal(["Corpus.XunitV3 (net10.0)", "Corpus.XunitV3 (net472)", "Corpus.Xunit2", "Corpus.MSTest", "Corpus.NUnit", "Corpus.VisualBasic", "Corpus.FSharp", "Corpus.Many"], names);
+        Assert.Equal(["mtp", "mtp", "vstest", "mtp", "vstest", "mtp", "vstest", "mtp"], containers.Select(c => c.GetProperty("protocol").GetString()));
+        Assert.EndsWith("Corpus.VisualBasic.vbproj", containers[5].GetProperty("project").GetString(), StringComparison.Ordinal);
+        Assert.EndsWith("Corpus.FSharp.fsproj", containers[6].GetProperty("project").GetString(), StringComparison.Ordinal);
         Assert.Equal(OperatingSystem.IsWindows() ? "netfx" : "mono", containers[1].GetProperty("runtime").GetString());
         var runId = discover.GetProperty("runId").GetInt64();
         var finished = await host.FinishedAsync(runId);
@@ -44,11 +47,13 @@ public sealed class TestServiceTests
         Assert.Single(updates, u => u.GetProperty("kind").GetString() == "finished");
         // The net472 container runs on Windows as it is, elsewhere under Mono when there is one.
         var monoFound = OperatingSystem.IsWindows() || File.Exists("/usr/bin/mono") || File.Exists("/usr/local/bin/mono");
-        var expected = 7 + (monoFound ? 7 : 0) + 5 + 6 + 6 + Corpus.ManyTests;
+        var expected = 7 + (monoFound ? 7 : 0) + 5 + 6 + 6 + 5 + 5 + Corpus.ManyTests;
         Assert.Equal(expected, finished.GetProperty("summary").GetProperty("total").GetInt32());
         var perContainer = updates.Where(u => u.GetProperty("kind").GetString() == "containerFinished").ToDictionary(u => u.GetProperty("container").GetString()!, u => u.GetProperty("count").GetInt32());
-        Assert.Equal(6, perContainer.Count);
+        Assert.Equal(8, perContainer.Count);
         Assert.Equal(5, perContainer[containers[2].GetProperty("id").GetString()!]);
+        Assert.Equal(5, perContainer[containers[5].GetProperty("id").GetString()!]);
+        Assert.Equal(5, perContainer[containers[6].GetProperty("id").GetString()!]);
         var discovered = updates.Where(u => u.GetProperty("kind").GetString() == "discovered").SelectMany(u => u.GetProperty("tests").EnumerateArray()).ToList();
         Assert.Equal(expected, discovered.Count);
         Assert.Contains(discovered, t => t.GetProperty("fullyQualifiedName").GetString() == "Corpus.Xunit2.GreeterTests.Waits"
@@ -64,7 +69,7 @@ public sealed class TestServiceTests
         var summary = runFinished.GetProperty("summary");
         Assert.Equal(expected, summary.GetProperty("total").GetInt32());
         // One failure and one skip per project (xunit.v3 twice with Mono), none in Corpus.Many.
-        var projects = monoFound ? 5 : 4;
+        var projects = monoFound ? 7 : 6;
         Assert.Equal(projects, summary.GetProperty("failed").GetInt32());
         Assert.Equal(projects, summary.GetProperty("skipped").GetInt32());
         Assert.Equal(0, summary.GetProperty("notRun").GetInt32());
@@ -74,6 +79,10 @@ public sealed class TestServiceTests
         var failure = Assert.Single(results, r => r.GetProperty("outcome").GetString() == "failed" && r.GetProperty("stackTrace").GetString()!.Contains("GreeterTests.cs:line 26", StringComparison.Ordinal));
         Assert.False(failure.TryGetProperty("displayName", out _));
         Assert.Contains(results, r => r.TryGetProperty("output", out var o) && o.GetString()!.Contains("Hello from NUnit", StringComparison.Ordinal));
+        Assert.Contains(results, r => r.TryGetProperty("output", out var o) && o.GetString()!.Contains("Hello from Visual Basic", StringComparison.Ordinal));
+        Assert.Contains(results, r => r.TryGetProperty("output", out var o) && o.GetString()!.Contains("Hello from F#", StringComparison.Ordinal));
+        Assert.Contains(results, r => r.GetProperty("outcome").GetString() == "failed" && r.GetProperty("stackTrace").GetString()!.Contains("ParserTests.vb:line", StringComparison.Ordinal));
+        Assert.Contains(results, r => r.GetProperty("outcome").GetString() == "failed" && r.GetProperty("stackTrace").GetString()!.Contains("Tests.fs:line", StringComparison.Ordinal));
     }
 
     [Fact]

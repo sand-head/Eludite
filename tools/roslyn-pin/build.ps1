@@ -1,5 +1,6 @@
 # Fetch dotnet/roslyn at the commit pinned in tools/roslyn-pin/COMMIT and build
-# Microsoft.CodeAnalysis.LanguageServer from source (brief 0002).
+# Microsoft.CodeAnalysis.LanguageServer from source (brief 0002), with vb.patch applied so the server
+# composes the Visual Basic feature assemblies too (brief 0063; see README.md).
 # UNTESTED: written on Linux; not yet run on Windows.
 #
 #   pwsh tools/roslyn-pin/build.ps1
@@ -29,6 +30,20 @@ git -C $src cat-file -e "$commit^{commit}" 2>$null
 if ($LASTEXITCODE) { git -C $src fetch origin $commit; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
 git -C $src checkout -q --detach $commit
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+# Brief 0063: the server's MEF composition lists only the C# feature assemblies; vb.patch adds Visual Basic's.
+# Idempotent: skipped when the patch is already in the tree, a loud failure when it fits neither way.
+$patch = Join-Path $here 'vb.patch'
+git -C $src apply --reverse --check $patch 2>$null
+if (-not $LASTEXITCODE) {
+  Write-Host 'roslyn-pin: vb.patch already applied'
+} else {
+  git -C $src apply --check $patch
+  if ($LASTEXITCODE) { throw "vb.patch does not apply to $commit; fix tools/roslyn-pin/vb.patch" }
+  git -C $src apply $patch
+  if ($LASTEXITCODE) { exit $LASTEXITCODE }
+  Write-Host 'roslyn-pin: applied vb.patch'
+}
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
 Push-Location $src

@@ -1,7 +1,8 @@
 # corpus/tests: the Test Explorer corpus
 
 Small test projects for brief 0035's Test Explorer, one per protocol and framework, each with passing, failing, skipped
-and output-writing tests (MIT, this repository's; `LICENSE`). Build them in place with `build.sh` (or `build.ps1`);
+and output-writing tests (MIT, this repository's; `LICENSE`); brief 0063 adds the same in Visual Basic (`.vbproj`) and
+F# (`.fsproj`), so the project list, the Workspace tree and the Test Explorer are proven on all three .NET languages. Build them in place with `build.sh` (or `build.ps1`);
 the bridge's and the host's tests copy them to a temp folder and build them there.
 
 | Project | Framework | Protocol | Target frameworks | Expected outcomes |
@@ -10,6 +11,8 @@ the bridge's and the host's tests copy them to a temp folder and build them ther
 | `Corpus.MSTest` | MSTest 4.4.1 | Microsoft.Testing.Platform 2.4 | net10.0 | 6 tests: `ParsesNegatives` fails (`ParserTests.cs:line 21`), `ParsesHex` skipped (`Hexadecimal comes later`), `WritesOutput` writes `Hello from MSTest` and `Console from MSTest`, `ParsesRows` is two data rows with category `Rows` |
 | `Corpus.Xunit2` | xunit 2.9.3, xunit.runner.visualstudio 3.1.5 | VSTest (translation layer) | net10.0 | 5 tests: `GreetsNobody` fails (`GreeterTests.cs:line 26`), `SaysGoodbye` skipped (`Farewells come later`), `WritesOutput` writes `Hello from xunit 2`, `Waits` has trait `Category=Slow` and sleeps `CORPUS_SLOW_MS` |
 | `Corpus.NUnit` | NUnit 4.6.1, NUnit3TestAdapter 6.3.0 | VSTest | net10.0 | 6 tests: `Pops` fails, `Peeks` ignored (`Peeking is not decided yet`), `WritesOutput` writes `Hello from NUnit`, `PushesPairs` is two cases with category `Pairs` |
+| `Corpus.VisualBasic` | MSTest 4.4.1, Visual Basic (`Corpus.VisualBasic.vbproj`) | Microsoft.Testing.Platform 2.4 | net10.0 | 5 tests: `ParsesNegatives` fails (`Negatives keep their sign`, `ParserTests.vb:line 18`), `ParsesHex` skipped (`Hexadecimal comes later`), `WritesOutput` writes `Hello from Visual Basic` and `Console from Visual Basic`, `ParsesNumbers` and `TrimsBeforeParsing` pass |
+| `Corpus.FSharp` | NUnit 4.6.1, NUnit3TestAdapter 6.3.0, F# (`Corpus.FSharp.fsproj`) | VSTest | net10.0 | 5 tests: `Dequeues` fails (`the queue is empty after its one item is taken`, `Tests.fs:line 21`), `Peeks` ignored (`Peeking is not decided yet`), `WritesOutput` writes `Hello from F#` and `Console from F#`, `Enqueues` and `KeepsOrder` pass |
 | `rust/` (`corpus-tests`) | libtest | `cargo test` | the host's | 7 tests: `tests::subtracts` fails (`src/lib.rs:25`), `tests::divides` ignored (`division is not written yet`), `tests::writes_output` prints `Hello from Rust`, `tests::nested::adds_negatives` in a nested module, `integration::adds_from_outside` in an integration test, `tests::waits` sleeps `CORPUS_SLOW_MS` |
 
 Used by `dotnet/tests/Eludite.TestBridge.Tests` and `dotnet/tests/Eludite.Host.Tests` (copied and built in a temp folder,

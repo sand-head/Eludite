@@ -1,8 +1,9 @@
 # corpus/projects
 
 Project files, launch settings and solutions for brief 0049's project property pages, launch profiles and
-configuration tests (MIT, written for the tests). The host's tests copy this folder to a temporary directory and edit
-the copies; nothing here is built.
+configuration tests, and brief 0063's Visual Basic project (MIT, written for the tests). The host's tests copy this
+folder to a temporary directory and edit the copies; nothing here is built (`VisualBasicTests` restores its copy of
+`VisualBasic/` so Roslyn can load it).
 
 | Entry | What it exercises |
 |---|---|
@@ -13,6 +14,7 @@ the copies; nothing here is built.
 | `Empty/Empty.csproj` | An SDK project without a property group (the edit creates one) |
 | `Web/` | An ASP.NET Core project with Visual Studio's template `launchSettings.json`: `iisSettings`, `http`, `https` and `IIS Express` profiles |
 | `Legacy/Legacy.csproj` | A legacy (non-SDK) project, shown read-only |
+| `VisualBasic/VisualBasic.vbproj` | A Visual Basic SDK console project (`net10.0`, `Option Strict On`) whose `Program.vb` has a class with a property and a method, a module with `Sub Main`, and one deliberate `Dim n As Integer = "x"` (BC30512); brief 0063's `VisualBasicTests` opens it through the host with the patched Roslyn server (`tools/roslyn-pin`) |
 | `Corpus.sln` | The five SDK projects with a byte order mark and CRLF, platforms `Any CPU` and `x64`, `Lib` not built in Release |
 | `Corpus.slnx` | The same in `.slnx` form, `Lib` in a solution folder with a `<Build Solution="Release\|*" Project="false" />` rule |
 | `Legacy.sln` | The legacy project alone |

@@ -3,27 +3,45 @@ using System.Xml.Linq;
 
 namespace Eludite.Host.Legacy;
 
-/// <summary>Lists the C# projects of a <c>.sln</c>, <c>.slnx</c> or a single <c>.csproj</c>.</summary>
+/// <summary>
+/// Lists the MSBuild projects of a <c>.sln</c>, <c>.slnx</c> or a single project file: C# (<c>.csproj</c>), Visual Basic
+/// (<c>.vbproj</c>) and F# (<c>.fsproj</c>) alike (brief 0063). Every reader of the solution (the tree, the properties,
+/// the configurations, the tests, the build, NuGet and the legacy evaluator) sees the three through this class; MSBuild
+/// evaluation is language-neutral.
+/// </summary>
 public static partial class SolutionProjects
 {
-    [GeneratedRegex("""^Project\("\{(?<type>[^}]+)\}"\)\s*=\s*"[^"]*",\s*"(?<path>[^"]+\.csproj)"\s*,""", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
+    /// <summary>The project file extensions that count, with their dot.</summary>
+    public static IReadOnlyList<string> ProjectExtensions { get; } = [".csproj", ".vbproj", ".fsproj"];
+
+    [GeneratedRegex("""^Project\("\{(?<type>[^}]+)\}"\)\s*=\s*"[^"]*",\s*"(?<path>[^"]+\.(?:csproj|vbproj|fsproj))"\s*,""", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
     private static partial Regex SlnProject();
 
-    /// <summary>Full paths of the <c>.csproj</c> files, in solution order. Missing files are skipped.</summary>
+    /// <summary>True when <paramref name="path"/> ends in one of <see cref="ProjectExtensions"/>, in any case.</summary>
+    public static bool IsProjectFile(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return ProjectExtensions.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Full paths of the <c>.csproj</c>, <c>.vbproj</c> and <c>.fsproj</c> files, in solution order; a project file's own
+    /// path when <paramref name="path"/> is one. Missing files are skipped.
+    /// </summary>
     public static IReadOnlyList<string> Read(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
         var full = Path.GetFullPath(path);
         var dir = Path.GetDirectoryName(full)!;
         IEnumerable<string> relative;
-        if (full.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+        if (IsProjectFile(full))
         {
             return File.Exists(full) ? [full] : [];
         }
         else if (full.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
         {
             relative = XDocument.Load(full).Descendants("Project").Select(p => (string?)p.Attribute("Path")).OfType<string>()
-                .Where(p => p.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase));
+                .Where(IsProjectFile);
         }
         else
         {
