@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 
 use super::explorer::{context_item_selector, row_selector};
 use super::resx::editor::{self, Column, ResxEditor, cell_selector};
+use super::documents::normalize_path;
 use super::resx::tab_id;
 use super::tests::{Ws, setup_with};
 
@@ -73,10 +74,12 @@ fn start(cx: &mut TestAppContext) -> R {
 
 fn start_with(cx: &mut TestAppContext, neutral_entries: &[(&str, &str, Option<&str>)]) -> R {
     let w = setup_with(cx, |_| {});
-    let project = w.path("src/App/App.csproj");
-    let neutral = w.path("src/App/Resources.resx");
-    let de = w.path("src/App/Resources.de.resx");
-    let fr = w.path("src/App/Resources.fr-FR.resx");
+    // Native separators, as the shell sends paths to the host: the fake matches them as strings.
+    let native = |rel: &str| normalize_path(&w.path(rel));
+    let project = native("src/App/App.csproj");
+    let neutral = native("src/App/Resources.resx");
+    let de = native("src/App/Resources.de.resx");
+    let fr = native("src/App/Resources.fr-FR.resx");
     std::fs::write(&neutral, resx(neutral_entries)).unwrap();
     std::fs::write(
         &de,
@@ -88,7 +91,7 @@ fn start_with(cx: &mut TestAppContext, neutral_entries: &[(&str, &str, Option<&s
     w.fake.set_tree(json!([{
         "name": "App", "path": p, "kind": "sdk", "targetFrameworks": ["net10.0"],
         "files": [
-            {"path": w.path("src/App/Program.cs").to_string_lossy(), "itemType": "compile"},
+            {"path": native("src/App/Program.cs").to_string_lossy(), "itemType": "compile"},
             {"path": neutral.to_string_lossy(), "itemType": "content"},
             {"path": de.to_string_lossy(), "itemType": "content"},
             {"path": fr.to_string_lossy(), "itemType": "content"}
@@ -101,7 +104,7 @@ fn start_with(cx: &mut TestAppContext, neutral_entries: &[(&str, &str, Option<&s
         "cultures": [{"name": "de", "path": de.to_string_lossy(), "item": true},
                      {"name": "fr-FR", "path": fr.to_string_lossy(), "item": true}],
         "generator": "ResXFileCodeGenerator", "lastGenOutput": "Resources.Designer.cs",
-        "designer": w.path("src/App/Resources.Designer.cs").to_string_lossy(),
+        "designer": native("src/App/Resources.Designer.cs").to_string_lossy(),
         "accessModifier": "internal", "manifestName": "App.Resources", "namespace": "App"
     }]));
     let mut r = R {
