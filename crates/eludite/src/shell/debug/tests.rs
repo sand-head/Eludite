@@ -6687,8 +6687,14 @@ fn toggle_breakpoint_answers_compactly_and_a_null_reads_null(cx: &mut TestAppCon
     assert_eq!(s["session"], 1);
     assert_eq!(s["breakpoints_total"], 2);
     assert_eq!(s["breakpoint"]["sessions"][0]["session"], 1);
+    // The adapter's answer comes later: wait until it binds Calc.cs:5 (the rows sort by path, so it is row 0).
+    d.w.wait("Calc.cs:5 bound", |w| {
+        let st = state_of(w);
+        let row = &st["breakpoints"][0];
+        row["path"].as_str().is_some_and(|p| p.ends_with("Calc.cs")) && row["verified"] == true
+    });
     let state = d.state();
-    assert_eq!(state["breakpoints"][1]["verified"], true, "{state}");
+    assert_eq!(state["breakpoints"][0]["verified"], true, "{state}");
     // The state is still a command away, and much larger.
     assert!(state.to_string().len() > 3 * s.to_string().len());
     let again = d
