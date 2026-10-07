@@ -208,6 +208,8 @@ struct Root {
 pub struct Scrubber {
     roots: Vec<Root>,
     pids: Vec<i64>,
+    /// Process ids replaced in text whatever their size ([`Scrubber::add_own_pid`]).
+    own_pids: Vec<i64>,
     /// (placeholder, text): the run's own values (brief 0038).
     tokens: Vec<(String, String)>,
 }
@@ -255,6 +257,15 @@ impl Scrubber {
     pub fn add_pid(&mut self, pid: i64) {
         if pid > 0 && !self.pids.contains(&pid) {
             self.pids.push(pid);
+        }
+    }
+
+    /// Also replace process id `pid`, in text too even below [`MIN_TEXT_PID`]: a process the caller knows the run
+    /// names (a replay attaches to the test process itself, which a Windows runner can number 828).
+    pub fn add_own_pid(&mut self, pid: i64) {
+        self.add_pid(pid);
+        if pid > 0 && !self.own_pids.contains(&pid) {
+            self.own_pids.push(pid);
         }
     }
 
@@ -322,7 +333,7 @@ impl Scrubber {
             }
         }
         for pid in &self.pids {
-            if *pid >= MIN_TEXT_PID
+            if (*pid >= MIN_TEXT_PID || self.own_pids.contains(pid))
                 && let Some(t) = replace_word(&out, &pid.to_string(), "${PID}")
             {
                 out = t;
@@ -1026,18 +1037,23 @@ fn comparable(m: &Value) -> Value {
 /// The end of the session (from the client's first `disconnect` or `terminate`, or the adapter's `terminated` event,
 /// whichever comes first) is its own group, `adapter at the end`, compared as a set: lldb-dap 18 sends `exited` and
 /// `terminated` and answers `disconnect` in either order when the client ends the session. Its `output` there is left
-/// out: lldb-dap 18 aborts as it exits and prints a crash report with this run's addresses, in pieces.
+/// out: lldb-dap 18 aborts as it exits and prints a crash report with this run's addresses, in pieces. So is its
+/// `exited` when the client started the end: lldb-dap 18 stops its event thread after answering `disconnect`,
+/// sometimes before it sees the killed debuggee exit (timing). A natural exit's `exited` precedes the end and is kept.
 fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
     let mut out: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut text: BTreeMap<String, String> = BTreeMap::new();
     let mut ending = false;
+    let mut client_ended = false;
     for m in &r.messages {
         let msg = &m.message;
         let is_event = msg["type"] == "event";
-        if (m.dir == Dir::Client
-            && matches!(msg["command"].as_str(), Some("disconnect" | "terminate")))
-            || (m.dir == Dir::Adapter && is_event && msg["event"] == "terminated")
-        {
+        let by_client = m.dir == Dir::Client
+            && matches!(msg["command"].as_str(), Some("disconnect" | "terminate"));
+        if !ending && by_client {
+            client_ended = true;
+        }
+        if by_client || (m.dir == Dir::Adapter && is_event && msg["event"] == "terminated") {
             ending = true;
         }
         let group = match m.dir {
@@ -1051,6 +1067,9 @@ fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
                 continue;
             }
             Dir::Adapter if ending && is_event && msg["event"] == "output" => continue,
+            Dir::Adapter if ending && client_ended && is_event && msg["event"] == "exited" => {
+                continue;
+            }
             Dir::Adapter if ending => "adapter at the end",
             Dir::Adapter if is_event && msg["event"] == "output" => {
                 let category = msg["body"]["category"].as_str().unwrap_or("console");
@@ -1221,6 +1240,24 @@ pub fn request_counts(r: &Recording) -> BTreeMap<String, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_small_pid_is_scrubbed_in_text_only_when_it_is_the_runs_own() {
+        let text = json!({"output": "Attaching to process 828…", "line": "line 828"});
+        let mut s = Scrubber::default();
+        s.add_pid(828);
+        let mut v = text.clone();
+        s.scrub(&mut v);
+        assert_eq!(
+            v, text,
+            "an id under 1000 is too likely to be some other number"
+        );
+        s.add_own_pid(828);
+        let mut v = text.clone();
+        s.scrub(&mut v);
+        assert_eq!(v["output"], "Attaching to process ${PID}…");
+        assert_eq!(v["line"], "line ${PID}");
+    }
 
     #[test]
     fn paths_pids_and_times_are_scrubbed_and_substituted_back() {
@@ -1517,7 +1554,16 @@ mod tests {
         );
         let e = compare(&a, &c).unwrap_err();
         assert!(e.contains("adapter output (stdout)"), "{e}");
-        let d = base(vec![out("hello world\n")], vec![terminated, answered]);
+        let d = base(
+            vec![out("hello world\n")],
+            vec![terminated.clone(), answered],
+        );
+        assert_eq!(
+            compare(&a, &d),
+            Ok(()),
+            "a killed debuggee's exit after the client's disconnect is timing"
+        );
+        let d = base(vec![out("hello world\n")], vec![terminated, exited]);
         let e = compare(&a, &d).unwrap_err();
         assert!(e.contains("adapter at the end"), "{e}");
     }

@@ -14,7 +14,7 @@ Options:
   --folder PATH       open this folder (or the folder of this Cargo.toml) at
                       startup, as File > Open > Folder does: its .NET
                       solution and Cargo workspace side by side
-  --theme NAME        dark (default), light or blue
+  --theme NAME        dark (default), light or classic
   --reset-layout      start from the default layout (the saved file is kept
                       until the layout changes)
   --no-persist        neither load nor save layouts
@@ -216,7 +216,7 @@ impl Args {
                 "--theme" => {
                     let t = value("--theme")?;
                     if eludite_ui::Theme::by_name(&t).is_none() {
-                        return Err(format!("unknown theme `{t}` (dark, light, blue)"));
+                        return Err(format!("unknown theme `{t}` (dark, light, classic)"));
                     }
                     a.theme = Some(t);
                 }
@@ -336,7 +336,7 @@ mod tests {
             "--solution",
             "/w/Shop.sln",
             "--theme",
-            "blue",
+            "classic",
             "--bench-drag",
             "300",
         ])
@@ -345,7 +345,7 @@ mod tests {
             a.solution.as_deref(),
             Some(std::path::Path::new("/w/Shop.sln"))
         );
-        assert_eq!(a.theme.as_deref(), Some("blue"));
+        assert_eq!(a.theme.as_deref(), Some("classic"));
         assert_eq!(a.bench_drag, Some(300));
         assert!(a.benching());
         assert_eq!(parse(&[]).unwrap(), Args::default());

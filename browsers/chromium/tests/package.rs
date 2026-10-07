@@ -204,6 +204,8 @@ fn the_package_runs_from_its_layout_with_no_variables() {
         "README",
         "LICENSE",
         "THIRD-PARTY-CRATES.txt",
+        "licenses/fonts/InstrumentSans-OFL.txt",
+        "licenses/fonts/JetBrainsMono-OFL.txt",
     ] {
         assert!(root.join(f).exists(), "{f} is in the layout");
     }

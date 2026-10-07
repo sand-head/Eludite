@@ -637,7 +637,7 @@ mod tests {
         let p50 = times[times.len() / 2];
         let max = times[times.len() - 1];
         eprintln!("discovery beside the executable: p50 {p50:?}, max {max:?} over 200");
-        assert!(p50 < std::time::Duration::from_millis(50), "{p50:?}");
+        crate::assert_budget("discovery p50", p50, std::time::Duration::from_millis(50));
     }
 
     #[cfg(unix)]

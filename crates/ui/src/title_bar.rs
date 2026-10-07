@@ -183,12 +183,13 @@ impl Caption {
 
 /// What the row holds besides the caption buttons.
 pub struct TitleBarContent {
+    /// Eludite's mark and name, at the left (after macOS's buttons): the 3D cube that spins while building or
+    /// debugging.
+    pub mark: AnyElement,
     /// The window's title, on the part of the row that drags the window.
     pub title: SharedString,
-    /// The menu bar, at the left (after macOS's buttons).
+    /// The menu bar, after the mark.
     pub menu: AnyElement,
-    /// The build toolbar, before the caption buttons.
-    pub tools: AnyElement,
 }
 
 /// What Eludite's own Close button does (Linux).
@@ -209,8 +210,8 @@ impl TitleBar {
         Self::default()
     }
 
-    /// The row: the menu bar, the title on the part of the row that drags the window, the build toolbar, and the
-    /// caption buttons. `on_close` runs when Eludite's own Close button is pressed (Linux); elsewhere the platform
+    /// The row: the mark, the menu bar, the title on the part of the row that drags the window, and the caption
+    /// buttons. `on_close` runs when Eludite's own Close button is pressed (Linux); elsewhere the platform
     /// closes the window.
     pub fn render(
         &self,
@@ -220,7 +221,7 @@ impl TitleBar {
         window: &Window,
         on_close: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Stateful<Div> {
-        let TitleBarContent { title, menu, tools } = content;
+        let TitleBarContent { mark, title, menu } = content;
         let active = window.is_window_active();
         let mut drag = div()
             .id("title-bar-drag")
@@ -302,9 +303,18 @@ impl TitleBar {
             .h(TITLE_BAR_HEIGHT)
             .pl(chrome.left_inset)
             .bg(theme.menu_background)
+            .child(
+                div()
+                    .debug_selector(|| "title-bar-mark".into())
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .h_full()
+                    .px(px(8.))
+                    .child(mark),
+            )
             .child(div().flex_none().child(menu))
             .child(drag)
-            .child(div().flex_none().child(tools))
             .children(captions.into_iter().map(|caption| {
                 caption_button(caption, chrome.buttons, theme, active, on_close.clone())
             }))

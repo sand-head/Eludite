@@ -353,7 +353,7 @@ fn typing_reaches_the_shell_and_the_output_renders(cx: &mut TestAppContext) {
         p95.as_secs_f64() * 1e3,
         lat.len()
     );
-    super::git_tests::assert_budget("keystroke to echo", p95, Duration::from_millis(16));
+    super::tests::assert_budget("keystroke to echo", p95, Duration::from_millis(16));
     // Ctrl+C with no selection interrupts the line (VS's choice); a selection is copied instead.
     t.type_keys("ctrl-c");
     t.wait_drawn(&id, "a new prompt", |s| s.ends_with('$'));
@@ -974,12 +974,12 @@ fn cat_of_a_large_file_keeps_frames_short_and_the_scrollback_small(cx: &mut Test
         plain.as_secs_f64(),
         drawn.as_secs_f64() / plain.as_secs_f64()
     );
-    super::git_tests::assert_budget(
+    super::tests::assert_budget(
         "terminal frame p99 during cat",
         p99,
         Duration::from_millis(8),
     );
-    super::git_tests::assert_budget(
+    super::tests::assert_budget(
         "cat drawn vs plain",
         drawn,
         plain * 2 + Duration::from_millis(500),

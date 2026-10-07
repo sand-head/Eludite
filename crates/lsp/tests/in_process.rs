@@ -2,6 +2,8 @@
 //! tree request, generation tracking, notifications recorded by the fake, injected diagnostics, a stall that leaves
 //! the client's non-blocking calls fast, and a restart after the in-process host ends.
 
+mod common;
+
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
@@ -113,10 +115,10 @@ fn stalled_host_does_not_block_notify_or_request() {
             json!({"textDocument": {"uri": "file:///a"}}),
         )
         .unwrap();
-    assert!(
-        t.elapsed() < Duration::from_millis(100),
-        "{:?}",
-        t.elapsed()
+    common::assert_budget(
+        "a request and a notification",
+        t.elapsed(),
+        Duration::from_millis(100),
     );
     let pong = pending.wait_timeout(T).unwrap();
     assert!(pong.pong);

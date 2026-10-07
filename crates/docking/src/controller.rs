@@ -437,7 +437,7 @@ mod tests {
 
     fn setup() -> (DockController, CommandRegistry) {
         let reg = ToolWindowRegistry::vs_default();
-        let c = DockController::new(DockLayout::default_vs(&reg), reg);
+        let c = DockController::new(DockLayout::fixture(&reg), reg);
         let mut r = CommandRegistry::new();
         view::register(&mut r, Arc::new(c.clone())).unwrap();
         (c, r)
@@ -490,6 +490,7 @@ mod tests {
 
         let out = r.invoke(view::RESET_LAYOUT, json!({})).unwrap();
         assert_eq!(out["tool_windows"].as_array().unwrap().len(), 21);
+        // Reset restores the default, which has no Properties or Toolbox.
         assert_eq!(
             c.layout(),
             DockLayout::default_vs(&ToolWindowRegistry::vs_default())

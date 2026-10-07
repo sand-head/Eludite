@@ -1397,7 +1397,7 @@ mod tests {
     /// the rows on top of each other (seen in the brief 0018 manual run).
     #[gpui::test]
     fn call_stack_rows_keep_their_height_when_the_stack_overflows(cx: &mut TestAppContext) {
-        let (view, vcx) = cx.add_window_view(|_, _| CallStackWindow::new(Theme::vs_dark()));
+        let (view, vcx) = cx.add_window_view(|_, _| CallStackWindow::new(Theme::dark()));
         vcx.simulate_resize(size(px(600.), px(160.)));
         let rows = (0..40)
             .map(|i| StackRow {

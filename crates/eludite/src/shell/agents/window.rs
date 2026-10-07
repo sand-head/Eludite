@@ -686,10 +686,11 @@ impl AgentsWindow {
         let input = cx.new(|cx| {
             let mut input = TextInput::new(true, cx);
             input.set_placeholder(PLACEHOLDER, cx);
+            // The prompt is prose: the UI's family.
             input.set_style(
                 EditorStyle {
-                    theme,
-                    ..EditorStyle::default()
+                    font_family: theme.typography.ui_font.into(),
+                    ..EditorStyle::for_theme(&theme)
                 },
                 cx,
             );

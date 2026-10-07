@@ -98,6 +98,10 @@ pub fn run(args: Args, t_main: Instant) {
     // Eludite's own icons (brief 0062), served to `svg()` and `img()` from the binary.
     let application = gpui_platform::application().with_assets(eludite_ui::icons::Assets);
     application.run(move |cx: &mut App| {
+        // Eludite's own type (Instrument Sans, JetBrains Mono), embedded; without it the platform's fonts draw.
+        if let Err(e) = eludite_ui::fonts::register(cx) {
+            eprintln!("eludite: the embedded fonts did not load: {e}");
+        }
         let t_join = Instant::now();
         let Loaded {
             layout,

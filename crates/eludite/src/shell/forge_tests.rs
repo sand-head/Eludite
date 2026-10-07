@@ -28,7 +28,7 @@ use super::forge::{
 };
 use super::git::changes;
 use super::git::service::GitSetup;
-use super::git_tests::assert_budget;
+use super::tests::assert_budget;
 use super::tests::{Ws, setup_full};
 
 /// The fake store's token: never in the cache, the audit or an output.

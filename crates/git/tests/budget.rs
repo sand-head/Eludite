@@ -83,10 +83,7 @@ fn status_of_ten_thousand_files_with_a_hundred_changes() {
         p95(again).as_secs_f64() * 1e3,
         p95(cached).as_secs_f64() * 1e3
     );
-    assert!(
-        first < Duration::from_millis(500),
-        "first status took {first:?}"
-    );
+    assert_budget("the first status", first, Duration::from_millis(500));
 }
 
 #[test]
@@ -202,4 +199,21 @@ fn a_long_log_is_canceled() {
         "git budget: a 5,000-commit log canceled after {:?}",
         started.elapsed()
     );
+}
+
+/// `measured` under `limit`, asserted on a developer machine only: under CI (`CI` set) the hosted runners are shared
+/// VMs, not a reference machine, so the number is printed instead.
+fn assert_budget(what: &str, measured: Duration, limit: Duration) {
+    if std::env::var_os("CI").is_some() {
+        eprintln!(
+            "timing: {what} {:.2} ms not asserted against {:.0} ms: a CI run, not a reference machine",
+            measured.as_secs_f64() * 1e3,
+            limit.as_secs_f64() * 1e3
+        );
+    } else {
+        assert!(
+            measured < limit,
+            "{what}: {measured:?} is not under {limit:?}"
+        );
+    }
 }

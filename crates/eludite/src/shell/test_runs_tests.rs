@@ -27,7 +27,7 @@ use super::debug::DebugSetup;
 use super::debug::state::Mode;
 use super::documents::normalize_path;
 use super::test_runs::{Phase, RunState, TESTS_SLOT};
-use super::tests::{Ws, setup_debug};
+use super::tests::{Ws, assert_budget, setup_debug};
 use super::tests_window;
 #[cfg(target_os = "linux")]
 use super::tests_window::RowKind;
@@ -401,7 +401,7 @@ fn the_window_opens_with_the_tree_and_run_all_streams_results_into_rows_the_erro
         shown.as_secs_f64() * 1e3,
         timings.tree_built.unwrap().as_secs_f64() * 1e3
     );
-    assert!(shown < Duration::from_millis(100), "{shown:?}");
+    assert_budget("the first result row", shown, Duration::from_millis(100));
 }
 
 /// The budget's tree: a 100-test MTP project (brief 0035's generated `Corpus.Many`) shown in the window, its rows
@@ -450,7 +450,11 @@ fn a_hundred_test_tree_is_built_and_drawn_in_under_50_ms(cx: &mut TestAppContext
             .join(", ")
     );
     took.sort();
-    assert!(took[2] < Duration::from_millis(50), "{took:?}");
+    assert_budget(
+        "the 100-test tree, median of five",
+        took[2],
+        Duration::from_millis(50),
+    );
 }
 
 #[gpui::test]
@@ -992,7 +996,11 @@ fn debug_test_of_a_rust_test_breaks_at_its_first_line_under_lldb_dap(cx: &mut Te
             .collect::<Vec<_>>()
             .join(", ")
     );
-    assert!(took[1] < Duration::from_secs(10), "{took:?}");
+    assert_budget(
+        "Debug Test to the first stop, the second warm run",
+        took[1],
+        Duration::from_secs(10),
+    );
     let _ = RowKind::Group;
 }
 
@@ -1069,7 +1077,7 @@ fn setup_real_host(cx: &mut TestAppContext, settings: Value) -> Option<Ws> {
                 super::Shell::new(
                     commands.clone(),
                     controller.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     None,
                     services.take().unwrap(),
                     window,

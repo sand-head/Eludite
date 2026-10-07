@@ -564,10 +564,10 @@ impl SolutionExplorer {
             input.set_placeholder(SEARCH_PLACEHOLDER, cx);
             input.set_style(
                 EditorStyle {
-                    theme,
+                    font_family: theme.typography.ui_font.into(),
                     font_size: theme.typography.ui,
                     line_height: px(16.),
-                    ..EditorStyle::default()
+                    ..EditorStyle::for_theme(&theme)
                 },
                 cx,
             );
@@ -1363,6 +1363,7 @@ impl SolutionExplorer {
             .pl_1()
             .pr(px(3.))
             .gap_1()
+            .rounded(px(6.))
             .bg(t.background)
             .border_1()
             .border_color(if focused { t.accent } else { t.border })

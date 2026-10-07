@@ -1198,6 +1198,14 @@ pub struct Debugger {
 }
 
 impl Debugger {
+    /// The active session builds, launches or runs its debuggee (not in break mode): the title bar's mark spins.
+    pub fn busy(&self) -> bool {
+        matches!(
+            self.model.mode,
+            Mode::Building | Mode::Launching | Mode::Running
+        )
+    }
+
     pub fn new<T>(
         setup: DebugSetup,
         theme: eludite_ui::Theme,
@@ -6321,8 +6329,7 @@ impl Shell {
         } else if d.client.is_some() {
             // The session ends with the answer: an attached one detaches and the process keeps running (an adapter may
             // stay up after detaching; brief 0027); a launched one's adapter is asked to end the debuggee, and is killed
-            // if still up (netcoredbg can take long to exit after answering on a loaded machine, and the headless
-            // tests' stop timer never fires).
+            // if still up (netcoredbg can take long to exit after answering on a loaded machine).
             let attached = d.model.attached();
             let _ = d.send(
                 "disconnect",
@@ -6333,9 +6340,11 @@ impl Shell {
             // Connected or LaunchFailed will see Stopping and end the session.
         }
         let tx = d.tx.clone();
-        let timer = cx.background_executor().timer(STOP_TIMEOUT);
+        // Real time, not the executor's clock: in headless tests that clock never moves, and a disconnect nobody
+        // answers (netcoredbg under load, a js-debug parent waiting on a child it announced) would hang Stop.
+        let timer = real_timer(STOP_TIMEOUT);
         cx.background_spawn(async move {
-            timer.await;
+            let _ = timer.await;
             let _ = tx.unbounded_send(DebugMsg::StopTimeout { generation });
         })
         .detach();
@@ -8523,7 +8532,7 @@ impl Shell {
     }
 }
 
-/// A timer in real time for agents' waits: one thread for every pending deadline. (The executor's timers follow the
+/// A timer in real time for agents' waits and Stop's kill: one thread for every pending deadline. (The executor's timers follow the
 /// test executor's simulated clock in headless tests, which a `wait` timing out has to see pass.)
 fn real_timer(after: Duration) -> oneshot::Receiver<()> {
     use std::sync::{Condvar, OnceLock};

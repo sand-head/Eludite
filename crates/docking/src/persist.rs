@@ -338,14 +338,14 @@ mod tests {
         assert_eq!(src, LayoutSource::BuiltIn);
         assert_eq!(l, DockLayout::default_vs(&reg));
 
-        let mut d = DockLayout::default_vs(&reg);
+        let mut d = DockLayout::fixture(&reg);
         d.dock_to(ids::OUTPUT, DockSide::Left).unwrap();
         write_atomic(&store.default_path(), &d.to_json()).unwrap();
         let (l, src) = store.load(Some(sln), &reg);
         assert_eq!(src, LayoutSource::Default(store.default_path()));
         assert_eq!(l, d);
 
-        let mut s = DockLayout::default_vs(&reg);
+        let mut s = DockLayout::fixture(&reg);
         s.auto_hide(ids::PROPERTIES).unwrap();
         write_atomic(&store.solution_path(sln), &s.to_json()).unwrap();
         let (l, src) = store.load(Some(sln), &reg);
@@ -371,7 +371,7 @@ mod tests {
         let reg = ToolWindowRegistry::vs_default();
         let sln = Path::new("/work/Shop.sln");
         let mut v: serde_json::Value =
-            serde_json::from_str(&DockLayout::default_vs(&reg).to_json()).unwrap();
+            serde_json::from_str(&DockLayout::fixture(&reg).to_json()).unwrap();
         v["version"] = 2.into();
         v["bottom"]["groups"].as_array_mut().unwrap().push(
             serde_json::json!({"id": 9, "tabs": ["call_stack", "debug_console"], "active": 1}),
@@ -390,12 +390,12 @@ mod tests {
         let dir = tempdir();
         let store = LayoutStore::new(dir.path());
         let reg = ToolWindowRegistry::vs_default();
-        let mut debug = DockLayout::default_vs(&reg);
+        let mut debug = DockLayout::fixture(&reg);
         debug.hide(ids::TOOLBOX).unwrap();
         write_atomic(&store.named_path("Debug"), &debug.to_json()).unwrap();
         write_atomic(
             &store.named_path("Design"),
-            &DockLayout::default_vs(&reg).to_json(),
+            &DockLayout::fixture(&reg).to_json(),
         )
         .unwrap();
         assert_eq!(store.list_named(), ["Debug", "Design"]);
@@ -419,7 +419,7 @@ mod tests {
             })),
         );
         let reg = ToolWindowRegistry::vs_default();
-        let mut l = DockLayout::default_vs(&reg);
+        let mut l = DockLayout::fixture(&reg);
         for side in DockSide::ALL {
             l.dock_to(ids::OUTPUT, side).unwrap();
             writer.save(path.clone(), &l);
