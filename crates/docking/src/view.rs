@@ -373,6 +373,7 @@ impl DockHost {
                 active: docs.active.as_deref() == Some(d.id.as_str()),
                 preview: d.preview,
                 pinned: d.pinned,
+                document: true,
             };
             let sel = format!("doc-tab-{}", d.id);
             let dirty = self.snap.dirty.contains(&d.id);
@@ -454,7 +455,7 @@ impl DockHost {
                     .h(t.typography.tab_height)
                     .bg(t.chrome)
                     .border_b_2()
-                    .border_color(t.accent)
+                    .border_color(t.tab_strip_rule)
                     .children(tabs),
             )
             .child(
@@ -1169,6 +1170,7 @@ impl Render for FloatingView {
             .size_full()
             .bg(t.panel)
             .text_color(t.text)
+            .font_family(t.typography.ui_font)
             .text_size(t.typography.ui)
             .child(body)
             .into_any_element()

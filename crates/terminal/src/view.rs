@@ -1400,13 +1400,13 @@ mod tests {
 
     #[test]
     fn the_256_colors_follow_xterm() {
-        let p = palette(&Theme::vs_dark());
+        let p = palette(&Theme::dark());
         assert_eq!(indexed(1, &p), p[1]);
         assert_eq!(indexed(16, &p), gpui::rgb(0x000000));
         assert_eq!(indexed(231, &p), gpui::rgb(0xFFFFFF));
         assert_eq!(indexed(196, &p), gpui::rgb(0xFF0000));
         assert_eq!(indexed(232, &p), gpui::rgb(0x080808));
         assert_eq!(indexed(255, &p), gpui::rgb(0xEEEEEE));
-        assert_ne!(palette(&Theme::vs_light())[7], p[7]);
+        assert_ne!(palette(&Theme::light())[7], p[7]);
     }
 }

@@ -483,10 +483,10 @@ impl DockLayout {
         }
     }
 
-    /// Visual Studio's default (PLAN.md 8): Workspace with Git Changes
-    /// tabbed on the right above Properties, Error List, Output and Terminal tabbed at the
-    /// bottom, Toolbox auto-hidden on the left, a Welcome document. Any other
-    /// registered window starts closed.
+    /// The default (PLAN.md 8): Workspace with Git Changes and Agents tabbed on
+    /// the right, Error List, Output and Terminal tabbed at the bottom, a Welcome
+    /// document. Every other registered window starts closed, Properties and
+    /// Toolbox among them until they have content; the View menu opens them.
     pub fn default_vs(registry: &ToolWindowRegistry) -> Self {
         let mut l = Self::empty();
         let group = |id: u32, tabs: &[&str]| Group {
@@ -495,14 +495,27 @@ impl DockLayout {
             active: 0,
             share: None,
         };
-        l.right.groups = vec![
-            group(1, &[ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS]),
-            group(2, &[ids::PROPERTIES]),
-        ];
-        l.bottom.groups = vec![group(3, &[ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL])];
-        l.left.auto_hidden.push(ids::TOOLBOX.into());
-        l.next_group_id = 4;
+        l.right.groups = vec![group(1, &[ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS])];
+        l.bottom.groups = vec![group(2, &[ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL])];
+        l.next_group_id = 3;
         l.documents.open("welcome", "Welcome");
+        l.normalize(registry);
+        l
+    }
+
+    /// For the docking tests: the default with every dock in use, Properties under the Workspace group on the right
+    /// and Toolbox auto-hidden on the left (Visual Studio's own default).
+    #[cfg(test)]
+    pub(crate) fn fixture(registry: &ToolWindowRegistry) -> Self {
+        let mut l = Self::default_vs(registry);
+        l.right.groups.push(Group {
+            id: l.next_group_id,
+            tabs: vec![ids::PROPERTIES.to_owned()],
+            active: 0,
+            share: None,
+        });
+        l.next_group_id += 1;
+        l.left.auto_hidden.push(ids::TOOLBOX.into());
         l.normalize(registry);
         l
     }
@@ -1166,7 +1179,7 @@ mod tests {
     fn version_1_layouts_rename_solution_explorer_to_workspace() {
         // Take the real current shape, mark it version 1 and give it the old id.
         let r = reg();
-        let mut v: Value = serde_json::from_str(&DockLayout::default_vs(&r).to_json()).unwrap();
+        let mut v: Value = serde_json::from_str(&DockLayout::fixture(&r).to_json()).unwrap();
         v["version"] = Value::from(1);
         rename_id(&mut v, ids::WORKSPACE, "solution_explorer");
         assert!(
@@ -1205,7 +1218,7 @@ mod tests {
     #[test]
     fn resizing_clamps_and_keeps_shares_summing_to_one() {
         let r = reg();
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         assert_eq!(l.resize_dock(DockSide::Right, 500.), 500.);
         assert_eq!(l.right.size, 500.);
         assert_eq!(l.resize_dock(DockSide::Right, 10.), MIN_DOCK_SIZE);
@@ -1309,14 +1322,14 @@ mod tests {
         let l = DockLayout::default_vs(&r);
         assert!(l.is_consistent(&r));
         assert!(l.left.groups.is_empty());
-        assert_eq!(l.left.auto_hidden, [ids::TOOLBOX]);
-        assert_eq!(l.right.groups.len(), 2);
+        // Properties and Toolbox start closed until they have content.
+        assert!(l.left.auto_hidden.is_empty());
+        assert_eq!(l.right.groups.len(), 1);
         assert_eq!(
             l.right.groups[0].tabs,
             [ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS]
         );
         assert_eq!(l.right.groups[0].active_id(), Some(ids::WORKSPACE));
-        assert_eq!(l.right.groups[1].tabs, [ids::PROPERTIES]);
         assert_eq!(
             l.bottom.groups[0].tabs,
             [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL]
@@ -1328,6 +1341,8 @@ mod tests {
         assert_eq!(
             hidden,
             [
+                ids::PROPERTIES,
+                ids::TOOLBOX,
                 ids::FIND_ALL_REFERENCES,
                 ids::LOCALS,
                 ids::WATCH,
@@ -1343,13 +1358,24 @@ mod tests {
                 ids::ISSUES
             ]
         );
-        // The Test Explorer (brief 0035) opens docked left, the Pull Requests and Issues windows (brief 0046) right;
-        // the others at the bottom.
+        // The Test Explorer (brief 0035) and the Toolbox open docked left, Properties and the Pull Requests and
+        // Issues windows (brief 0046) right; the others at the bottom.
         assert!(l.hidden.iter().all(|h| h.side == DockSide::Bottom
-            || h.id == ids::TEST_EXPLORER
+            || (h.side == DockSide::Left
+                && [ids::TEST_EXPLORER, ids::TOOLBOX].contains(&h.id.as_str()))
             || (h.side == DockSide::Right
-                && [ids::PULL_REQUESTS, ids::ISSUES].contains(&h.id.as_str()))));
+                && [ids::PROPERTIES, ids::PULL_REQUESTS, ids::ISSUES].contains(&h.id.as_str()))));
         assert!(l.floating.is_empty());
+        // View > Properties Window opens it on the right.
+        let mut props = l.clone();
+        props.show(ids::PROPERTIES).unwrap();
+        assert!(
+            props
+                .right
+                .groups
+                .iter()
+                .any(|g| g.tabs.iter().any(|t| t == ids::PROPERTIES))
+        );
         let mut shown = l.clone();
         shown.show(ids::FIND_ALL_REFERENCES).unwrap();
         assert_eq!(
@@ -1368,7 +1394,7 @@ mod tests {
     fn dock_to_each_side() {
         let r = reg();
         for side in DockSide::ALL {
-            let mut l = DockLayout::default_vs(&r);
+            let mut l = DockLayout::fixture(&r);
             l.dock_to(ids::PROPERTIES, side).unwrap();
             assert_eq!(docked_side(&l, ids::PROPERTIES), Some(side));
             assert_eq!(
@@ -1378,7 +1404,7 @@ mod tests {
             );
             assert!(l.is_consistent(&r));
         }
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         assert_eq!(
             l.dock_to("nope", DockSide::Left),
             Err(LayoutError::UnknownWindow("nope".into()))
@@ -1388,7 +1414,7 @@ mod tests {
     #[test]
     fn tab_and_untab() {
         let r = reg();
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         l.tab_into(ids::PROPERTIES, ids::OUTPUT).unwrap();
         assert_eq!(l.right.groups.len(), 1, "Properties' group disappears");
         let g = l.group_of(ids::OUTPUT).unwrap();
@@ -1419,7 +1445,7 @@ mod tests {
     #[test]
     fn float_and_redock() {
         let r = reg();
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         // The Error List and Output alone at the bottom (the Terminal closed).
         l.hide(ids::TERMINAL).unwrap();
         let gid = l.float(ids::OUTPUT, Bounds::DEFAULT_FLOAT).unwrap();
@@ -1442,7 +1468,7 @@ mod tests {
     #[test]
     fn auto_hide_and_pin() {
         let r = reg();
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         l.auto_hide(ids::WORKSPACE).unwrap();
         assert_eq!(
             l.find(ids::WORKSPACE),
@@ -1466,7 +1492,7 @@ mod tests {
     #[test]
     fn hide_and_show_return_home() {
         let r = reg();
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         l.hide(ids::OUTPUT).unwrap();
         assert_eq!(
             l.find(ids::OUTPUT),
@@ -1500,7 +1526,7 @@ mod tests {
     #[test]
     fn info_reports_state() {
         let r = reg();
-        let l = DockLayout::default_vs(&r);
+        let l = DockLayout::fixture(&r);
         let i = l.info(ids::OUTPUT, &r).unwrap();
         assert_eq!(i.title, "Output");
         assert!(matches!(
@@ -1555,7 +1581,7 @@ mod tests {
     #[test]
     fn json_roundtrip_and_versions() {
         let r = reg();
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         l.float(
             ids::OUTPUT,
             Bounds {
@@ -1589,7 +1615,7 @@ mod tests {
     #[test]
     fn normalize_repairs_and_adds_new_windows() {
         let mut r = reg();
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         // A layout written by a build that had a window this one does not,
         // duplicated an id, and lacked a window registered since.
         l.right.groups[0].tabs.push("class_view".into());
@@ -1618,7 +1644,7 @@ mod tests {
     #[test]
     fn normalize_fixes_duplicate_group_ids() {
         let r = reg();
-        let mut l = DockLayout::default_vs(&r);
+        let mut l = DockLayout::fixture(&r);
         let gid = l.right.groups[0].id;
         l.bottom.groups[0].id = gid;
         l.next_group_id = 1;
@@ -1692,7 +1718,7 @@ mod tests {
                 .any(|h| h.id == ids::TERMINAL && h.side == DockSide::Bottom)
         );
         // The default layout has it beside Output.
-        let d = DockLayout::default_vs(&r);
+        let d = DockLayout::fixture(&r);
         assert_eq!(
             d.bottom.groups[0].tabs,
             [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL]

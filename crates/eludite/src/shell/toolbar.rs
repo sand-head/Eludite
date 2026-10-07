@@ -1,4 +1,5 @@
-//! The Standard toolbar's lists (brief 0049, drawn at the right of the menu bar's row): Solution Configurations
+//! The toolbar row under the title bar: Visual Studio's Standard and Debug toolbars (navigation, undo, the run
+//! controls, the steps, Build and Agents) around one control holding the Standard toolbar's lists (brief 0049): Solution Configurations
 //! (the solution's own, Debug and Release for a Cargo workspace, then Configuration Manager...), Solution Platforms
 //! (the solution's own, then Configuration Manager...), the Target Framework list when the startup project is
 //! multi-targeted, and the Debug toolbar's Start button with the launch profile list of the startup project. Every
@@ -6,10 +7,11 @@
 //! `eludite.project.set_launch_profile` with `select`, `eludite.debug.start`), so agents and the toolbar agree.
 
 use eludite_commands::project::properties::{self as props};
-use eludite_ui::{Theme, toggle_button};
+use eludite_commands::{build, debug, view, workspace};
+use eludite_ui::{Theme, toolbar_button};
 use gpui::{
-    Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, anchored, deferred, div, px,
+    Context, FontWeight, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, anchored, deferred, div, prelude::FluentBuilder, px,
 };
 use serde_json::{Value, json};
 
@@ -22,6 +24,24 @@ use super::project_properties::pages::probed;
 pub const FRAMEWORK_BUTTON: &str = "build-framework";
 pub const PROFILE_BUTTON: &str = "debug-profile";
 pub const START_BUTTON: &str = "debug-start";
+/// Debug selectors of the toolbar's buttons.
+pub const BACK_BUTTON: &str = "toolbar-back";
+pub const FORWARD_BUTTON: &str = "toolbar-forward";
+pub const UNDO_BUTTON: &str = "toolbar-undo";
+pub const REDO_BUTTON: &str = "toolbar-redo";
+pub const START_WITHOUT_DEBUGGING_BUTTON: &str = "toolbar-start-without-debugging";
+pub const PAUSE_BUTTON: &str = "toolbar-break-all";
+pub const STOP_BUTTON: &str = "toolbar-stop";
+pub const RESTART_BUTTON: &str = "toolbar-restart";
+pub const STEP_OVER_BUTTON: &str = "toolbar-step-over";
+pub const STEP_INTO_BUTTON: &str = "toolbar-step-into";
+pub const STEP_OUT_BUTTON: &str = "toolbar-step-out";
+pub const BUILD_BUTTON: &str = "toolbar-build";
+pub const AGENTS_BUTTON: &str = "toolbar-agents";
+
+/// The toolbar row's height, and its configuration control's.
+pub const TOOLBAR_HEIGHT: gpui::Pixels = px(36.);
+const SEGMENT_HEIGHT: f32 = 26.;
 
 /// The label of the lists' last entry.
 pub const CONFIGURATION_MANAGER: &str = "Configuration Manager...";
@@ -121,7 +141,11 @@ impl Shell {
         })
     }
 
-    /// Visual Studio's Standard toolbar lists and the Debug toolbar's Start, at the right of the menu bar's row.
+    /// The toolbar row under the title bar: Visual Studio's Standard and Debug toolbars. Navigate Backward and
+    /// Forward, Undo and Redo; one control holding the configuration, platform, target framework and launch profile
+    /// lists with Start at its end (Continue in break mode, Stop while a session runs); Start Without Debugging; Break
+    /// All, Stop Debugging and Restart; the steps; and Build Solution and the Agents window at the right. Every button
+    /// runs a command, enabled as the menu's item is.
     pub(super) fn build_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t: Theme = self.theme;
         let (configuration, platform) = self.active_selection();
@@ -137,7 +161,7 @@ impl Shell {
                 .unwrap_or_else(|| frameworks[0].clone())
         });
         let profile = self.toolbar_profile();
-        let mut buttons: Vec<(ToolbarList, &'static str, String)> = vec![
+        let mut lists: Vec<(ToolbarList, &'static str, String)> = vec![
             (
                 ToolbarList::Configuration,
                 CONFIGURATION_BUTTON,
@@ -146,44 +170,21 @@ impl Shell {
             (ToolbarList::Platform, PLATFORM_BUTTON, platform),
         ];
         if let Some(f) = framework {
-            buttons.push((ToolbarList::Framework, FRAMEWORK_BUTTON, f));
+            lists.push((ToolbarList::Framework, FRAMEWORK_BUTTON, f));
         }
-        let profile_at = buttons.len();
         if let Some(p) = &profile {
-            buttons.push((ToolbarList::Profile, PROFILE_BUTTON, p.clone()));
+            lists.push((ToolbarList::Profile, PROFILE_BUTTON, p.clone()));
         }
         let probe = self.ui_bounds.clone();
         let open = self.properties.toolbar_menu;
-        let open_at = open.and_then(|o| buttons.iter().position(|(l, ..)| *l == o));
-        let dropdowns: Vec<_> = buttons
-            .iter()
-            .enumerate()
-            .map(|(ix, (list, id, label))| {
-                let list = *list;
-                let start = (ix == profile_at).then(|| {
-                    let el = toggle_button(START_BUTTON, "\u{25B6}", false, &t).on_click(
-                        cx.listener(|this, _, window, cx| {
-                            this.run(eludite_commands::debug::START, json!({}), window, cx)
-                        }),
-                    );
-                    probed(probe.as_ref(), el, START_BUTTON.into())
-                });
-                let button =
-                    toggle_button(*id, format!("{label} \u{25BE}"), open == Some(list), &t)
-                        .min_w(px(96.))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.properties.toolbar_menu =
-                                (this.properties.toolbar_menu != Some(list)).then_some(list);
-                            cx.notify();
-                        }));
-                div().flex().flex_row().children(start).child(probed(
-                    probe.as_ref(),
-                    button,
-                    (*id).into(),
-                ))
-            })
-            .collect();
-        let menu = open.zip(open_at).map(|(list, at)| {
+        let building = self
+            .builds
+            .building
+            .load(std::sync::atomic::Ordering::SeqCst);
+        let enabled = |command: &str| {
+            self.debug.menu.enabled(command) && super::build::menu_enabled(command, building)
+        };
+        let menu = |list: ToolbarList| {
             let items = self.toolbar_entries(list).into_iter().enumerate().map(
                 |(ix, (label, command, args))| {
                     let sel = toolbar_item_selector(list.kind(), ix);
@@ -213,8 +214,7 @@ impl Shell {
                         .occlude()
                         .min_w(px(140.))
                         .py_1()
-                        .mt(px(22.))
-                        .ml(px(at as f32 * 104.))
+                        .mt(px(SEGMENT_HEIGHT + 2.))
                         .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                             this.properties.toolbar_menu = None;
                             cx.notify();
@@ -223,26 +223,190 @@ impl Shell {
                 ),
             )
             .with_priority(1)
-        });
+        };
+        let segments: Vec<_> = lists
+            .into_iter()
+            .map(|(list, id, label)| {
+                let button = segment(id, &t)
+                    .when(open == Some(list), |s| s.bg(t.menu_hover))
+                    .font_weight(if list == ToolbarList::Profile {
+                        FontWeight::SEMIBOLD
+                    } else {
+                        FontWeight::NORMAL
+                    })
+                    .child(label)
+                    .child(div().text_color(t.text_muted).child("\u{25BE}"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.properties.toolbar_menu =
+                            (this.properties.toolbar_menu != Some(list)).then_some(list);
+                        cx.notify();
+                    }));
+                div()
+                    .relative()
+                    .flex()
+                    .child(probed(probe.as_ref(), button, id.into()))
+                    .children((open == Some(list)).then(|| menu(list)))
+            })
+            .collect();
+        // Start ends the control: Continue in break mode, Stop while a session runs (Visual Studio's F5 and
+        // Shift+F5).
+        let (glyph, label, command) = if enabled(debug::CONTINUE) {
+            ("\u{25B6}", "Continue", debug::CONTINUE)
+        } else if self.debug.menu.enabled(debug::STOP) {
+            ("\u{25A0}", "Stop", debug::STOP)
+        } else {
+            ("\u{25B6}", "Start", debug::START)
+        };
+        let start_enabled = command != debug::START || enabled(debug::START);
+        let start =
+            segment(START_BUTTON, &t)
+                .border_r_0()
+                .px(px(12.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .bg(t.accent)
+                .text_color(t.text_on_accent)
+                .when(!start_enabled, |s| s.opacity(0.5))
+                .child(glyph)
+                .child(label)
+                .when(start_enabled, |s| {
+                    s.on_click(cx.listener(move |this, _, window, cx| {
+                        this.run(command, json!({}), window, cx)
+                    }))
+                });
+        let control = div()
+            .flex()
+            .flex_row()
+            .flex_none()
+            .h(px(SEGMENT_HEIGHT))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(t.border)
+            .bg(t.panel)
+            .overflow_hidden()
+            .children(segments)
+            .child(probed(probe.as_ref(), start, START_BUTTON.into()));
+        let button = |id: &'static str, label: &'static str, command: &'static str, args: Value| {
+            let on = enabled(command);
+            let el = toolbar_button(id, label, on, &t)
+                .h(px(SEGMENT_HEIGHT))
+                .min_w(px(SEGMENT_HEIGHT))
+                .justify_center()
+                .rounded(px(5.));
+            let el = if on {
+                el.on_click(cx.listener(move |this, _, window, cx| {
+                    this.run(command, args.clone(), window, cx)
+                }))
+            } else {
+                el
+            };
+            probed(probe.as_ref(), el, id.into())
+        };
+        let separator = || div().flex_none().w(px(1.)).h(px(18.)).mx_1().bg(t.border);
         div()
             .id("build-toolbar")
+            .debug_selector(|| "build-toolbar".into())
             .flex()
             .flex_row()
             .flex_none()
             .items_center()
-            .gap_1()
-            .h(t.typography.menu_bar_height)
+            .gap(px(2.))
+            .h(TOOLBAR_HEIGHT)
             .px_2()
             .bg(t.menu_background)
+            .border_b_1()
+            .border_color(t.border)
             .text_size(t.typography.ui)
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_row()
-                    .gap_1()
-                    .children(dropdowns)
-                    .children(menu),
-            )
+            .child(button(
+                BACK_BUTTON,
+                "\u{2190}",
+                workspace::NAVIGATION_BACK,
+                json!({}),
+            ))
+            .child(button(
+                FORWARD_BUTTON,
+                "\u{2192}",
+                workspace::NAVIGATION_FORWARD,
+                json!({}),
+            ))
+            .child(separator())
+            .child(button(
+                UNDO_BUTTON,
+                "\u{21B6}",
+                workspace::EDITOR_UNDO,
+                json!({}),
+            ))
+            .child(button(
+                REDO_BUTTON,
+                "\u{21B7}",
+                workspace::EDITOR_REDO,
+                json!({}),
+            ))
+            .child(separator())
+            .child(control)
+            .child(button(
+                START_WITHOUT_DEBUGGING_BUTTON,
+                "\u{25B7}",
+                debug::START,
+                json!({ "debug": false }),
+            ))
+            .child(separator())
+            .child(button(
+                PAUSE_BUTTON,
+                "\u{275A}\u{275A}",
+                debug::PAUSE,
+                json!({}),
+            ))
+            .child(button(STOP_BUTTON, "\u{25A0}", debug::STOP, json!({})))
+            .child(button(
+                RESTART_BUTTON,
+                "\u{21BB}",
+                debug::RESTART,
+                json!({}),
+            ))
+            .child(separator())
+            .child(button(
+                STEP_OVER_BUTTON,
+                "Step Over",
+                debug::STEP_OVER,
+                json!({}),
+            ))
+            .child(button(
+                STEP_INTO_BUTTON,
+                "Step Into",
+                debug::STEP_INTO,
+                json!({}),
+            ))
+            .child(button(
+                STEP_OUT_BUTTON,
+                "Step Out",
+                debug::STEP_OUT,
+                json!({}),
+            ))
+            .child(div().flex_1())
+            .child(button(BUILD_BUTTON, "Build", build::SOLUTION, json!({})))
+            .child(button(
+                AGENTS_BUTTON,
+                "Agents",
+                view::SHOW,
+                json!({ "id": eludite_docking::ids::AGENTS }),
+            ))
     }
+}
+
+/// One part of the configuration and Start control.
+fn segment(id: &'static str, t: &Theme) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.))
+        .h_full()
+        .px(px(10.))
+        .border_r_1()
+        .border_color(t.border)
+        .text_color(t.text)
+        .cursor_pointer()
+        .hover(|s| s.bg(t.menu_hover))
 }

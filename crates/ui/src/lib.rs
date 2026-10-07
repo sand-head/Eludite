@@ -1,8 +1,8 @@
 //! Eludite's widget layer (PLAN.md D1, section 8, section 12 `crates/ui`).
 //!
 //! Public API:
-//! - [`Theme`]: color tokens and typography; `vs_dark()` (default),
-//!   `vs_light()`, `vs_blue()`.
+//! - [`Theme`]: color tokens and typography; `dark()` (default),
+//!   `light()`, `classic()`.
 //! - [`keymap`]: the key binding table ([`vs_keymap`]) and [`RunCommand`], the
 //!   one GPUI action keys and menus dispatch; the shell turns it into a
 //!   command-bus invocation.
@@ -25,8 +25,11 @@
 //!   the auto-hide strips on the left and right edges.
 //! - [`test_explorer`]: the Test Explorer's outcome glyphs ([`TestGlyph`]), its tree rows with a glyph and a duration,
 //!   and toolbar buttons that can be disabled (brief 0035).
-//! - [`title_bar`]: the main window's title bar Eludite draws (ADR-0010): the menu bar, the title, the caption
-//!   buttons, and the window's frame on Linux with client-side decorations.
+//! - [`title_bar`]: the main window's title bar Eludite draws (ADR-0010): the mark, the menu bar, the title, the
+//!   caption buttons, and the window's frame on Linux with client-side decorations.
+//! - [`fonts`]: the embedded Instrument Sans (UI) and JetBrains Mono (code) faces, OFL-1.1, and [`fonts::register`].
+//! - [`crystal`]: Eludite's mark as a 3D cube ([`Crystal`]) under a fixed light, with its motion ([`crystal::Motion`]):
+//!   the Welcome page's open, the spin while building or debugging, and the eased stop.
 //! - [`transcript`]: the Agents window's transcript widgets: prompts with their time, agent Markdown blocks, thinking
 //!   (`Thinking…`, `Thought for 4 s`), tool call cards (one line with the kind's glyph, the adapter's title, the
 //!   status badge with its spinner, the arguments and result folded under it), plans with their progress, notices,
@@ -36,9 +39,11 @@
 //! Written fresh against the Visual Studio model; Zed's `ui` and `theme` crates
 //! are deliberately not used so Eludite cannot look like Zed by construction.
 
+pub mod crystal;
 pub mod dialog;
 pub mod diff;
 pub mod elements;
+pub mod fonts;
 pub mod icons;
 pub mod keymap;
 pub mod markdown;
@@ -53,6 +58,7 @@ pub mod transcript;
 pub mod tree;
 pub mod vertical_text;
 
+pub use crystal::Crystal;
 pub use dialog::{LightbulbKind, dialog_panel, menu_row, push_button, section_heading};
 pub use elements::{
     BoundsMap, bounds_canvas, check_box, highlighted_code, icon_button, selector_bar,

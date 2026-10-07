@@ -379,7 +379,12 @@ impl Shell {
             }
         };
         let language = self.languages.for_path(&path);
-        let view = cx.new(|cx| EditorView::new(buffer, language, cx));
+        let style = eludite_editor::EditorStyle::for_theme(&self.theme);
+        let view = cx.new(|cx| {
+            let mut v = EditorView::new(buffer, language, cx);
+            v.set_style(style, cx);
+            v
+        });
         // Emmet on Tab in HTML and CSS (brief 0050's `editor.emmet`; the language says whether it has Emmet).
         let emmet = self.launches.emmet;
         view.update(cx, |v, _| v.set_emmet(emmet));

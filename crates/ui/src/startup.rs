@@ -254,7 +254,7 @@ mod tests {
             },
         ];
         let (view, vcx) = cx.add_window_view(|_, cx| {
-            StartupProjectsDialog::new(Theme::vs_dark(), "S".into(), rows, cx)
+            StartupProjectsDialog::new(Theme::dark(), "S".into(), rows, cx)
         });
         vcx.simulate_resize(size(px(1024.), px(768.)));
         let events: std::rc::Rc<std::cell::RefCell<Vec<StartupProjectsEvent>>> = Default::default();
