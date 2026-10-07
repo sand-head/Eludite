@@ -299,6 +299,46 @@
         "Off"
       ]
     },
+    "editor.languages.vb.codeLens": {
+      "description": "CodeLens in Visual Basic documents (brief 0063): `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
+      "enum": [
+        "default",
+        "on",
+        "references",
+        "tests",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "Visual Basic",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "All indicators",
+        "References only",
+        "Tests only",
+        "Off"
+      ]
+    },
+    "editor.languages.fsharp.codeLens": {
+      "description": "CodeLens in F# documents (brief 0063; also .fsi, .fsx and .fsscript files): `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
+      "enum": [
+        "default",
+        "on",
+        "references",
+        "tests",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "F#",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "All indicators",
+        "References only",
+        "Tests only",
+        "Off"
+      ]
+    },
     "test.runSettings": {
       "description": "A .runsettings file for .NET tests (Visual Studio's Test > Configure Run Settings): VSTest projects get its contents as the RunSettings of every discovery and run; Microsoft.Testing.Platform test applications get `--settings <path>`. A relative path is under the solution's folder. Empty: none.",
       "type": "string",

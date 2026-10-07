@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Visual Basic console program of the corpus (brief 0063): opened through eludite-host by the patched Roslyn
+       language server; Option Strict On so Program.vb's deliberate conversion is BC30512. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>VisualBasic</RootNamespace>
+    <OptionStrict>On</OptionStrict>
+  </PropertyGroup>
+
+</Project>

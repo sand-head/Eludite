@@ -279,6 +279,13 @@ public sealed class LegacyEvaluatorTests : IDisposable
         var sdk = Path.Combine(_dir.FullName, "Modern", "Modern.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(sdk)!);
         File.WriteAllText(sdk, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        // Brief 0063: Visual Basic and F# projects are listed alike (a legacy WebForms site in VB among them).
+        var vb = Path.Combine(_dir.FullName, "Basic", "Basic.vbproj");
+        Directory.CreateDirectory(Path.GetDirectoryName(vb)!);
+        File.WriteAllText(vb, """<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><ItemGroup><Content Include="Default.aspx" /></ItemGroup></Project>""");
+        var fs = Path.Combine(_dir.FullName, "Functional", "Functional.fsproj");
+        Directory.CreateDirectory(Path.GetDirectoryName(fs)!);
+        File.WriteAllText(fs, "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><Compile Include=\"Library.fs\" /></ItemGroup></Project>");
         var sln = Path.Combine(_dir.FullName, "All.sln");
         File.WriteAllText(sln, """
             Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LegacyShop", "LegacyShop\LegacyShop.csproj", "{6A1F4B39-8E2C-4D1A-9F3B-2C7E5D8A1B0C}"
@@ -287,18 +294,36 @@ public sealed class LegacyEvaluatorTests : IDisposable
             EndProject
             Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{515655AC-4716-420E-BBA9-318680DBF355}"
             EndProject
+            Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "Basic", "Basic\Basic.vbproj", "{3A1F4B39-8E2C-4D1A-9F3B-2C7E5D8A1B0C}"
+            EndProject
+            Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Functional", "Functional\Functional.fsproj", "{4A1F4B39-8E2C-4D1A-9F3B-2C7E5D8A1B0C}"
+            EndProject
             Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gone", "Gone\Gone.csproj", "{2A1F4B39-8E2C-4D1A-9F3B-2C7E5D8A1B0C}"
+            EndProject
+            Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "Setup", "Setup\Setup.vdproj", "{5A1F4B39-8E2C-4D1A-9F3B-2C7E5D8A1B0C}"
             EndProject
             """);
         var slnx = Path.Combine(_dir.FullName, "All.slnx");
-        File.WriteAllText(slnx, "<Solution><Project Path=\"Modern/Modern.csproj\" /><Project Path=\"LegacyShop/LegacyShop.csproj\" /></Solution>");
+        File.WriteAllText(slnx, "<Solution><Project Path=\"Functional/Functional.fsproj\" /><Project Path=\"Modern/Modern.csproj\" /><Project Path=\"Basic/Basic.vbproj\" /><Project Path=\"LegacyShop/LegacyShop.csproj\" /><Project Path=\"Setup/Setup.vdproj\" /></Solution>");
 
-        Assert.Equal([project, sdk], SolutionProjects.Read(sln));
-        Assert.Equal([sdk, project], SolutionProjects.Read(slnx));
+        Assert.Equal([project, sdk, vb, fs], SolutionProjects.Read(sln));
+        Assert.Equal([fs, sdk, vb, project], SolutionProjects.Read(slnx));
         Assert.Equal([project], SolutionProjects.Read(project));
+        Assert.Equal([vb], SolutionProjects.Read(vb));
+        Assert.Equal([fs], SolutionProjects.Read(fs));
+        Assert.Empty(SolutionProjects.Read(Path.Combine(_dir.FullName, "Gone", "Gone.fsproj")));
+        Assert.True(SolutionProjects.IsProjectFile("A.csproj"));
+        Assert.True(SolutionProjects.IsProjectFile("A.VbProj"));
+        Assert.True(SolutionProjects.IsProjectFile("A.fsproj"));
+        Assert.False(SolutionProjects.IsProjectFile("A.vdproj"));
+        Assert.False(SolutionProjects.IsProjectFile("A.sln"));
         Assert.True(SolutionProjects.IsLegacy(project));
         Assert.False(SolutionProjects.IsLegacy(sdk));
+        Assert.True(SolutionProjects.IsLegacy(vb));
+        Assert.False(SolutionProjects.IsLegacy(fs));
         Assert.True(SolutionProjects.MentionsMarkup(project));
+        Assert.True(SolutionProjects.MentionsMarkup(vb));
+        Assert.False(SolutionProjects.MentionsMarkup(fs));
     }
 
     [Fact]

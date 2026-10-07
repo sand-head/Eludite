@@ -593,6 +593,75 @@ public sealed class LspProxyTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task FsprojOpen_IsLoadedWithoutHandingItToRoslyn()
+    {
+        // Brief 0063: Roslyn cannot load F#. A lone .fsproj is accepted, nothing is sent upstream for it, and the
+        // status reaches loaded with the project counted; the server keeps running for the documents the shell opens.
+        await InitializeAsync();
+        var fsproj = Path.Combine(_dir.FullName, "Functional", "Functional.fsproj");
+        Directory.CreateDirectory(Path.GetDirectoryName(fsproj)!);
+        await File.WriteAllTextAsync(fsproj, """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><Compile Include="Library.fs" /></ItemGroup></Project>""", Ct);
+
+        var generation = await OpenAsync(fsproj);
+
+        var loading = await NextAsync(_solutionStatus, s => s.GetProperty("state").GetString() == "loading");
+        Assert.Equal("projectLoad", loading.GetProperty("phase").GetString());
+        var loaded = await NextAsync(_solutionStatus, s => s.GetProperty("state").GetString() == "loaded");
+        Assert.Equal(generation, loaded.GetProperty("generation").GetInt64());
+        Assert.Equal(fsproj, loaded.GetProperty("path").GetString());
+        Assert.Equal(1, loaded.GetProperty("counts").GetProperty("projects").GetInt32());
+        Assert.Equal(0, loaded.GetProperty("counts").GetProperty("legacyProjects").GetInt32());
+        Assert.False(loaded.TryGetProperty("msbuild", out _));
+        Assert.Contains("initialized", _fake.Snapshot());
+        Assert.Equal(0, _fake.Count("project/open"));
+        Assert.Equal(0, _fake.Count("solution/open"));
+        Assert.Equal(0, _preparer.Calls);
+
+        await DidOpenAsync(Uri("A.cs"), "class A {}");
+        await _fake.WaitForAsync("textDocument/didOpen");
+        Assert.Equal(0, _fake.Count("project/open"));
+    }
+
+    [Fact]
+    public async Task VbprojOpen_IsHandedToRoslynAsAProject()
+    {
+        await InitializeAsync();
+        var vbproj = Path.Combine(_dir.FullName, "Basic", "Basic.vbproj");
+        Directory.CreateDirectory(Path.GetDirectoryName(vbproj)!);
+        await File.WriteAllTextAsync(vbproj, """<Project Sdk="Microsoft.NET.Sdk" />""", Ct);
+
+        var generation = await OpenAsync(vbproj);
+
+        await _fake.WaitForAsync("project/open");
+        Assert.Equal([new Uri(vbproj).AbsoluteUri], _fake.Last("project/open")!.Value.GetProperty("projects").EnumerateArray().Select(u => u.GetString()));
+        await _fake.NotifyProjectsLoadedAsync();
+        var loaded = await NextAsync(_solutionStatus, s => s.GetProperty("state").GetString() == "loaded");
+        Assert.Equal(generation, loaded.GetProperty("generation").GetInt64());
+        Assert.Equal(1, loaded.GetProperty("counts").GetProperty("projects").GetInt32());
+    }
+
+    [Fact]
+    public async Task SolutionWithFsproj_IsHandedToRoslynWhole_AndCountsEveryProject()
+    {
+        await InitializeAsync();
+        var fsproj = Path.Combine(_dir.FullName, "Functional", "Functional.fsproj");
+        Directory.CreateDirectory(Path.GetDirectoryName(fsproj)!);
+        await File.WriteAllTextAsync(fsproj, """<Project Sdk="Microsoft.NET.Sdk" />""", Ct);
+        var sln = await WriteSolutionAsync();
+        await File.WriteAllTextAsync(sln, """<Solution><Project Path="Lib/Lib.csproj" /><Project Path="Functional/Functional.fsproj" /></Solution>""", Ct);
+
+        var generation = await OpenAsync(sln);
+
+        await _fake.WaitForAsync("solution/open");
+        Assert.Equal(new Uri(sln).AbsoluteUri, _fake.Last("solution/open")!.Value.GetProperty("solution").GetString());
+        Assert.Equal(0, _fake.Count("project/open"));
+        await _fake.NotifyProjectsLoadedAsync();
+        var loaded = await NextAsync(_solutionStatus, s => s.GetProperty("state").GetString() == "loaded");
+        Assert.Equal(generation, loaded.GetProperty("generation").GetInt64());
+        Assert.Equal(2, loaded.GetProperty("counts").GetProperty("projects").GetInt32());
+    }
+
+    [Fact]
     public async Task EluditeMethodsStillWorkAndUnknownMethodsAreNotForwarded()
     {
         await InitializeAsync();

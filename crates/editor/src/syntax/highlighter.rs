@@ -329,7 +329,10 @@ impl Highlighter {
 
         // Collect captures: (byte range, pattern index, kind).
         let rope = snapshot.as_rope();
-        let query = self.language.query();
+        // No highlights for a language whose query does not compile.
+        let Some(query) = self.language.query() else {
+            return;
+        };
         let mut cursor = QueryCursor::new();
         cursor.set_byte_range(start..end);
         let mut captures: Vec<(usize, usize, usize, HighlightKind)> = Vec::new();
@@ -448,13 +451,12 @@ impl Highlighter {
             };
             let lo = range.start.saturating_sub(region.start).min(source.len());
             let hi = range.end.saturating_sub(region.start).min(source.len());
+            let Some(query) = language.query() else {
+                continue;
+            };
             let mut cursor = QueryCursor::new();
             cursor.set_byte_range(lo..hi);
-            let mut matches = cursor.matches(
-                language.query(),
-                injected_tree.root_node(),
-                source.as_bytes(),
-            );
+            let mut matches = cursor.matches(query, injected_tree.root_node(), source.as_bytes());
             while let Some(m) = matches.next() {
                 for capture in m.captures() {
                     if let Some(kind) = language.capture_kind(capture.index) {

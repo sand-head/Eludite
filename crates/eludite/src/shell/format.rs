@@ -292,6 +292,8 @@ fn format_off_thread(
         project: Some(&dir),
         cache: cache.as_deref(),
         node: &node_found,
+        // Formatters are npm packages: the .NET global tools folder plays no part.
+        home: None,
     };
     let picking = Instant::now();
     let picked = registry.pick_formatter(file, choice, &env);

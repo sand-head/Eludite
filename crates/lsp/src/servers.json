@@ -2,9 +2,10 @@
   "servers": [
     {
       "id": "roslyn",
-      "name": "C#",
+      "name": "C# and Visual Basic",
       "languageId": "csharp",
-      "fileGlobs": ["*.cs"],
+      "languageIds": { "*.vb": "vb" },
+      "fileGlobs": ["*.cs", "*.vb"],
       "via": "eluditeHost"
     },
     {
@@ -32,6 +33,21 @@
           "cachePriming": { "enable": true }
         }
       }
+    },
+    {
+      "id": "fsautocomplete",
+      "name": "FsAutoComplete",
+      "languageId": "fsharp",
+      "fileGlobs": ["*.fs", "*.fsi", "*.fsx", "*.fsscript"],
+      "via": "process",
+      "rootMarkers": ["*.fsproj", "*.sln", "*.slnx"],
+      "command": {
+        "executable": "fsautocomplete",
+        "args": [],
+        "envOverride": "ELUDITE_FSAUTOCOMPLETE",
+        "dotnetTool": "fsautocomplete"
+      },
+      "initializationOptions": { "AutomaticWorkspaceInit": true }
     },
     {
       "id": "typescript",
@@ -264,5 +280,8 @@
     "pin": "2026-10-04",
     "envOverride": "ELUDITE_WEB_SERVERS",
     "fetch": "tools/web-servers/fetch.sh"
+  },
+  "dotnetTools": {
+    "fsautocomplete": { "pin": "0.84.0", "fetch": "tools/fsautocomplete/fetch.sh" }
   }
 }
