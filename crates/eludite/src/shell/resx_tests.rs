@@ -16,9 +16,9 @@ use eludite_commands::{Caller, with_caller};
 use gpui::{Entity, Modifiers, MouseButton, MouseDownEvent, TestAppContext};
 use serde_json::{Value, json};
 
+use super::documents::normalize_path;
 use super::explorer::{context_item_selector, row_selector};
 use super::resx::editor::{self, Column, ResxEditor, cell_selector};
-use super::documents::normalize_path;
 use super::resx::tab_id;
 use super::tests::{Ws, setup_with};
 
