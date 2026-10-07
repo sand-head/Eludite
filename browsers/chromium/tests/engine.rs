@@ -628,6 +628,29 @@ impl Engine {
 
     fn click(&mut self, tab: &str, x: i64, y: i64, button: &str) {
         self.painted(tab);
+        // Input sent before the browser accepts it (after a navigation, until the new page's first frame is presented)
+        // is dropped, under load for longer than two animation frames: move the pointer until the page hears it, then
+        // press once. (Evaluated before the press only: a dialog the press opens blocks the page's scripts.)
+        self.evaluate(
+            tab,
+            "window.__eluditeMoved = false; \
+             addEventListener('mousemove', () => window.__eluditeMoved = true, {capture: true, once: true}); 0",
+        );
+        let deadline = Instant::now() + Duration::from_secs(20);
+        for i in 0.. {
+            self.notify(
+                "tab/input",
+                json!({"tab": tab, "event": {"type": "mouseMove", "x": x + (i % 2), "y": y}}),
+            );
+            std::thread::sleep(Duration::from_millis(50));
+            if self.evaluate(tab, "window.__eluditeMoved") == true {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the page never received the pointer at ({x}, {y})"
+            );
+        }
         for t in ["mouseMove", "mouseDown", "mouseUp"] {
             self.notify(
                 "tab/input",
