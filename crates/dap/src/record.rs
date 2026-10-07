@@ -1037,18 +1037,23 @@ fn comparable(m: &Value) -> Value {
 /// The end of the session (from the client's first `disconnect` or `terminate`, or the adapter's `terminated` event,
 /// whichever comes first) is its own group, `adapter at the end`, compared as a set: lldb-dap 18 sends `exited` and
 /// `terminated` and answers `disconnect` in either order when the client ends the session. Its `output` there is left
-/// out: lldb-dap 18 aborts as it exits and prints a crash report with this run's addresses, in pieces.
+/// out: lldb-dap 18 aborts as it exits and prints a crash report with this run's addresses, in pieces. So is its
+/// `exited` when the client started the end: lldb-dap 18 stops its event thread after answering `disconnect`,
+/// sometimes before it sees the killed debuggee exit (timing). A natural exit's `exited` precedes the end and is kept.
 fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
     let mut out: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut text: BTreeMap<String, String> = BTreeMap::new();
     let mut ending = false;
+    let mut client_ended = false;
     for m in &r.messages {
         let msg = &m.message;
         let is_event = msg["type"] == "event";
-        if (m.dir == Dir::Client
-            && matches!(msg["command"].as_str(), Some("disconnect" | "terminate")))
-            || (m.dir == Dir::Adapter && is_event && msg["event"] == "terminated")
-        {
+        let by_client = m.dir == Dir::Client
+            && matches!(msg["command"].as_str(), Some("disconnect" | "terminate"));
+        if !ending && by_client {
+            client_ended = true;
+        }
+        if by_client || (m.dir == Dir::Adapter && is_event && msg["event"] == "terminated") {
             ending = true;
         }
         let group = match m.dir {
@@ -1062,6 +1067,9 @@ fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
                 continue;
             }
             Dir::Adapter if ending && is_event && msg["event"] == "output" => continue,
+            Dir::Adapter if ending && client_ended && is_event && msg["event"] == "exited" => {
+                continue;
+            }
             Dir::Adapter if ending => "adapter at the end",
             Dir::Adapter if is_event && msg["event"] == "output" => {
                 let category = msg["body"]["category"].as_str().unwrap_or("console");
@@ -1546,7 +1554,16 @@ mod tests {
         );
         let e = compare(&a, &c).unwrap_err();
         assert!(e.contains("adapter output (stdout)"), "{e}");
-        let d = base(vec![out("hello world\n")], vec![terminated, answered]);
+        let d = base(
+            vec![out("hello world\n")],
+            vec![terminated.clone(), answered],
+        );
+        assert_eq!(
+            compare(&a, &d),
+            Ok(()),
+            "a killed debuggee's exit after the client's disconnect is timing"
+        );
+        let d = base(vec![out("hello world\n")], vec![terminated, exited]);
         let e = compare(&a, &d).unwrap_err();
         assert!(e.contains("adapter at the end"), "{e}");
     }
