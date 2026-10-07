@@ -117,7 +117,7 @@ public sealed class RoslynIntegrationTests
             var sw = Stopwatch.StartNew();
             await cts.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slow);
-            Assert.True(sw.ElapsedMilliseconds < 50, $"cancellation took {sw.ElapsedMilliseconds} ms");
+            Budget.Assert("cancellation", sw.Elapsed, TimeSpan.FromMilliseconds(50));
 
             await rpc.InvokeWithCancellationAsync<JsonElement>("eludite/host/shutdown", [], Ct);
             await rpc.NotifyAsync("eludite/host/exit");
