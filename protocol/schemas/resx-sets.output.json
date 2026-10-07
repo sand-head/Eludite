@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-sets.output.json",
+  "title": "eludite.resx.sets output",
+  "description": "The resource sets.",
+  "type": "object",
+  "required": [
+    "sets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "sets": {
+      "description": "The sets, by folder then base name.",
+      "type": "array",
+      "items": {
+        "description": "A resource set: a neutral file and its culture files.",
+        "type": "object",
+        "required": [
+          "neutral",
+          "base_name",
+          "folder",
+          "cultures",
+          "strings",
+          "non_strings",
+          "missing",
+          "warnings",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "neutral": {
+            "description": "The neutral file (`Resources.resx`), the set's name everywhere.",
+            "type": "string",
+            "minLength": 1
+          },
+          "base_name": {
+            "description": "The file name without `.resx` (`Resources`; `Default.aspx` for `Default.aspx.resx`).",
+            "type": "string",
+            "minLength": 1
+          },
+          "folder": {
+            "description": "The folder, relative to the workspace folder (`.` for the workspace folder itself).",
+            "type": "string",
+            "minLength": 1
+          },
+          "project": {
+            "description": "The project (its name as the Workspace window shows it) whose `EmbeddedResource` item the neutral file is; absent in a folder workspace or when the host does not list the file.",
+            "type": "string",
+            "minLength": 1
+          },
+          "neutral_language": {
+            "description": "The project's `NeutralLanguage` property, the neutral column's label when known.",
+            "type": "string",
+            "minLength": 1
+          },
+          "cultures": {
+            "description": "The set's cultures, the neutral file first (its `name` is the empty string), then by name.",
+            "type": "array",
+            "items": {
+              "description": "One culture file of the set.",
+              "type": "object",
+              "required": [
+                "name",
+                "path",
+                "strings",
+                "missing",
+                "warnings"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "description": "A culture name (`de`, `de-DE`, `sr-Latn-RS`), or the empty string for the neutral file.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "strings": {
+                  "description": "String entries in the file.",
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "missing": {
+                  "description": "Keys of the neutral file with no value in this culture, invariant keys excluded (0 for the neutral file).",
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "warnings": {
+                  "description": "Cells of this culture with a rule warning.",
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "strings": {
+            "description": "String entries in the neutral file.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "non_strings": {
+            "description": "Non-string entries in the neutral file (files, images, WinForms designer state), listed read-only under Other Resources.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing": {
+            "description": "Missing cells over every culture, invariant keys excluded.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "warnings": {
+            "description": "Rule warnings over every culture.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "designer": {
+            "description": "The generated code file beside it (`Resources.Designer.cs`), when one exists or the item's `LastGenOutput` names one.",
+            "type": "string",
+            "minLength": 1
+          },
+          "access_modifier": {
+            "enum": [
+              "internal",
+              "public",
+              "none"
+            ],
+            "description": "The Access Modifier of the generated designer class: `internal` (ResXFileCodeGenerator), `public` (PublicResXFileCodeGenerator) or `none` (no code generation, no designer file)."
+          },
+          "source": {
+            "enum": [
+              "project",
+              "folder"
+            ],
+            "description": "`project`: listed by the host from the project's items; `folder`: found by walking the workspace (no host, or a file no project lists)."
+          }
+        }
+      }
+    },
+    "generation": {
+      "description": "The solution generation the host's list came from; absent without a host.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

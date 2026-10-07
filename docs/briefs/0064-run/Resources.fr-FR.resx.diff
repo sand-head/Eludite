@@ -1,0 +1,11 @@
+--- original/Strings/Properties/Resources.fr-FR.resx	2026-10-06 14:37:04.760135642 +0000
++++ resx/Strings/Properties/Resources.fr-FR.resx	2026-10-06 14:37:38.065790144 +0000
+@@ -121,7 +121,7 @@
+     <value>Bonjour {1}</value>
+   </data>
+   <data name="Save" xml:space="preserve">
+-    <value>Save?</value>
++    <value>Enregistrer ?</value>
+   </data>
+   <data name="Brand" xml:space="preserve">
+     <value>Eludite</value>

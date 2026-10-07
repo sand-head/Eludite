@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-rename.output.json",
+  "title": "eludite.resx.rename output",
+  "description": "What the rename did.",
+  "type": "object",
+  "required": [
+    "set",
+    "key",
+    "new_key",
+    "files",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The neutral file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "key": {
+      "description": "The old key.",
+      "type": "string",
+      "minLength": 1
+    },
+    "new_key": {
+      "description": "The new key.",
+      "type": "string",
+      "minLength": 1
+    },
+    "files": {
+      "description": "Files the key was renamed in.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "references": {
+      "description": "Uses of the old key in code, when a scan has run (a later brief).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "enum": [
+        "renamed",
+        "exists",
+        "missing",
+        "pending",
+        "error"
+      ],
+      "description": "renamed; exists (`new_key` is already in the set); missing (`key` is in no file); pending (an agent's change awaiting review); error (`message`)."
+    },
+    "message": {
+      "description": "With `error`: why.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

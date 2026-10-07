@@ -1,0 +1,2 @@
+# The diffs keep their CRLF bytes: they show edits to CRLF files, byte for byte.
+*.diff -text

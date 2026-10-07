@@ -113,7 +113,7 @@ impl FakeHost {
     }
 
     /// Reload the solution as the real host does after a write: the generation moves on, then `loading`, `loaded`.
-    fn reload(&self, notify: &dyn Fn(&str, Value)) -> host::Generation {
+    pub(super) fn reload(&self, notify: &dyn Fn(&str, Value)) -> host::Generation {
         let (generation, path, projects) = {
             let mut s = self.lock();
             s.generation += 1;

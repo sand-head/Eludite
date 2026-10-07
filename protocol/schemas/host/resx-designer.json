@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/resx-designer.json",
+  "title": "eludite/resx/designer",
+  "description": "Generate, delete or change the access modifier of a neutral `.resx` file's designer code file (proposal 0005; host-rpc.md, \"Resources\"). `generate` reads the `.resx` from disk (after the shell saved it) and writes the designer in the shape `ResXFileCodeGenerator` (`internal`) or `PublicResXFileCodeGenerator` (`public`) writes: the header comment, the namespace, the class with `ResourceManager` and `Culture`, one property per string entry in file order, the file's non-string entries typed by their `type` (`System.Drawing.Bitmap`, `System.Drawing.Icon`, `System.IO.UnmanagedMemoryStream` for audio, `byte[]` for binary files, `string` for text files); a key that is not a valid identifier is made one as the generator does (`StronglyTypedResourceBuilder.VerifyResourceName`: invalid characters to `_`, a leading digit prefixed with `_`, keywords prefixed with `_`). Nothing is written when the file would not change. `setModifier` sets or removes the item's `Generator` metadata with the construction model (preserving formatting; an SDK project's globbed item gets an `Update` item), then generates or, for `none`, deletes the designer file. `delete` deletes the designer file and keeps the metadata.",
+  "x-eludite-method": "eludite/resx/designer",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation",
+        "path",
+        "action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "description": "The neutral `.resx` file (absolute).",
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "generate",
+            "setModifier",
+            "delete"
+          ],
+          "description": "What to do."
+        },
+        "modifier": {
+          "enum": [
+            "internal",
+            "public",
+            "none"
+          ],
+          "description": "With `setModifier`: the new modifier. With `generate`: the modifier to write when the item has no `Generator` and no designer exists (default `internal`)."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "path",
+        "status",
+        "modifier"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation answered.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "description": "The neutral file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "designer": {
+          "description": "The designer file written, deleted or left as it was.",
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "written",
+            "unchanged",
+            "deleted",
+            "none"
+          ],
+          "description": "written (the designer file changed), unchanged (it already had this content), deleted, none (no designer: `none` modifier and no file, or the project does not list the file)."
+        },
+        "modifier": {
+          "enum": [
+            "internal",
+            "public",
+            "none"
+          ],
+          "description": "The modifier in effect after the call."
+        },
+        "projectWritten": {
+          "description": "`setModifier` changed the project file.",
+          "type": "boolean"
+        },
+        "className": {
+          "description": "The designer class.",
+          "type": "string",
+          "minLength": 1
+        },
+        "namespace": {
+          "description": "Its namespace.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

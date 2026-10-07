@@ -30,6 +30,9 @@
 //!
 //! Project properties (brief 0049): `eludite/project/*` and the solution configurations are served from a scripted
 //! model by the child module `projects` (see its docs and [`FakeHost::set_project_properties`]).
+//!
+//! Resources (proposal 0005): `eludite/resx/sets` answers the sets a test gave ([`FakeHost::set_resx_sets`]) and
+//! `eludite/resx/designer` writes or deletes a stand-in designer file (the child module `resx`).
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -46,6 +49,8 @@ use crate::fake_nuget::{FakeNuGet, host_of, output_updates};
 
 /// `eludite/project/*` and the solution configurations (brief 0049).
 mod projects;
+/// `eludite/resx/*` (proposal 0005).
+mod resx;
 
 /// One message the fake received from the shell.
 #[derive(Debug, Clone, PartialEq)]
@@ -111,6 +116,8 @@ struct State {
     nuget: FakeNuGet,
     /// `eludite/project/*` and the solution configurations (brief 0049).
     projects: projects::FakeProjects,
+    /// `eludite/resx/*` (proposal 0005).
+    resx: resx::FakeResx,
 }
 
 #[derive(Default)]
@@ -1155,6 +1162,9 @@ impl FakeHost {
             | methods::SOLUTION_CONFIGURATIONS
             | methods::SOLUTION_SET_CONFIGURATION => {
                 self.answer_projects(method, params, &reply, &error, &notify)
+            }
+            methods::RESX_SETS | methods::RESX_DESIGNER => {
+                self.answer_resx(method, params, &reply, &error, &notify)
             }
             m if methods::FORWARDED_TYPED_REQUESTS.contains(&m)
                 || methods::FORWARDED_UNTYPED_REQUESTS.contains(&m) =>

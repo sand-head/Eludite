@@ -1,0 +1,2 @@
+# Every file keeps its bytes: the tests round-trip them and compare byte for byte.
+* -text

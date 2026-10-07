@@ -1,0 +1,23 @@
+[package]
+name = "eludite-resx"
+description = "Eludite's .resx model: string entries with their byte ranges, edits as splices that keep every untouched byte, the consistency rules, culture detection and resource sets."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The XML parser with byte ranges for every node and attribute. MIT OR Apache-2.0; already a workspace dependency
+# (crates/workspace); proposal 0005.
+roxmltree.workspace = true
+# The directory walker with .gitignore support, for finding the workspace's resource sets. Unlicense OR MIT; already
+# in the build (crates/search); proposal 0005.
+ignore.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

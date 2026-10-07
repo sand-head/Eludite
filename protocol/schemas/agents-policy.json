@@ -227,6 +227,21 @@
           ]
         }
       }
+    },
+    "resx": {
+      "description": "The .resx editor's commands (eludite.resx.*; proposal 0005). Every key is optional; a missing key is its default. Reading (sets, entries, validate) is always allowed; writing cells, adding and renaming keys (set, add, rename) and the access modifier are class edit_buffer, held as pending changes under `edit_buffer: review`. `prompt` makes a call dangerous (the Agents window asks; Always Allow writes a tool rule for it), `deny` refuses agents with this policy named; the tool rules above are checked first.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "remove": {
+          "description": "eludite.resx.remove (keys from every culture file) and, in a later brief, eludite.resx.cultures with `remove` (a culture file deleted): `prompt` (default: dangerous, which asks), `allow` (class edit_buffer, held for review as every edit) or `deny`.",
+          "enum": [
+            "prompt",
+            "allow",
+            "deny"
+          ]
+        }
+      }
     }
   }
 }

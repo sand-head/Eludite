@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-set.output.json",
+  "title": "eludite.resx.set output",
+  "description": "What the writes did.",
+  "type": "object",
+  "required": [
+    "results",
+    "written"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "results": {
+      "description": "One per cell, in order.",
+      "type": "array",
+      "items": {
+        "description": "What one cell's write did.",
+        "type": "object",
+        "required": [
+          "set",
+          "key",
+          "culture",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "set": {
+            "description": "The neutral file.",
+            "type": "string",
+            "minLength": 1
+          },
+          "key": {
+            "description": "The key.",
+            "type": "string",
+            "minLength": 1
+          },
+          "culture": {
+            "description": "A culture name (`de`, `de-DE`, `sr-Latn-RS`), or the empty string for the neutral file.",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "written",
+              "created",
+              "unchanged",
+              "pending",
+              "error"
+            ],
+            "description": "written (the entry changed), created (the entry, or the culture file with `create_culture`, did not exist), unchanged, pending (an agent's change awaiting review, or sent off the UI thread), error (`message` says why: no such set, no such culture file, a non-string entry, a key with no neutral entry and no neutral value)."
+          },
+          "message": {
+            "description": "With `error`: why.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "written": {
+      "description": "The files written (or made pending), with the number of entries changed in each.",
+      "type": "array",
+      "items": {
+        "description": "A written file.",
+        "type": "object",
+        "required": [
+          "path",
+          "entries"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file.",
+            "type": "string",
+            "minLength": 1
+          },
+          "entries": {
+            "description": "Entries changed.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

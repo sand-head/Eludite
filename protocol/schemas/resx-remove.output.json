@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-remove.output.json",
+  "title": "eludite.resx.remove output",
+  "description": "What the removal did.",
+  "type": "object",
+  "required": [
+    "set",
+    "removed",
+    "missing",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The neutral file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "removed": {
+      "description": "The keys removed, with the number of files each was removed from.",
+      "type": "array",
+      "items": {
+        "description": "A removed key.",
+        "type": "object",
+        "required": [
+          "key",
+          "files"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "description": "The key.",
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "description": "Files the key was removed from.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "missing": {
+      "description": "Keys that were in no file of the set.",
+      "type": "array",
+      "items": {
+        "description": "A key.",
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "status": {
+      "enum": [
+        "removed",
+        "pending",
+        "error"
+      ],
+      "description": "removed, pending (an agent's change awaiting review), error (`message`)."
+    },
+    "message": {
+      "description": "With `error`: why.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

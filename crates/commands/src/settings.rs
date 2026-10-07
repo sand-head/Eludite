@@ -734,8 +734,25 @@ mod tests {
                 "languageServers.eslint",
                 "editor.formatOnSave.typescript",
                 "editor.formatOnSave.json",
+                "resx.rules.placeholders",
+                "resx.rules.punctuation",
+                "resx.rules.whitespace",
+                "resx.rules.untranslated",
+                "resx.sortOnSave",
+                "resx.openAsText",
             ]
         );
+        // Proposal 0005: the .resx editor's page, last.
+        assert_eq!(
+            s.sections.last().map(String::as_str),
+            Some("Text Editor > Resources")
+        );
+        assert_eq!(s.section("Text Editor > Resources").count(), 6);
+        assert_eq!(
+            s.get("resx.rules.untranslated").unwrap().default,
+            json!(true)
+        );
+        assert_eq!(s.get("resx.sortOnSave").unwrap().default, json!(false));
         // Brief 0052: CodeLens, with the text editor's pages; on unless the settings say otherwise. Brief 0063 adds
         // Visual Basic and F#.
         assert_eq!(
@@ -758,7 +775,7 @@ mod tests {
         // Brief 0048: NuGet Package Manager > General, last.
         // Brief 0050: the web languages' pages, after the earlier ones, so they keep their places.
         assert_eq!(
-            s.sections[s.sections.len() - 5..],
+            s.sections[s.sections.len() - 6..s.sections.len() - 1],
             [
                 "Text Editor > All Languages",
                 "Text Editor > CSS",
@@ -782,7 +799,7 @@ mod tests {
         );
         // Brief 0048: NuGet Package Manager > General, the last before brief 0050's pages.
         assert_eq!(
-            s.sections.iter().rev().nth(5).map(String::as_str),
+            s.sections.iter().rev().nth(6).map(String::as_str),
             Some("NuGet Package Manager > General")
         );
         assert_eq!(s.section("NuGet Package Manager > General").count(), 3);
@@ -797,7 +814,7 @@ mod tests {
         assert!(lock.validate(&json!("strict")).is_err());
         // Brief 0046: the forges' page, before NuGet's.
         assert_eq!(
-            s.sections.iter().rev().nth(6).map(String::as_str),
+            s.sections.iter().rev().nth(7).map(String::as_str),
             Some("Source Control > Forges")
         );
         assert_eq!(s.section("Source Control > Forges").count(), 5);
@@ -821,11 +838,11 @@ mod tests {
         assert_eq!(s.section("Terminal").count(), 8);
         // Brief 0042: Find and Replace, after the earlier pages (brief 0055's Updates page sits right after it).
         assert_eq!(
-            s.sections.iter().rev().nth(8).map(String::as_str),
+            s.sections.iter().rev().nth(9).map(String::as_str),
             Some("Environment > Find and Replace")
         );
         assert_eq!(
-            s.sections.iter().rev().nth(7).map(String::as_str),
+            s.sections.iter().rev().nth(8).map(String::as_str),
             Some("Environment > Updates")
         );
         assert_eq!(s.section("Environment > Updates").count(), 2);

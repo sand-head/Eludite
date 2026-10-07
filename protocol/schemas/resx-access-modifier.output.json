@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-access-modifier.output.json",
+  "title": "eludite.resx.access_modifier output",
+  "description": "What the change did.",
+  "type": "object",
+  "required": [
+    "set",
+    "modifier",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The neutral file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "modifier": {
+      "enum": [
+        "internal",
+        "public",
+        "none"
+      ],
+      "description": "The Access Modifier of the generated designer class: `internal` (ResXFileCodeGenerator), `public` (PublicResXFileCodeGenerator) or `none` (no code generation, no designer file)."
+    },
+    "designer": {
+      "description": "The designer file written or deleted.",
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "written",
+        "unchanged",
+        "pending",
+        "error"
+      ],
+      "description": "written (the project item and the designer file), unchanged, pending (sent off the UI thread or awaiting review), error (`message`: no host, no project lists the file, a legacy project the host cannot edit)."
+    },
+    "message": {
+      "description": "With `error`: why.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

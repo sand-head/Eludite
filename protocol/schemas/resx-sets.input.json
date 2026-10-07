@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-sets.input.json",
+  "title": "eludite.resx.sets input",
+  "description": "List the resource sets of the workspace or one project (proposal 0005): every neutral `.resx` with its culture files, counts of strings, missing cells and warnings, the designer file and the access modifier. With a host (a .NET workspace) the sets are the projects' `EmbeddedResource` items (`eludite/resx/sets`); without one, or for files no project lists, they are found by walking the workspace for `*.resx` under the search excludes. Nothing is parsed at startup: the first call parses the files, off the UI thread, and the sets stay cached until a file changes.",
+  "type": "object",
+  "required": [],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "Only this project's sets (its name as the Workspace window shows it, or its project file's path). Default: the whole workspace.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "Only the sets under this folder, or the set this file belongs to (absolute, or relative to the workspace folder).",
+      "type": "string",
+      "minLength": 1
+    },
+    "include_non_string": {
+      "description": "Also list sets whose neutral file has no string entry (a WinForms form's `Form1.resx`). Default: false.",
+      "type": "boolean"
+    }
+  }
+}

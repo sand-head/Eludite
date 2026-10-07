@@ -87,6 +87,10 @@ pub mod methods {
     pub const SOLUTION_CONFIGURATIONS: &str = "eludite/solution/configurations";
     /// Select the active configuration and platform; edit Configuration Manager's mapping (brief 0049).
     pub const SOLUTION_SET_CONFIGURATION: &str = "eludite/solution/setConfiguration";
+    /// The `.resx` resource sets of the solution's projects with their metadata (proposal 0005).
+    pub const RESX_SETS: &str = "eludite/resx/sets";
+    /// Generate, delete or change the access modifier of a `.resx` file's designer code file (proposal 0005).
+    pub const RESX_DESIGNER: &str = "eludite/resx/designer";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -119,6 +123,8 @@ pub mod methods {
         PROJECT_SET_LAUNCH_PROFILE,
         SOLUTION_CONFIGURATIONS,
         SOLUTION_SET_CONFIGURATION,
+        RESX_SETS,
+        RESX_DESIGNER,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -2411,6 +2417,141 @@ request!(
     methods::SOLUTION_SET_CONFIGURATION,
     SolutionSetConfigurationParams,
     SolutionSetConfigurationResult
+);
+
+// Resources (proposal 0005): `eludite/resx/*`, see host-rpc.md "Resources".
+
+/// `eludite/resx/sets` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResxSetsParams {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+}
+
+/// The Access Modifier of a `.resx` file's designer class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AccessModifier {
+    Internal,
+    Public,
+    None,
+}
+
+/// A culture file of a set the host lists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResxCultureFile {
+    pub name: String,
+    pub path: String,
+    pub item: bool,
+}
+
+/// A neutral `.resx` a project lists, with the metadata the editor and the designer generator need.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResxSet {
+    pub project: String,
+    pub project_name: String,
+    pub kind: TreeProjectKind,
+    pub path: String,
+    pub base_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neutral_language: Option<String>,
+    pub root_namespace: String,
+    pub cultures: Vec<ResxCultureFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generator: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_tool_namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_gen_output: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub designer: Option<String>,
+    pub access_modifier: AccessModifier,
+    pub manifest_name: String,
+    pub namespace: String,
+}
+
+/// A project `eludite/resx/sets` could not evaluate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResxSkipped {
+    pub project: String,
+    pub reason: String,
+}
+
+/// `eludite/resx/sets` result.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResxSetsResult {
+    pub generation: Generation,
+    pub sets: Vec<ResxSet>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<Vec<ResxSkipped>>,
+}
+
+/// What `eludite/resx/designer` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResxDesignerAction {
+    Generate,
+    SetModifier,
+    Delete,
+}
+
+/// `eludite/resx/designer` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResxDesignerParams {
+    pub generation: Generation,
+    pub path: String,
+    pub action: ResxDesignerAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modifier: Option<AccessModifier>,
+}
+
+/// What `eludite/resx/designer` did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResxDesignerStatus {
+    Written,
+    Unchanged,
+    Deleted,
+    None,
+}
+
+/// `eludite/resx/designer` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResxDesignerResult {
+    pub generation: Generation,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub designer: Option<String>,
+    pub status: ResxDesignerStatus,
+    pub modifier: AccessModifier,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub project_written: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+}
+
+request!(
+    /// `eludite/resx/sets` (proposal 0005).
+    ResxSets,
+    methods::RESX_SETS,
+    ResxSetsParams,
+    ResxSetsResult
+);
+request!(
+    /// `eludite/resx/designer` (proposal 0005).
+    ResxDesigner,
+    methods::RESX_DESIGNER,
+    ResxDesignerParams,
+    ResxDesignerResult
 );
 
 #[cfg(test)]

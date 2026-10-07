@@ -64,6 +64,9 @@ mod project_properties_tests;
 mod refactor_tests;
 pub mod references;
 pub mod rename;
+pub mod resx;
+#[cfg(test)]
+mod resx_tests;
 #[cfg(test)]
 mod rust_tests;
 pub mod search;
@@ -214,6 +217,8 @@ pub struct Services {
     pub nuget_jobs: UnboundedReceiver<nuget::NuGetJob>,
     /// Brief 0049's `eludite.project.*` property commands and the solution configurations from other threads.
     pub properties_jobs: UnboundedReceiver<project_properties::PropertiesJob>,
+    /// The `.resx` editor's `eludite.resx.*` from other threads (proposal 0005).
+    pub resx_jobs: UnboundedReceiver<resx::ResxJob>,
     /// The self-updater's `eludite.update.*` (brief 0055): the service, `apply` from other threads, and how the
     /// updater is set up (tests replace it before the shell starts).
     pub update: Arc<update::UpdateService>,
@@ -327,6 +332,7 @@ pub fn register_workspace(
     let (nuget, nuget_events, nuget_jobs) =
         nuget::register(commands, session.clone(), tree.clone());
     let properties_jobs = project_properties::register(commands);
+    let resx_jobs = resx::register(commands);
     let (update, update_jobs) = update::register(commands);
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
@@ -374,6 +380,7 @@ pub fn register_workspace(
         nuget_events,
         nuget_jobs,
         properties_jobs,
+        resx_jobs,
         update,
         update_jobs,
         update_setup: update::UpdateSetup::detect(),
@@ -511,6 +518,8 @@ pub struct Shell {
     nuget: nuget::NuGetUi,
     /// The project property pages, the configuration selection and Configuration Manager (brief 0049).
     properties: project_properties::PropertiesUi,
+    /// The `.resx` editor (proposal 0005).
+    resx: resx::ResxUi,
     /// The self-updater: the status slot, the Output lines, the question, the restart (brief 0055).
     update: update::UpdateUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
@@ -601,6 +610,7 @@ fn document_body(
     forge_documents: forge::Documents,
     forge_margins: forge::Margins,
     properties_documents: project_properties::Documents,
+    resx_documents: resx::Documents,
     welcome: Entity<welcome::WelcomePage>,
 ) -> impl Fn(&DocumentTab, &Theme) -> AnyElement {
     move |tab, theme| {
@@ -608,6 +618,9 @@ fn document_body(
             return welcome.clone().into_any_element();
         }
         if let Some(view) = properties_documents.borrow().get(&tab.id) {
+            return view.clone().into_any_element();
+        }
+        if let Some(view) = resx_documents.borrow().get(&tab.id) {
             return view.clone().into_any_element();
         }
         if let Some(view) = browser_views.borrow().get(&tab.id) {
@@ -744,6 +757,7 @@ impl Shell {
             nuget_events,
             nuget_jobs,
             properties_jobs,
+            resx_jobs,
             update,
             update_jobs,
             update_setup,
@@ -751,6 +765,7 @@ impl Shell {
         let update = update::UpdateUi::new(update);
         let nuget = nuget::NuGetUi::new(nuget, theme, cx);
         let properties = project_properties::PropertiesUi::default();
+        let resx = resx::ResxUi::default();
         let git = git::GitUi::new(git, theme, cx);
         let terminal = terminal::TerminalUi::new(terminal, theme, cx);
         let search = search::SearchUi::new(search, theme, cx);
@@ -798,6 +813,7 @@ impl Shell {
                     forge.documents.clone(),
                     forge.margins.clone(),
                     properties.documents.clone(),
+                    resx.documents.clone(),
                     welcome.clone(),
                 )),
                 persistence,
@@ -1142,6 +1158,7 @@ impl Shell {
             forge,
             nuget,
             properties,
+            resx,
             update,
             ui_bounds: None,
             timings: Timings::default(),
@@ -1170,6 +1187,7 @@ impl Shell {
         this.forge_install(forge_events, window, cx);
         this.nuget_install(nuget_events, nuget_jobs, window, cx);
         this.properties_install(properties_jobs, window, cx);
+        this.resx_install(resx_jobs, window, cx);
         this.update_install(update_setup, update_jobs, window, cx);
         this.apply_settings(None, cx);
         this
@@ -1272,6 +1290,10 @@ impl Shell {
         self.forge_set_probe(ui.clone(), cx);
         // The NuGet window's and the Workspace window's rows (brief 0048's Xvfb run).
         self.nuget.window.update(cx, |w, _| w.set_probe(ui.clone()));
+        for view in self.resx.editors.values() {
+            let ui = ui.clone();
+            view.update(cx, |v, _| v.probe = ui);
+        }
         self.explorer.update(cx, |e, _| e.set_probe(ui.clone()));
         self.menu.update(cx, |m, _| m.set_probe(ui));
         self.dock.update(cx, |d, _| d.set_probe(probe));
@@ -1318,6 +1340,10 @@ impl Shell {
         }
         // The property pages' unsaved-changes question (brief 0049).
         if self.run_properties(command, &mut args, window, cx) {
+            return;
+        }
+        // The .resx editor's unsaved-changes question (proposal 0005).
+        if self.run_resx(command, &mut args, window, cx) {
             return;
         }
         // `eludite.update.apply` asks before the restart (brief 0055).
@@ -1422,6 +1448,13 @@ impl Shell {
             let outcome = self.apply_properties(request, None, window, cx);
             project_properties::stage(outcome);
         }
+        if eludite_commands::resx::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::resx::parse(command, args.clone())
+        {
+            let outcome =
+                self.apply_resx(request, eludite_commands::Caller::User, None, window, cx);
+            resx::stage(outcome);
+        }
         if eludite_commands::test::ALL.contains(&command)
             && let Ok(request) = eludite_commands::test::parse(command, args.clone())
         {
@@ -1519,12 +1552,30 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Result<workspace::WorkspaceOutput, CommandError> {
         match request {
-            WorkspaceRequest::FileOpen { path, line, column } => {
-                self.open_file(&path, line.map(|l| (l, column.unwrap_or(1))), window, cx)
+            // A `.resx` opens as its resource set's grid unless the text editor is asked for (proposal 0005).
+            WorkspaceRequest::FileOpen { path, editor, .. }
+                if editor.as_deref() != Some("text")
+                    && !self.resx.open_as_text
+                    && resx::is_resx(&self.resolve_file(&path)) =>
+            {
+                let file = self.resolve_file(&path);
+                self.open_resx(&file, window, cx)
             }
+            WorkspaceRequest::FileOpen {
+                path, line, column, ..
+            } => self.open_file(&path, line.map(|l| (l, column.unwrap_or(1))), window, cx),
             // The project property pages (brief 0049) save and close as one document.
             WorkspaceRequest::FileClose { path, save } if self.pages_tab(Some(&path)).is_some() => {
                 self.close_pages(&path, save, window, cx)
+            }
+            // The .resx editor saves and closes as one document (proposal 0005).
+            WorkspaceRequest::FileClose { path, save } if self.resx_tab(Some(&path)).is_some() => {
+                let tab = self.resx_tab(Some(&path)).unwrap_or_default();
+                self.close_resx(&tab, save, window, cx)
+            }
+            WorkspaceRequest::Save { path } if self.resx_tab(path.as_deref()).is_some() => {
+                let tab = self.resx_tab(path.as_deref()).unwrap_or_default();
+                self.save_resx(&tab, window, cx)
             }
             WorkspaceRequest::FileClose { path, save } => self.close_file(&path, save, cx),
             WorkspaceRequest::Save { path } if self.pages_tab(path.as_deref()).is_some() => {
