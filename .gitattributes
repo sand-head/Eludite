@@ -1,6 +1,7 @@
 * text=auto eol=lf
 *.png binary
 *.ico binary
+*.ttf binary
 # The Razor grammar in JSON, written from grammar.js by grammars/razor/generate.sh; its build.rs
 # generates the parser from it (ADR-0012).
 grammars/razor/src/grammar.json linguist-generated=true -diff

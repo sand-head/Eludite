@@ -23,7 +23,7 @@ use super::git::changes::{self, Group};
 use super::git::credentials;
 use super::git::service::{AGENT_CANNOT_ANSWER, GitSetup};
 use super::git::{INCOMING_SLOT, OUTGOING_SLOT, PENDING_SLOT, compare, gutter, repository};
-use super::tests::{Ws, setup};
+use super::tests::{Ws, assert_budget, setup};
 
 const PROGRAM: &str = super::tests::PROGRAM;
 
@@ -563,33 +563,6 @@ fn wait_margin(g: &mut G, what: &str, id: &str, pred: impl Fn(&[gutter::Mark]) -
             "timed out waiting for {what}: margins for {keys:?}, wanted {id}"
         );
         std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
-/// `measured` under `limit`, unless the machine is overloaded (other agents build beside these tests).
-pub(super) fn assert_budget(what: &str, measured: Duration, limit: Duration) {
-    let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
-    let load = std::fs::read_to_string("/proc/loadavg")
-        .ok()
-        .and_then(|t| t.split_whitespace().next()?.parse::<f64>().ok());
-    // The budgets are calibrated on Linux (CI's reference job); the hosted Windows and macOS runners are shared VMs
-    // with no load average to read, so there the numbers are printed, not asserted.
-    let hosted_elsewhere = !cfg!(target_os = "linux") && std::env::var_os("CI").is_some();
-    match load {
-        Some(l) if l > cores => eprintln!(
-            "timing: {what} {:.2} ms not asserted against {:.0} ms: load average {l:.1} on {cores:.0} cores",
-            measured.as_secs_f64() * 1e3,
-            limit.as_secs_f64() * 1e3
-        ),
-        _ if hosted_elsewhere => eprintln!(
-            "timing: {what} {:.2} ms not asserted against {:.0} ms: a hosted runner, not the reference machine",
-            measured.as_secs_f64() * 1e3,
-            limit.as_secs_f64() * 1e3
-        ),
-        _ => assert!(
-            measured < limit,
-            "{what}: {measured:?} is not under {limit:?}"
-        ),
     }
 }
 

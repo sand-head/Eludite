@@ -40,7 +40,7 @@ fn open(cx: &mut TestAppContext) -> Harness {
                 Shell::new(
                     commands.clone(),
                     controller.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     None,
                     services.take().unwrap(),
                     window,
@@ -133,11 +133,14 @@ fn key_bindings_dispatch_view_commands(cx: &mut TestAppContext) {
     h.keys("ctrl-\\ ctrl-e");
     assert!(h.active_in_group(ids::ERROR_LIST));
 
-    // Ctrl+Alt+X slides out the auto-hidden Toolbox.
+    // Ctrl+Alt+X opens the Toolbox, which the default layout leaves closed, docked on the left.
     h.keys("ctrl-alt-x");
-    assert_eq!(
-        h.controller.snapshot().flyout.as_deref(),
-        Some(ids::TOOLBOX)
+    assert!(h.active_in_group(ids::TOOLBOX));
+    let left = h.controller.layout().left;
+    assert!(
+        left.groups
+            .iter()
+            .any(|g| g.tabs.iter().any(|t| t == ids::TOOLBOX))
     );
 
     assert_eq!(h.audit()[before..], [view::SHOW; 4]);

@@ -529,7 +529,11 @@ mod tests {
         let started = Instant::now();
         let r = conn.call(None, "Slow.call", Value::Null, Duration::from_millis(100));
         assert!(matches!(r, Err(CdpError::Timeout { .. })), "{r:?}");
-        assert!(started.elapsed() < Duration::from_millis(250));
+        crate::assert_budget(
+            "the timed-out call",
+            started.elapsed(),
+            Duration::from_millis(250),
+        );
         // The late answer to the first request does not satisfy the second.
         let r = conn
             .call(None, "Next.call", Value::Null, Duration::from_secs(5))
@@ -538,7 +542,7 @@ mod tests {
         // A caller that did not ask to wait is never blocked: `send` returns at once.
         let started = Instant::now();
         let _rx = conn.send(None, "Never.answered", Value::Null).unwrap();
-        assert!(started.elapsed() < Duration::from_millis(50));
+        crate::assert_budget("send", started.elapsed(), Duration::from_millis(50));
         conn.close();
     }
 

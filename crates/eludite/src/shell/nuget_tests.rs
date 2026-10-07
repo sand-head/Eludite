@@ -1073,7 +1073,7 @@ fn five_hundred_results_are_drawn_virtualized_within_the_frame_budget(cx: &mut T
         show_rounds(&rounds)
     );
     let p99 = rounds.iter().map(|r| r.1).min().unwrap();
-    super::git_tests::assert_budget("a frame of the NuGet window", p99, Duration::from_millis(8));
+    super::tests::assert_budget("a frame of the NuGet window", p99, Duration::from_millis(8));
 }
 
 /// Three rounds of 100 frames drawn by `frame` (given the row to select), each round's (p50, p99). Bursts of other work

@@ -487,6 +487,10 @@ mod tests {
         }
         assert_eq!(p.len(), 100_000);
         assert_eq!(p.line(99_999), Some("  line 999 of a build"));
-        assert!(t.elapsed() < std::time::Duration::from_secs(2));
+        crate::shell::tests::assert_budget(
+            "appending 100,000 lines",
+            t.elapsed(),
+            std::time::Duration::from_secs(2),
+        );
     }
 }

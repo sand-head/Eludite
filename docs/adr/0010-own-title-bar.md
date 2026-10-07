@@ -1,6 +1,6 @@
 # ADR-0010: Eludite draws the main window's title bar
 
-Status: Accepted, 2026-10-03
+Status: Accepted, 2026-10-03; amended 2026-10-06 (the mark at the row's left, the toolbar in its own row)
 Plan reference: PLAN.md sections 2 (principles 1, 5), 8 (Chrome); ADR-0001
 
 ## Context
@@ -20,8 +20,12 @@ Wayland compositors), which `window_decorations()` reports.
 
 ## Decision
 
-- Draw the main window's title bar in `crates/ui::title_bar`: the menu bar, the window's title in a box on the part
-  of the row that drags the window, the build toolbar, and the caption buttons, 32 pixels high.
+- Draw the main window's title bar in `crates/ui::title_bar`: Eludite's mark (the 3D cube of `crates/ui::crystal`,
+  which spins while building or while a debuggee runs), the menu bar, the window's title in a box on the part of the
+  row that drags the window, and the caption buttons, 32 pixels high.
+- Draw the toolbar in its own row under the title bar (amended 2026-10-06; it was at the title bar's right): Visual
+  Studio's Standard and Debug toolbars, with the configuration, platform, target framework and launch profile lists
+  and Start in one control. It had outgrown the space beside the title.
 - Open the main window with `appears_transparent` and `WindowDecorations::Client`.
 - Decide what to draw on every frame from the platform and the decorations the window got (`title_bar::chrome`):
   macOS leaves room for its buttons; Windows draws the caption buttons as `WindowControlArea`s and lets the platform

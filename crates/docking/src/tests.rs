@@ -72,7 +72,7 @@ fn open(cx: &mut TestAppContext, layout: DockLayout, persistence: Option<Persist
                 DockHost::new(
                     controller.clone(),
                     commands.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     Rc::new(body),
                     Rc::new(|d, _| div().child(d.title.clone()).into_any_element()),
                     persistence,
@@ -183,7 +183,7 @@ impl Harness {
 }
 
 fn default_layout() -> DockLayout {
-    DockLayout::default_vs(&ToolWindowRegistry::vs_default())
+    DockLayout::fixture(&ToolWindowRegistry::vs_default())
 }
 
 #[gpui::test]
@@ -331,7 +331,7 @@ fn side_strip_tabs_draw_titles_rotated_clockwise(cx: &mut TestAppContext) {
             "{sel} is a vertical tab: {b:?}"
         );
     }
-    let small = Theme::vs_dark().typography.small;
+    let small = Theme::dark().typography.small;
     let built = h.vcx.update(|window, cx| {
         let font = window.text_style().font();
         let cache = cx.global::<RotatedLabelCache>();
@@ -400,7 +400,14 @@ fn close_then_show_and_reset(cx: &mut TestAppContext) {
     assert_eq!(h.floating_count(), 1);
     h.commands.invoke(view::RESET_LAYOUT, json!({})).unwrap();
     h.vcx.run_until_parked();
-    assert_eq!(h.layout(), default_layout());
+    assert_eq!(
+        h.layout(),
+        DockLayout::default_vs(&ToolWindowRegistry::vs_default())
+    );
+    assert!(
+        h.vcx.debug_bounds("head-properties").is_none(),
+        "the default has no Properties window"
+    );
     assert_eq!(h.floating_count(), 0, "reset closes floating windows");
 }
 
@@ -426,7 +433,8 @@ fn layout_save_and_load_round_trip(cx: &mut TestAppContext) {
     let path = store.path_for(Some(&solution));
     let writer = LayoutWriter::spawn(Duration::from_millis(20), None);
     let registry = ToolWindowRegistry::vs_default();
-    let (layout, _) = store.load(Some(&solution), &registry);
+    // Saved and restored below; it starts from the fixture so Properties can be moved.
+    let layout = DockLayout::fixture(&registry);
     let persistence = Persistence {
         path: path.clone(),
         writer: writer.clone(),

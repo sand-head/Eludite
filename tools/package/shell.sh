@@ -75,6 +75,9 @@ here="$repo/tools/package"
 "$here/companions.sh" --into "$dest"
 
 install -m 644 "$repo/LICENSE" "$dest/LICENSE"
+# The embedded fonts' licenses (Instrument Sans and JetBrains Mono, SIL Open Font License 1.1; crates/ui/fonts/).
+mkdir -p "$dest/licenses/fonts"
+install -m 644 "$repo/crates/ui/fonts/InstrumentSans-OFL.txt" "$repo/crates/ui/fonts/JetBrainsMono-OFL.txt" "$dest/licenses/fonts/"
 {
   sed -e "s/@VERSION@/$version/g" -e "s/@OS@/$os/g" -e "s/@ARCH@/$arch/g" -e "s/@EXE@/$exe/g" "$here/README-shell.in"
   echo
@@ -89,7 +92,8 @@ fi
 # The Rust crates linked into the shell, with their licenses (from Cargo.lock, offline). BSD sed too: no \| alternation.
 {
   echo "Rust crates linked into eludite $version (name version SPDX license), from cargo tree."
-  echo "Eludite itself is GPL-3.0-or-later (LICENSE); eludite-claude-acp is MIT (licenses/eludite-claude-acp/)."
+  echo "Eludite itself is GPL-3.0-or-later (LICENSE); eludite-claude-acp is MIT (licenses/eludite-claude-acp/); the embedded"
+  echo "fonts are OFL-1.1 (licenses/fonts/)."
   echo
   (cd "$repo" && cargo tree --offline -p eludite -e normal --prefix none --format '{p} {l}' 2>/dev/null) |
     sed -e 's/ (\*)$//' -e 's/ (proc-macro)//' -e 's/ ([^)]*)$//' -e 's/ ([^)]*) / /' | sort -u
