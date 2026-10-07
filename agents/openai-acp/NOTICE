@@ -1,0 +1,30 @@
+eludite-openai-acp
+Copyright (c) 2026 The Eludite Authors. Licensed under the MIT License (LICENSE).
+
+The wire rules for OpenAI-compatible servers (which statuses of GET /models mean
+"no listing" or "the key was rejected", tool-call fragments keyed by index, the
+usage-only final chunk, a JSON body in place of a stream, reasoning deltas)
+restate those of the owner's harness slopcoder
+(https://git.sand.town/sand_head/slopcoder,
+OpenAIChatCompletionsProvider.cs and OpenAICompatibleProviderCatalog.cs). No
+code is copied from it; the rules are re-implemented here in Rust.
+
+The files tests/fixtures/synth-*.sse and *.models.json are synthesized from the
+servers' documented response shapes; they are not recordings of any service.
+
+Dependencies (Rust crates, linked into the binary):
+  agent-client-protocol 2.2.0, agent-client-protocol-schema 1.9.1 and
+    agent-client-protocol-derive 2.2.0 (Apache-2.0),
+    https://github.com/agentclientprotocol/rust-sdk
+  ureq 3.4 and ureq-proto (MIT OR Apache-2.0), with rustls 0.23
+    (Apache-2.0 OR ISC OR MIT), rustls-webpki and untrusted (ISC), ring 0.17
+    (Apache-2.0 AND ISC), webpki-roots 1.0 (CDLA-Permissive-2.0: Mozilla's
+    root certificates as data), subtle (BSD-3-Clause)
+  futures, serde, serde_json, uuid, http, httparse, base64, schemars,
+    derive_more, strum, tracing and their dependencies: MIT, Apache-2.0, or
+    MIT OR Apache-2.0 (memchr: Unlicense OR MIT; rustix and linux-raw-sys:
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT; unicode-ident, build
+    time only: (MIT OR Apache-2.0) AND Unicode-3.0). See Cargo.lock.
+
+No model, model weights or server software is distributed with this program. It
+talks to the server the user names, with the key the user gives it.

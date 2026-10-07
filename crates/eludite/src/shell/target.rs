@@ -49,9 +49,9 @@ pub struct ShellTarget {
     pub jobs: UnboundedSender<UiJob>,
 }
 
-const SOLUTION_EXTENSIONS: [&str; 4] = ["sln", "slnx", "csproj", "vbproj"];
+const SOLUTION_EXTENSIONS: [&str; 5] = ["sln", "slnx", "csproj", "vbproj", "fsproj"];
 
-/// Absolute path of an existing `.sln`, `.slnx`, `.csproj` or `.vbproj`.
+/// Absolute path of an existing `.sln`, `.slnx`, `.csproj`, `.vbproj` or `.fsproj` (brief 0063).
 pub fn solution_path(path: &str) -> Result<PathBuf, CommandError> {
     let p = std::path::absolute(Path::new(path))
         .map_err(|e| CommandError::InvalidInput(format!("{path}: {e}")))?;
@@ -62,7 +62,7 @@ pub fn solution_path(path: &str) -> Result<PathBuf, CommandError> {
     });
     if !ext_ok {
         return Err(CommandError::InvalidInput(format!(
-            "{}: expected a .sln, .slnx, .csproj or .vbproj file",
+            "{}: expected a .sln, .slnx, .csproj, .vbproj or .fsproj file",
             p.display()
         )));
     }

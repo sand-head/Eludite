@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-provider-remove.input.json",
+  "title": "eludite.agents.provider_remove input",
+  "description": "Remove an OpenAI-compatible server from the Agents window and delete its key from the credential store.",
+  "type": "object",
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "The server's name: unique, shown as the agent's name in the Agents window, and the credential key `provider:<name>`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    }
+  }
+}

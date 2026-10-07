@@ -1,8 +1,9 @@
 //! `eludite.workspace.tree` (brief 0019): the open workspace's projects whatever their build system, as the
-//! Workspace window shows them: .NET projects (`csproj`), Cargo packages with their targets (`cargo`) and plain
-//! folders (`folder`). Read from a caller-supplied source, like `eludite.solution.tree`, so it runs on whichever
+//! Workspace window shows them: .NET projects (`csproj`, `vbproj` or `fsproj`, the project file's extension; brief
+//! 0063), Cargo packages with their targets (`cargo`) and plain folders (`folder`). Read from a caller-supplied source, like `eludite.solution.tree`, so it runs on whichever
 //! thread invokes it.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,21 @@ const OUTPUT: &str = include_str!("../../../protocol/schemas/workspace-tree.outp
 
 /// Files a project lists at most.
 pub const MAX_FILES: usize = 5000;
+
+/// The `kind`s that are MSBuild projects of the open solution (brief 0063): `csproj`, `vbproj` and `fsproj`, the
+/// project file's extension lowercased. The Workspace window, the startup project list and the NuGet node treat them
+/// alike.
+pub const MSBUILD_KINDS: [&str; 3] = ["csproj", "vbproj", "fsproj"];
+
+/// The `kind` of an MSBuild project file from its extension (`.csproj`, `.vbproj` or `.fsproj`, any case); `None`
+/// for anything else.
+pub fn msbuild_kind(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?;
+    MSBUILD_KINDS
+        .iter()
+        .copied()
+        .find(|k| k.eq_ignore_ascii_case(ext))
+}
 
 /// One Cargo target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,9 +50,9 @@ pub struct WorkspaceTarget {
 pub struct WorkspaceProject {
     pub name: String,
     pub path: String,
-    /// `csproj`, `cargo` or `folder`.
+    /// `csproj`, `vbproj`, `fsproj` (an MSBuild project, [`MSBUILD_KINDS`]), `cargo` or `folder`.
     pub kind: String,
-    /// `sdk` or `legacy`, for kind csproj.
+    /// `sdk` or `legacy`, for the MSBuild kinds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub msbuild: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,9 +69,16 @@ pub struct WorkspaceProject {
     /// The startup project (brief 0020): `Some(true)` on that one project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub startup: Option<bool>,
-    /// For kind csproj: Visual Studio's Dependencies node (brief 0048).
+    /// For the MSBuild kinds: Visual Studio's Dependencies node (brief 0048).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependency_tree: Option<DependencyTree>,
+}
+
+impl WorkspaceProject {
+    /// True for an MSBuild project of any language ([`MSBUILD_KINDS`]).
+    pub fn is_msbuild(&self) -> bool {
+        MSBUILD_KINDS.contains(&self.kind.as_str())
+    }
 }
 
 /// A package of a [`DependencyTree`].
@@ -188,6 +211,42 @@ mod tests {
                         }),
                     },
                     WorkspaceProject {
+                        name: "Corpus.VisualBasic".into(),
+                        path: "/w/corpus/tests/Corpus.VisualBasic/Corpus.VisualBasic.vbproj".into(),
+                        kind: msbuild_kind(Path::new(
+                            "/w/corpus/tests/Corpus.VisualBasic/Corpus.VisualBasic.vbproj",
+                        ))
+                        .unwrap()
+                        .into(),
+                        msbuild: Some("sdk".into()),
+                        target_frameworks: Some(vec!["net10.0".into()]),
+                        version: None,
+                        targets: None,
+                        dependencies: None,
+                        files: vec!["/w/corpus/tests/Corpus.VisualBasic/ParserTests.vb".into()],
+                        error: None,
+                        startup: Some(true),
+                        dependency_tree: None,
+                    },
+                    WorkspaceProject {
+                        name: "Corpus.FSharp".into(),
+                        path: "/w/corpus/tests/Corpus.FSharp/Corpus.FSharp.fsproj".into(),
+                        kind: msbuild_kind(Path::new(
+                            "/w/corpus/tests/Corpus.FSharp/Corpus.FSharp.FSPROJ",
+                        ))
+                        .unwrap()
+                        .into(),
+                        msbuild: Some("sdk".into()),
+                        target_frameworks: Some(vec!["net10.0".into()]),
+                        version: None,
+                        targets: None,
+                        dependencies: None,
+                        files: vec!["/w/corpus/tests/Corpus.FSharp/Tests.fs".into()],
+                        error: None,
+                        startup: None,
+                        dependency_tree: None,
+                    },
+                    WorkspaceProject {
                         name: "eludite-editor".into(),
                         path: "/w/crates/editor/Cargo.toml".into(),
                         kind: "cargo".into(),
@@ -210,8 +269,17 @@ mod tests {
         )
         .unwrap();
         let all = r.invoke(WORKSPACE_TREE, json!({})).unwrap();
-        assert_eq!(all["projects"].as_array().unwrap().len(), 2);
-        assert_eq!(all["projects"][1]["targets"][0]["kind"], "lib");
+        assert_eq!(all["projects"].as_array().unwrap().len(), 4);
+        // Brief 0063: the MSBuild kinds follow the project file's extension, lowercased.
+        let kinds: Vec<&str> = all["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["kind"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, ["csproj", "vbproj", "fsproj", "cargo"]);
+        assert_eq!(all["projects"][1]["startup"], true);
+        assert_eq!(all["projects"][3]["targets"][0]["kind"], "lib");
         let one = r
             .invoke(WORKSPACE_TREE, json!({"project": "eludite-editor"}))
             .unwrap();
@@ -229,5 +297,42 @@ mod tests {
             let kinds = item["kind"]["enum"].as_array().unwrap();
             assert!(kinds.contains(&p["kind"]));
         }
+        let schema_kinds = item["kind"]["enum"].as_array().unwrap();
+        for k in MSBUILD_KINDS {
+            assert!(schema_kinds.contains(&json!(k)), "{k} is in the schema");
+        }
+    }
+
+    #[test]
+    fn msbuild_kinds_come_from_the_extension() {
+        assert_eq!(msbuild_kind(Path::new("/s/App/App.csproj")), Some("csproj"));
+        assert_eq!(msbuild_kind(Path::new("/s/App/App.vbproj")), Some("vbproj"));
+        assert_eq!(msbuild_kind(Path::new("C:\\s\\App.FsProj")), Some("fsproj"));
+        assert_eq!(msbuild_kind(Path::new("/s/App/Cargo.toml")), None);
+        assert_eq!(msbuild_kind(Path::new("/s/App.sln")), None);
+        assert_eq!(msbuild_kind(Path::new("/s/folder")), None);
+        let mut p = WorkspaceProject {
+            name: "A".into(),
+            path: "/s/A/A.fsproj".into(),
+            kind: "fsproj".into(),
+            msbuild: None,
+            target_frameworks: None,
+            version: None,
+            targets: None,
+            dependencies: None,
+            files: vec![],
+            error: None,
+            startup: None,
+            dependency_tree: None,
+        };
+        assert!(p.is_msbuild());
+        p.kind = "vbproj".into();
+        assert!(p.is_msbuild());
+        p.kind = "csproj".into();
+        assert!(p.is_msbuild());
+        p.kind = "cargo".into();
+        assert!(!p.is_msbuild());
+        p.kind = "folder".into();
+        assert!(!p.is_msbuild());
     }
 }

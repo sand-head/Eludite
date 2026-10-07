@@ -13,20 +13,39 @@
 //! forwards Claude Code's), else the context `53k of 200k tokens in context`; a later update of the same turn replaces it.
 //! `toggle_breakpoint`'s compact answer reads `Toggle Breakpoint → added at Program.cs:13`.
 //!
+//! Brief 0057: the agent's slash commands ([`Transcript::commands`]) are kept from its latest
+//! `available_commands_update`, a new list replacing the old one in full; they make no row (the prompt box's slash
+//! menu offers them, and `eludite.agents.*`'s state output lists them).
+//!
+//! Brief 0059: the person's prompts carry the local time they were sent; a thought records when its first and last
+//! chunks came, so its collapsed line reads `Thinking…` while it streams and `Thought for 4 s` after
+//! ([`ThoughtRow::label`]); a tool call's row is collapsed by default ([`ToolRow::expanded`]) and named by the
+//! adapter's title ([`ToolRow::name`], the tool's own name in [`ToolRow::tool_name`]); the session's latest usage is
+//! kept for the usage strip ([`Transcript::usage`]) until a new session starts ([`Transcript::new_session`]).
+//!
+//! Brief 0061: [`Transcript::from_json`] rebuilds the rows from the record [`Transcript::to_json`] writes (a session
+//! kept in the per-workspace store): the prompts with their time (the record now carries it, and a thought its length
+//! in seconds), the agent's Markdown, the thoughts collapsed, the tool calls as completed, denied or failed with their
+//! arguments, result and note, the change links read from the note (`Change #3 Program.cs: accepted`), the plans,
+//! the usage lines and the notices. A restored tool row keeps its record ([`ToolRow::restored`]), so the record of a
+//! rebuilt transcript is the record it came from, and it is never audited again. [`Transcript::replay`] builds rows
+//! from what an agent replays on `session/load` when the shell has no record.
+//!
 //! Brief 0024: a tool call whose result carries images (an `eludite.browser.screenshot` the agent took, or image
 //! content in the agent's own tool results) shows them as thumbnails in its row ([`Thumb`], at most
 //! [`THUMB_WIDTH`] pixels wide, decoded and scaled off the UI thread by [`decode_thumb`]).
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use eludite_acp::protocol::{
-    PermissionOption, PlanEntry, RequestPermissionRequest, SessionUpdate, ToolCall, ToolCallStatus,
-    Usage,
+    AvailableCommand, PermissionOption, PlanEntry, RequestPermissionRequest, SessionUpdate,
+    ToolCall, ToolCallStatus, Usage,
 };
 use eludite_commands::PermissionClass;
 use eludite_ui::markdown::{self, Block};
-use eludite_ui::transcript::ToolStatus;
+use eludite_ui::transcript::{ToolStatus, money, tokens};
 use serde_json::{Value, json};
 
 /// What became of a tool call's permission request.
@@ -452,12 +471,28 @@ pub struct ToolRow {
     pub audit: Option<u64>,
     /// Images its result carried, as thumbnails.
     pub images: Vec<Thumb>,
-    /// A debug command's result (the summary the agent received) is shown (brief 0027; folded by default).
+    /// The card shows its arguments and result (brief 0059; collapsed by default). A debug command's row (brief 0027)
+    /// shows the summary the agent received under its line by the same state, through its "Show snapshot" link.
     pub expanded: bool,
+    /// The record this row was rebuilt from (brief 0061): its status, note and debug line come from it, and so does
+    /// its record. `None` for a row of a live session.
+    pub restored: Option<Box<Value>>,
 }
 
 impl ToolRow {
+    /// What the card's line says (brief 0059): the title the adapter gave (`ls`, `Read Program.cs`), else the tool's
+    /// name.
     pub fn name(&self) -> String {
+        self.call
+            .title
+            .clone()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| self.tool_name())
+    }
+
+    /// The tool's own name (`Bash`, `mcp__eludite__diagnostics-list`), else its title: what the audit records and the
+    /// card's tooltip says.
+    pub fn tool_name(&self) -> String {
         self.call
             .agent_tool_name()
             .map(str::to_owned)
@@ -465,8 +500,16 @@ impl ToolRow {
             .unwrap_or_else(|| self.call.tool_call_id.clone())
     }
 
-    /// The status the transcript shows (brief 0016 Contract).
+    /// The status the transcript shows (brief 0016 Contract). A restored row (brief 0061) is denied, failed or
+    /// completed, as its record says.
     pub fn status(&self) -> ToolStatus {
+        if let Some(r) = &self.restored {
+            return match r["status"].as_str() {
+                Some("denied") => ToolStatus::Denied,
+                Some("failed") => ToolStatus::Failed,
+                _ => ToolStatus::Completed,
+            };
+        }
         match &self.permission {
             Some(Permission::Asked { .. }) => return ToolStatus::AwaitingPermission,
             Some(Permission::Denied { .. }) => return ToolStatus::Denied,
@@ -489,6 +532,9 @@ impl ToolRow {
 
     /// The note under the card: how permission was decided, the command and audit entry, the changes.
     pub fn note(&self) -> Option<String> {
+        if let Some(r) = &self.restored {
+            return r["note"].as_str().map(str::to_owned);
+        }
         let mut parts = Vec::new();
         match &self.permission {
             Some(Permission::Allowed { auto: true, reason }) => {
@@ -530,6 +576,38 @@ impl ToolRow {
     }
 }
 
+impl ToolRow {
+    /// An Eludite debug command's line (brief 0027): from the MCP call that served it, or from a restored row's
+    /// record.
+    pub fn debug_line(&self) -> Option<DebugLine> {
+        if let Some(d) = self.mcp.as_ref().and_then(|m| m.debug.clone()) {
+            return Some(d);
+        }
+        let r = self.restored.as_ref()?;
+        Some(DebugLine {
+            text: r["debug"].as_str()?.to_owned(),
+            location: r["debug_location"]["path"].as_str().map(|p| {
+                (
+                    p.to_owned(),
+                    r["debug_location"]["line"].as_u64().unwrap_or(1) as u32,
+                )
+            }),
+        })
+    }
+}
+
+/// The changes a note names (`Change #3 Program.cs: accepted`), as a row's `changes`: (id, file name, state).
+fn changes_in_note(note: &str) -> Vec<(u64, String, String)> {
+    note.split(" \u{2022} ")
+        .filter_map(|part| {
+            let rest = part.strip_prefix("Change #")?;
+            let (id, rest) = rest.split_once(' ')?;
+            let (name, state) = rest.rsplit_once(": ")?;
+            Some((id.parse().ok()?, name.to_owned(), state.to_owned()))
+        })
+        .collect()
+}
+
 fn suffix(reason: &str) -> String {
     if reason.is_empty() {
         String::new()
@@ -540,19 +618,62 @@ fn suffix(reason: &str) -> String {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Row {
-    User(String),
+    /// The person's prompt and the local time it was sent (`14:02`).
+    User {
+        text: String,
+        time: String,
+    },
     /// One top-level Markdown block of agent text.
     Agent(AgentText),
-    Thought {
-        text: String,
-        expanded: bool,
-    },
+    Thought(ThoughtRow),
     Tool(Box<ToolRow>),
     Plan(Vec<PlanEntry>),
     /// The turn's usage (brief 0034).
     Usage(TurnUsage),
     Notice(String),
     Error(String),
+}
+
+/// The agent's thinking (brief 0059): its text, whether it is shown, and when its first and last chunks came.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThoughtRow {
+    pub text: String,
+    pub expanded: bool,
+    pub first: Instant,
+    pub last: Instant,
+    /// Another row followed it or the turn ended.
+    pub done: bool,
+}
+
+impl ThoughtRow {
+    /// How long the agent thought, from its first chunk to its last.
+    pub fn duration(&self) -> Duration {
+        self.last.duration_since(self.first)
+    }
+
+    /// The collapsed line: `Thinking…` while it streams, `Thought for 4 s` after (at least 1 s).
+    pub fn label(&self) -> String {
+        if self.done {
+            format!(
+                "Thought for {} s",
+                self.duration().as_secs_f64().round().max(1.) as u64
+            )
+        } else {
+            "Thinking\u{2026}".into()
+        }
+    }
+}
+
+/// The local time of day as `14:02`. The UTC offset comes from libgit2 (`git_signature_now` reads the system's
+/// time zone), which the shell already links through `eludite-git`; without it the time is UTC.
+pub fn local_time() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    let offset = eludite_git::git2::Signature::now("eludite", "eludite@localhost")
+        .map_or(0, |s| s.when().offset_minutes());
+    let minutes = (now + i64::from(offset) * 60).rem_euclid(86_400) / 60;
+    format!("{:02}:{:02}", minutes / 60, minutes % 60)
 }
 
 /// One top-level block of the agent's Markdown: its source, exactly as streamed (with the blank lines after it), and
@@ -580,20 +701,6 @@ pub struct TurnUsage {
     pub cost: Option<(f64, String)>,
 }
 
-/// `1234` as `1.2k`, `259826` as `260k`, `1500000` as `1.5M`.
-fn tokens(n: u64) -> String {
-    let n = n as f64;
-    if n < 1e3 {
-        format!("{n}")
-    } else if n < 1e4 {
-        format!("{:.1}k", n / 1e3)
-    } else if n < 1e6 {
-        format!("{:.0}k", n / 1e3)
-    } else {
-        format!("{:.1}M", n / 1e6)
-    }
-}
-
 impl TurnUsage {
     /// The line under the turn.
     pub fn text(&self) -> String {
@@ -616,13 +723,28 @@ impl TurnUsage {
             None => format!("context: {} tokens", tokens(u.used)),
         };
         if let Some((amount, currency)) = &self.cost {
-            if currency == "USD" {
-                s.push_str(&format!(", ${amount:.2}"));
-            } else {
-                s.push_str(&format!(", {amount:.2} {currency}"));
-            }
+            s.push_str(", ");
+            s.push_str(&money(*amount, currency));
         }
         s
+    }
+
+    /// The line as the transcript draws it under its turn (brief 0059): `260k in · 2.9k out · $0.17`, else the
+    /// context as [`TurnUsage::text`] says it.
+    pub fn short(&self) -> String {
+        let u = &self.usage;
+        let mut parts = match &u.turn {
+            Some(t) => vec![
+                format!("{} in", tokens(t.input_total())),
+                format!("{} out", tokens(t.output_tokens)),
+            ],
+            None if u.size > 0 => vec![format!("{} of {} tokens", tokens(u.used), tokens(u.size))],
+            None => vec![format!("{} tokens", tokens(u.used))],
+        };
+        if let Some((amount, currency)) = &self.cost {
+            parts.push(money(*amount, currency));
+        }
+        parts.join(" \u{B7} ")
     }
 
     /// The record's form (`--transcript-out`).
@@ -683,6 +805,14 @@ pub struct Transcript {
     usage_row: Option<usize>,
     /// The agent's running cost at the end of the previous turn.
     cost_before: Option<f64>,
+    /// The agent's slash commands, from its latest `available_commands_update` (brief 0057).
+    pub commands: Vec<AvailableCommand>,
+    /// The session's latest usage, for the usage strip (brief 0059).
+    pub usage: Option<TurnUsage>,
+    /// The thought row still receiving text, if any.
+    thought_row: Option<usize>,
+    /// The last row is a prompt an agent's replay is still sending (brief 0061).
+    user_open: bool,
 }
 
 impl Transcript {
@@ -691,10 +821,37 @@ impl Transcript {
     }
 
     fn push(&mut self, row: Row) {
+        self.user_open = false;
         self.close_agent();
-        self.thought_open = false;
+        self.close_thought();
         self.mark(self.rows.len());
         self.rows.push(row);
+    }
+
+    /// The open thought ended: its line says how long it took.
+    fn close_thought(&mut self) {
+        self.thought_open = false;
+        if let Some(ix) = self.thought_row.take()
+            && let Some(Row::Thought(t)) = self.rows.get_mut(ix)
+        {
+            t.done = true;
+            self.mark(ix);
+        }
+    }
+
+    /// The turn ended: the open agent block and thought are complete.
+    pub fn end_turn(&mut self) {
+        self.close_agent();
+        self.close_thought();
+    }
+
+    /// A new agent session starts (Start, Restart): its slash commands and usage are its own.
+    pub fn new_session(&mut self) {
+        self.end_turn();
+        self.commands.clear();
+        self.usage = None;
+        self.usage_row = None;
+        self.cost_before = None;
     }
 
     /// What changed since the last call, for `ListState::splice`.
@@ -711,7 +868,10 @@ impl Transcript {
 
     pub fn user(&mut self, text: &str) {
         self.end_turn_usage();
-        self.push(Row::User(text.to_owned()));
+        self.push(Row::User {
+            text: text.to_owned(),
+            time: local_time(),
+        });
     }
 
     /// A new turn: the last one's running cost is the base of the next one's.
@@ -729,7 +889,9 @@ impl Transcript {
         let cost = usage.cost.clone().map(|(amount, currency)| {
             ((amount - self.cost_before.unwrap_or(0.)).max(0.), currency)
         });
-        let row = Row::Usage(TurnUsage { usage, cost });
+        let turn = TurnUsage { usage, cost };
+        self.usage = Some(turn.clone());
+        let row = Row::Usage(turn);
         match self.usage_row.filter(|ix| *ix < self.rows.len()) {
             Some(ix) => {
                 self.rows[ix] = row;
@@ -805,24 +967,30 @@ impl Transcript {
     }
 
     fn thought_text(&mut self, text: &str) {
+        let now = Instant::now();
         if self.thought_open
-            && let Some(Row::Thought { text: last, .. }) = self.rows.last_mut()
+            && let Some(Row::Thought(last)) = self.rows.last_mut()
         {
-            last.push_str(text);
+            last.text.push_str(text);
+            last.last = now;
             self.mark(self.rows.len() - 1);
         } else {
-            self.push(Row::Thought {
+            self.push(Row::Thought(ThoughtRow {
                 text: text.to_owned(),
                 expanded: false,
-            });
+                first: now,
+                last: now,
+                done: false,
+            }));
             self.thought_open = true;
+            self.thought_row = Some(self.rows.len() - 1);
         }
     }
 
     /// Expand or collapse the thinking block at `ix`.
     pub fn toggle_thought(&mut self, ix: usize) {
-        if let Some(Row::Thought { expanded, .. }) = self.rows.get_mut(ix) {
-            *expanded = !*expanded;
+        if let Some(Row::Thought(t)) = self.rows.get_mut(ix) {
+            t.expanded = !t.expanded;
             self.mark(ix);
         }
     }
@@ -842,12 +1010,14 @@ impl Transcript {
             audit: None,
             images: Vec::new(),
             expanded: false,
+            restored: None,
         })));
         ix
     }
 
-    /// Show or fold the result of the debug command in row `ix` (brief 0027).
-    pub fn toggle_result(&mut self, ix: usize) {
+    /// Expand or collapse the tool call card at `ix` (brief 0059); for a debug command's row, show or fold the
+    /// summary the agent received (brief 0027).
+    pub fn toggle_tool(&mut self, ix: usize) {
         if let Some(row) = self.tool_mut(ix) {
             row.expanded = !row.expanded;
         }
@@ -891,12 +1061,16 @@ impl Transcript {
                 }
                 let ix = self.tool_index(t);
                 if known && let Some(row) = self.tool_mut(ix) {
+                    // A live update makes a restored row live again (brief 0061).
+                    row.restored = None;
                     row.call.apply(t.clone());
                 }
             }
             other => {
                 if let Some(usage) = other.usage() {
                     self.usage(usage);
+                } else if let Some(commands) = other.available_commands() {
+                    self.commands = commands;
                 } else if let Some(entries) = other.plan_entries() {
                     // A plan replaces the previous one when it is the last row.
                     if let Some(Row::Plan(last)) = self.rows.last_mut() {
@@ -1002,9 +1176,9 @@ impl Transcript {
     /// The agent's own tool calls that ended (completed or failed) and have no audit entry yet.
     pub fn unaudited(&self) -> Vec<EndedTool> {
         self.tools()
-            .filter(|t| t.audit.is_none() && t.mcp.is_none())
+            .filter(|t| t.audit.is_none() && t.mcp.is_none() && t.restored.is_none())
             .filter(|t| {
-                !t.name()
+                !t.tool_name()
                     .starts_with(&format!("mcp__{}__", super::endpoint::MCP_SERVER_NAME))
             })
             .filter_map(|t| {
@@ -1015,7 +1189,7 @@ impl Transcript {
                 };
                 Some(EndedTool {
                     id: t.call.tool_call_id.clone(),
-                    name: t.name(),
+                    name: t.tool_name(),
                     kind: t.call.kind.clone(),
                     input: t.call.raw_input.clone(),
                     ok,
@@ -1122,14 +1296,38 @@ impl Transcript {
             }
             flush(&mut agent, &mut out);
             out.push(match r {
-                Row::User(t) => json!({"user": t}),
-                Row::Thought { text, .. } => json!({"thought": text}),
+                Row::User { text, time } => {
+                    let mut map = serde_json::Map::new();
+                    map.insert("user".into(), Value::String(text.clone()));
+                    map.insert("time".into(), Value::String(time.clone()));
+                    Value::Object(map)
+                }
+                Row::Thought(t) => {
+                    json!({"thought": t.text, "seconds": t.duration().as_secs_f64().round() as u64})
+                }
+                Row::Tool(t) if t.restored.is_some() => {
+                    let mut call = (**t.restored.as_ref().expect("restored")).clone();
+                    call["expanded"] = json!(t.expanded);
+                    json!({ "tool_call": call })
+                }
                 Row::Tool(t) => {
-                    let mut call = json!({
-                        "id": t.call.tool_call_id, "tool": t.name(), "kind": t.call.kind,
-                        "status": t.status().label(), "arguments": t.call.raw_input,
-                        "result": t.call.content_text(), "note": t.note()
-                    });
+                    // Built member by member: `json!` would serialize the arguments' value into a new one (brief
+                    // 0061 writes the record every 2 s while a session changes).
+                    let opt = |v: Option<String>| v.map_or(Value::Null, Value::String);
+                    let mut map = serde_json::Map::new();
+                    map.insert("id".into(), Value::String(t.call.tool_call_id.clone()));
+                    map.insert("tool".into(), Value::String(t.tool_name()));
+                    map.insert("title".into(), Value::String(t.name()));
+                    map.insert("kind".into(), opt(t.call.kind.clone()));
+                    map.insert("status".into(), Value::from(t.status().label()));
+                    map.insert(
+                        "arguments".into(),
+                        t.call.raw_input.clone().unwrap_or(Value::Null),
+                    );
+                    map.insert("result".into(), Value::String(t.call.content_text()));
+                    map.insert("note".into(), opt(t.note()));
+                    map.insert("expanded".into(), Value::Bool(t.expanded));
+                    let mut call = Value::Object(map);
                     if let Some(d) = t.mcp.as_ref().and_then(|m| m.debug.as_ref()) {
                         call["debug"] = json!(d.text);
                         if let Some((path, line)) = &d.location {
@@ -1158,6 +1356,133 @@ impl Transcript {
         }
         flush(&mut agent, &mut out);
         Value::Array(out)
+    }
+
+    /// The transcript [`Transcript::to_json`] recorded (brief 0061): every row rebuilt, the agent's text split into its
+    /// Markdown blocks again, the thoughts collapsed, the tool rows with their record ([`ToolRow::restored`]), the last
+    /// usage line the usage strip's. Entries it does not know are skipped. Its record is `record`.
+    pub fn from_json(record: &Value) -> Transcript {
+        let mut t = Transcript::default();
+        let now = Instant::now();
+        for entry in record.as_array().into_iter().flatten() {
+            let str_of = |k: &str| entry.get(k).and_then(Value::as_str);
+            if let Some(text) = str_of("user") {
+                t.end_turn_usage();
+                t.push(Row::User {
+                    text: text.to_owned(),
+                    time: str_of("time").unwrap_or_default().to_owned(),
+                });
+            } else if let Some(text) = str_of("agent") {
+                t.agent_text(text);
+                t.close_agent();
+            } else if let Some(text) = str_of("thought") {
+                let secs = entry.get("seconds").and_then(Value::as_u64).unwrap_or(0);
+                let first = now.checked_sub(Duration::from_secs(secs)).unwrap_or(now);
+                t.push(Row::Thought(ThoughtRow {
+                    text: text.to_owned(),
+                    expanded: false,
+                    first,
+                    last: first + Duration::from_secs(secs),
+                    done: true,
+                }));
+            } else if let Some(call) = entry.get("tool_call").filter(|c| c.is_object()) {
+                let id = call["id"].as_str().unwrap_or_default().to_owned();
+                let content = call["result"].as_str().filter(|r| !r.is_empty()).map(|r| {
+                    vec![json!({"type": "content", "content": {"type": "text", "text": r}})]
+                });
+                let tool = call["tool"].as_str().unwrap_or_default();
+                let row = ToolRow {
+                    call: ToolCall {
+                        tool_call_id: id.clone(),
+                        title: call["title"].as_str().map(str::to_owned),
+                        kind: call["kind"].as_str().map(str::to_owned),
+                        status: Some(match call["status"].as_str() {
+                            Some("failed") => ToolCallStatus::Failed,
+                            _ => ToolCallStatus::Completed,
+                        }),
+                        content,
+                        raw_input: Some(call["arguments"].clone()).filter(|a| !a.is_null()),
+                        raw_output: None,
+                        meta: Some(json!({"claudeCode": {"toolName": tool}})),
+                    },
+                    permission: None,
+                    options: Vec::new(),
+                    mcp: None,
+                    changes: call["note"]
+                        .as_str()
+                        .map(changes_in_note)
+                        .unwrap_or_default(),
+                    audit: None,
+                    images: Vec::new(),
+                    expanded: call["expanded"].as_bool().unwrap_or(false),
+                    restored: Some(Box::new(call.clone())),
+                };
+                t.tools.insert(id, t.rows.len());
+                t.push(Row::Tool(Box::new(row)));
+            } else if let Some(entries) = entry.get("plan") {
+                if let Ok(entries) = serde_json::from_value::<Vec<PlanEntry>>(entries.clone()) {
+                    t.push(Row::Plan(entries));
+                }
+            } else if let Some(u) = entry.get("usage").filter(|u| u.is_object()) {
+                let num = |k: &str| u.get(k).and_then(Value::as_u64);
+                let money = |v: &Value| {
+                    Some((
+                        v.get("amount")?.as_f64()?,
+                        v.get("currency")?.as_str()?.to_owned(),
+                    ))
+                };
+                let turn =
+                    num("input_tokens").map(|input_tokens| eludite_acp::protocol::TurnTokens {
+                        input_tokens,
+                        cached_read_tokens: num("cached_read_tokens").unwrap_or(0),
+                        cached_write_tokens: num("cached_write_tokens").unwrap_or(0),
+                        output_tokens: num("output_tokens").unwrap_or(0),
+                        thought_tokens: num("thought_tokens"),
+                        model: u.get("model").and_then(Value::as_str).map(str::to_owned),
+                    });
+                let turn = TurnUsage {
+                    usage: Usage {
+                        used: num("used").unwrap_or(0),
+                        size: num("size").unwrap_or(0),
+                        cost: u.get("session_cost").and_then(money),
+                        turn,
+                    },
+                    cost: u.get("cost").and_then(money),
+                };
+                t.usage = Some(turn.clone());
+                t.cost_before = turn.usage.cost.as_ref().map(|(amount, _)| *amount);
+                t.push(Row::Usage(turn));
+            } else if let Some(text) = str_of("notice") {
+                t.notice(text);
+            } else if let Some(text) = str_of("error") {
+                t.error(text);
+            }
+        }
+        t.end_turn();
+        t
+    }
+
+    /// What an agent replays on `session/load` (brief 0061), when the shell has no record of the session: its prompts
+    /// as prompt rows (no time), everything else as [`Transcript::apply`] shows it.
+    pub fn replay(&mut self, update: &SessionUpdate) {
+        let SessionUpdate::UserMessageChunk(c) = update else {
+            return self.apply(update);
+        };
+        let Some(text) = c.as_text() else {
+            return;
+        };
+        if self.user_open
+            && let Some(Row::User { text: last, .. }) = self.rows.last_mut()
+        {
+            last.push_str(text);
+            self.mark(self.rows.len() - 1);
+        } else {
+            self.push(Row::User {
+                text: text.to_owned(),
+                time: String::new(),
+            });
+            self.user_open = true;
+        }
     }
 }
 
@@ -1311,15 +1636,71 @@ pub(crate) mod tests {
         for piece in ["Let me ", "think."] {
             t.apply(&SessionUpdate::AgentThoughtChunk(ContentBlock::text(piece)));
         }
-        assert_eq!(
-            t.rows,
-            [Row::Thought {
-                text: "Let me think.".into(),
-                expanded: false
-            }]
-        );
+        assert_eq!(t.rows.len(), 1);
+        let Row::Thought(row) = &t.rows[0] else {
+            panic!("{:?}", t.rows[0]);
+        };
+        assert_eq!(row.text, "Let me think.");
+        assert!(!row.expanded);
+        // Brief 0059: `Thinking…` while it streams.
+        assert_eq!(row.label(), "Thinking\u{2026}");
         t.toggle_thought(0);
-        assert!(matches!(t.rows[0], Row::Thought { expanded: true, .. }));
+        assert!(matches!(&t.rows[0], Row::Thought(r) if r.expanded));
+        // The agent's text after it ends the thought: its line says how long it took (at least a second).
+        t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
+            "Done.",
+        )));
+        let Row::Thought(row) = &t.rows[0] else {
+            panic!()
+        };
+        assert!(row.done);
+        assert_eq!(row.label(), "Thought for 1 s");
+        let four = ThoughtRow {
+            last: row.first + Duration::from_millis(4_400),
+            ..row.clone()
+        };
+        assert_eq!(four.label(), "Thought for 4 s");
+        // A thought that is the turn's last row ends with the turn.
+        t.apply(&SessionUpdate::AgentThoughtChunk(ContentBlock::text(
+            "More.",
+        )));
+        assert!(matches!(t.rows.last(), Some(Row::Thought(r)) if !r.done));
+        t.end_turn();
+        assert!(matches!(t.rows.last(), Some(Row::Thought(r)) if r.done));
+    }
+
+    #[test]
+    fn prompts_carry_their_time_and_cards_their_title() {
+        let mut t = Transcript::default();
+        t.user("hi");
+        let Row::User { text, time } = &t.rows[0] else {
+            panic!()
+        };
+        assert_eq!(text, "hi");
+        assert_eq!(time.len(), 5, "{time}");
+        assert_eq!(&time[2..3], ":");
+        assert_eq!(t.to_json()[0], json!({"user": "hi", "time": time}));
+        // The card says the adapter's title; the audit and the record's `tool` keep the tool's own name.
+        let mut ls = call("l", "Bash");
+        ls.title = Some("ls".into());
+        ls.kind = Some("execute".into());
+        t.apply(&SessionUpdate::ToolCall(ls));
+        let row = t.tool("l").unwrap();
+        assert_eq!(row.name(), "ls");
+        assert_eq!(row.tool_name(), "Bash");
+        assert!(!row.expanded);
+        let ix = t.rows.len() - 1;
+        t.toggle_tool(ix);
+        let record = t.to_json();
+        let card = &record.as_array().unwrap().last().unwrap()["tool_call"];
+        assert_eq!(card["tool"], "Bash");
+        assert_eq!(card["title"], "ls");
+        assert_eq!(card["expanded"], true);
+        // A call without a title is named by its tool.
+        let mut bare = call("b", "Read");
+        bare.title = None;
+        t.apply(&SessionUpdate::ToolCall(bare));
+        assert_eq!(t.tool("b").unwrap().name(), "Read");
     }
 
     #[test]
@@ -1582,6 +1963,23 @@ pub(crate) mod tests {
             t.rows.iter().filter(|r| matches!(r, Row::Usage(_))).count(),
             2
         );
+        // Brief 0059: the strip reads the session's latest update; the row draws the short form.
+        let latest = t.usage.clone().unwrap();
+        assert_eq!(latest.usage.used, 53_000);
+        assert_eq!(latest.usage.cost, Some((1.2012, "USD".into())));
+        assert_eq!(latest.short(), "53k of 200k tokens \u{B7} $0.25");
+        match &t.rows[t.rows.len() - 1] {
+            Row::Usage(u) => assert_eq!(u.short(), "53k of 200k tokens \u{B7} $0.25"),
+            other => panic!("{other:?}"),
+        }
+        // A new session starts with no usage and its own running cost.
+        t.new_session();
+        assert!(t.usage.is_none());
+        t.apply(&usage_update(eludite_acp::fake_agent::stream_usage()));
+        assert_eq!(
+            t.usage.as_ref().unwrap().short(),
+            "260k in \u{B7} 2.9k out \u{B7} $0.95"
+        );
     }
 
     /// Brief 0041: an agent's terminal commands read as what it typed and what came back.
@@ -1621,5 +2019,291 @@ pub(crate) mod tests {
             l.text
                 .starts_with("Terminal send refused: the person typed")
         );
+    }
+
+    #[test]
+    fn the_latest_command_list_replaces_the_last_one_and_makes_no_row() {
+        let mut t = Transcript::default();
+        t.apply(&usage_update(json!({
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": eludite_acp::fake_agent::stream_commands()
+        })));
+        let names = |t: &Transcript| {
+            t.commands
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&t), ["compact", "model"]);
+        assert_eq!(
+            t.commands[0].hint(),
+            Some("<optional custom summarization instructions>")
+        );
+        assert!(t.rows.is_empty());
+        t.apply(&usage_update(json!({
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [{"name": "clear", "description": "Clear the conversation"}]
+        })));
+        assert_eq!(names(&t), ["clear"]);
+        t.apply(&usage_update(json!({
+            "sessionUpdate": "available_commands_update", "availableCommands": []
+        })));
+        assert!(t.commands.is_empty());
+        assert!(t.rows.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod record_tests {
+    use super::tests::png;
+    use super::*;
+    use eludite_acp::protocol::ContentBlock;
+
+    /// A transcript with every kind of row: prompts, Markdown, a thought, tool calls (completed with an MCP link and a
+    /// debug line, denied, failed, with a change and a thumbnail), a plan, a usage line, a notice and an error.
+    fn rich() -> Transcript {
+        let mut t = Transcript::default();
+        t.notice("Starting Fake agent");
+        t.user("Fix the\nfailing test");
+        t.apply(&SessionUpdate::AgentThoughtChunk(ContentBlock::text(
+            "Let me look.",
+        )));
+        t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
+            "## Plan\n\nI will read `a.rs`.\n\n```rust\nfn a() {}\n```\n",
+        )));
+        let plan: SessionUpdate =
+            serde_json::from_value(json!({"sessionUpdate": "plan", "entries": [
+            {"content": "Read", "priority": "high", "status": "completed"},
+            {"content": "Fix", "priority": "high", "status": "in_progress"}]}))
+            .unwrap();
+        t.apply(&plan);
+        let mut read = ToolCall {
+            tool_call_id: "r".into(),
+            title: Some("Step over".into()),
+            kind: Some("execute".into()),
+            status: Some(ToolCallStatus::Completed),
+            raw_input: Some(json!({"session": 1})),
+            meta: Some(
+                json!({"claudeCode": {"toolName": "mcp__eludite__eludite-debug-step_over"}}),
+            ),
+            ..Default::default()
+        };
+        read.content = Some(vec![
+            json!({"type": "content", "content": {"type": "text", "text": "stopped"}}),
+        ]);
+        t.apply(&SessionUpdate::ToolCall(read));
+        t.link_mcp(
+            Some("r"),
+            "eludite-debug-step_over",
+            McpLink {
+                command: "eludite.debug.step_over".into(),
+                class: PermissionClass::Execute,
+                ok: true,
+                ms: 3.25,
+                audit: 7,
+                debug: Some(DebugLine {
+                    text: "Step Over \u{2192} stopped at Program.cs:42 (breakpoint)".into(),
+                    location: Some(("/s/Program.cs".into(), 42)),
+                }),
+            },
+        );
+        let shell = ToolCall {
+            tool_call_id: "s".into(),
+            title: Some("rm -rf obj/".into()),
+            kind: Some("execute".into()),
+            raw_input: Some(json!({"command": "rm -rf obj/"})),
+            meta: Some(json!({"claudeCode": {"toolName": "Bash"}})),
+            ..Default::default()
+        };
+        t.apply(&SessionUpdate::ToolCall(shell));
+        let req: RequestPermissionRequest = serde_json::from_value(json!({
+            "sessionId": "x", "toolCall": {"toolCallId": "s"}, "options": []}))
+        .unwrap();
+        t.permission(
+            &req,
+            Permission::Denied {
+                auto: false,
+                reason: "Denied".into(),
+            },
+        );
+        let edit = ToolCall {
+            tool_call_id: "e".into(),
+            title: Some("Write Program.cs".into()),
+            kind: Some("edit".into()),
+            status: Some(ToolCallStatus::Completed),
+            meta: Some(json!({"claudeCode": {"toolName": "Write"}})),
+            ..Default::default()
+        };
+        t.apply(&SessionUpdate::ToolCall(edit));
+        t.change("e", 3, "/s/Program.cs", "accepted");
+        t.set_audit("e", 9);
+        let thumb = decode_thumb(&ImageData {
+            data: png(4, 2),
+            mime: "image/png".into(),
+        })
+        .unwrap();
+        t.add_thumbs("e", vec![thumb]);
+        let failed = ToolCall {
+            tool_call_id: "f".into(),
+            title: Some("Read missing.rs".into()),
+            kind: Some("read".into()),
+            status: Some(ToolCallStatus::Failed),
+            meta: Some(json!({"claudeCode": {"toolName": "Read"}})),
+            ..Default::default()
+        };
+        t.apply(&SessionUpdate::ToolCall(failed));
+        t.toggle_tool(t.rows.len() - 1);
+        let usage: SessionUpdate =
+            serde_json::from_value(eludite_acp::fake_agent::stream_usage()).unwrap();
+        t.apply(&usage);
+        t.end_turn();
+        t.error("The turn failed: boom");
+        t.user("Again");
+        t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
+            "Done.",
+        )));
+        t.end_turn();
+        t
+    }
+
+    /// Brief 0061: a transcript's record rebuilds into rows whose record is the same; the rows read as the shown ones
+    /// did (titles, statuses, notes, the debug line, the change links), thoughts collapsed and done, and no restored
+    /// call is audited again.
+    #[test]
+    fn a_record_rebuilds_the_rows_it_was_made_from() {
+        let t = rich();
+        let record = t.to_json();
+        let rebuilt = Transcript::from_json(&record);
+        assert_eq!(rebuilt.to_json(), record);
+        // And again: the round trip is stable.
+        assert_eq!(Transcript::from_json(&rebuilt.to_json()).to_json(), record);
+        assert_eq!(rebuilt.rows.len(), t.rows.len());
+        assert_eq!(rebuilt.agent_message(), t.agent_message());
+        for (a, b) in t.tools().zip(rebuilt.tools()) {
+            assert_eq!(a.name(), b.name());
+            assert_eq!(a.tool_name(), b.tool_name());
+            assert_eq!(a.note(), b.note());
+            assert_eq!(a.expanded, b.expanded);
+            assert_eq!(a.call.content_text(), b.call.content_text());
+            assert_eq!(a.debug_line(), b.debug_line());
+        }
+        let status = |id: &str| rebuilt.tool(id).unwrap().status();
+        assert_eq!(status("r"), ToolStatus::Completed);
+        assert_eq!(status("s"), ToolStatus::Denied);
+        assert_eq!(status("f"), ToolStatus::Failed);
+        assert_eq!(
+            rebuilt.tool("e").unwrap().changes,
+            [(3, "Program.cs".to_owned(), "accepted".to_owned())]
+        );
+        assert!(rebuilt.unaudited().is_empty());
+        assert!(rebuilt.asked().is_empty());
+        let Some(Row::User { text, time }) = rebuilt.rows.get(1) else {
+            panic!("{:?}", rebuilt.rows.get(1))
+        };
+        assert_eq!(text, "Fix the\nfailing test");
+        assert_eq!(time.len(), 5);
+        let thought = rebuilt
+            .rows
+            .iter()
+            .find_map(|r| match r {
+                Row::Thought(t) => Some(t),
+                _ => None,
+            })
+            .unwrap();
+        assert!(thought.done && !thought.expanded);
+        assert_eq!(thought.label(), "Thought for 1 s");
+        // The usage strip's numbers come back.
+        assert_eq!(rebuilt.usage, t.usage);
+        // A live update makes a restored row live again.
+        let mut live = rebuilt;
+        let update = ToolCall {
+            tool_call_id: "f".into(),
+            status: Some(ToolCallStatus::Completed),
+            ..Default::default()
+        };
+        live.apply(&SessionUpdate::ToolCallUpdate(update));
+        assert!(live.tool("f").unwrap().restored.is_none());
+        // Entries it does not know are skipped.
+        let odd =
+            Transcript::from_json(&json!([{"user": "hi", "time": "10:00"}, {"mystery": 1}, 3]));
+        assert_eq!(odd.rows.len(), 1);
+        assert!(
+            Transcript::from_json(&json!({"not": "a list"}))
+                .rows
+                .is_empty()
+        );
+    }
+
+    /// Brief 0061: an agent's replay builds rows when the shell has no record: the prompts (their chunks joined),
+    /// the answer, the tool calls.
+    #[test]
+    fn a_replay_builds_prompts_and_answers() {
+        let mut t = Transcript::default();
+        for u in [
+            SessionUpdate::UserMessageChunk(ContentBlock::text("Fix ")),
+            SessionUpdate::UserMessageChunk(ContentBlock::text("it")),
+            SessionUpdate::AgentMessageChunk(ContentBlock::text("Done.")),
+            SessionUpdate::UserMessageChunk(ContentBlock::text("Thanks")),
+        ] {
+            t.replay(&u);
+        }
+        t.end_turn();
+        let record = t.to_json();
+        assert_eq!(record[0], json!({"user": "Fix it", "time": ""}));
+        assert_eq!(record[1], json!({"agent": "Done."}));
+        assert_eq!(record[2]["user"], "Thanks");
+    }
+
+    /// Brief 0061's budget: a 2,000-row record rebuilds in under 50 ms in a debug build; it serializes in under 10 ms
+    /// (the brief's budget, for the shipped build: a debug build takes 11 to 12 ms on the 4-core VM of brief 0061's
+    /// report, so a debug run is held to twice it). Asserted while the machine is not loaded; printed always.
+    #[test]
+    fn a_two_thousand_row_record_serializes_and_rebuilds_within_budget() {
+        let mut t = Transcript::default();
+        let mut n = 0;
+        while t.rows.len() < 2000 {
+            n += 1;
+            t.user(&format!("Prompt {n}"));
+            t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
+                format!("Answer {n}: some **bold** text and `code`.\n\nA second paragraph.\n"),
+            )));
+            let call = ToolCall {
+                tool_call_id: format!("t{n}"),
+                title: Some(format!("Read file{n}.rs")),
+                kind: Some("read".into()),
+                status: Some(ToolCallStatus::Completed),
+                raw_input: Some(json!({"file_path": format!("/s/file{n}.rs")})),
+                content: Some(vec![
+                    json!({"type": "content", "content": {"type": "text", "text": "fn main() {}\n"}}),
+                ]),
+                meta: Some(json!({"claudeCode": {"toolName": "Read"}})),
+                ..Default::default()
+            };
+            t.apply(&SessionUpdate::ToolCall(call));
+            t.end_turn();
+        }
+        let started = Instant::now();
+        let record = t.to_json();
+        let serialize = started.elapsed();
+        let started = Instant::now();
+        let rebuilt = Transcript::from_json(&record);
+        let rebuild = started.elapsed();
+        assert_eq!(rebuilt.rows.len(), t.rows.len());
+        eprintln!(
+            "2000-row record: serialized in {:.2} ms, rebuilt in {:.2} ms",
+            serialize.as_secs_f64() * 1e3,
+            rebuild.as_secs_f64() * 1e3
+        );
+        let quiet = std::fs::read_to_string("/proc/loadavg")
+            .ok()
+            .and_then(|l| l.split_whitespace().next()?.parse::<f64>().ok())
+            .is_some_and(|load| {
+                load < std::thread::available_parallelism().map_or(1, |n| n.get()) as f64
+            });
+        if quiet {
+            let budget = if cfg!(debug_assertions) { 20 } else { 10 };
+            assert!(serialize < Duration::from_millis(budget), "{serialize:?}");
+            assert!(rebuild < Duration::from_millis(50), "{rebuild:?}");
+        }
     }
 }

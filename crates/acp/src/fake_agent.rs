@@ -30,14 +30,35 @@
 //! Brief 0034: the `stream` scenario ends its turn with a `usage_update` in
 //! eludite-claude-acp's shape ([`stream_usage`]).
 //!
+//! Brief 0057: the `stream` scenario sends two slash commands ([`stream_commands`]) in an
+//! `available_commands_update` right after `session/new` answers, as eludite-claude-acp does, and answers a prompt
+//! that starts with `/` the way Claude Code answers a local command: one line of text naming it, no stream.
+//!
+//! Brief 0058: `--options` (any scenario) makes `session/new` answer `modes` (`default` "Manual" and `plan`) and
+//! two select config options ([`fake_options`]: `model` with `fast` and `smart`, `effort` with `default`, `low`,
+//! `high` and `max`); `_meta.claudeCode.options.model` and `.effort` in `session/new` choose their current values, so
+//! a test reads back what the client sent. `session/set_mode` and `session/set_config_option` set a listed value,
+//! answer and notify `current_mode_update` or `config_option_update`; an unlisted one is `invalid_params`, and so is
+//! the listed effort `max` ([`REFUSED_EFFORT`]), so a test sees an agent refuse a choice it offered.
+//!
+//! Brief 0059: `--usage` makes the `diagnostics` and `diagnostics-then-shell` scenarios end every turn (however it
+//! ended) with the same `usage_update` as `stream` ([`stream_usage`]), so the Agents window's usage strip fills after
+//! a turn that also has tool calls and a permission prompt.
+//!
+//! Brief 0061: `--load` advertises `loadSession`, gives each `session/new` an id of its own in this process
+//! (`fake-session-N`) and answers `session/load` for an id it gave earlier in the same process (or any id with
+//! `--load-any`), replaying [`LOAD_REPLAY`] (a `user_message_chunk` and an `agent_message_chunk`) before it answers
+//! (with the modes and options of `--options`, as `session/new`); an unknown id is `invalid_params`.
+//!
 //! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
 //! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`,
-//! `--script JSON`, `--url URL`). `planned` needs a [`Planner`] in [`Options`],
+//! `--script JSON`, `--url URL`, `--options`, `--usage`, `--load`, `--load-any`). `planned` needs a [`Planner`] in [`Options`],
 //! so it runs in-process only.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -58,6 +79,61 @@ pub const EDIT_HEADER: &str = "// Edited by the agent\n";
 /// The file the write scenario creates, relative to the session's cwd, and its content.
 pub const WRITE_FILE: &str = "notes.txt";
 pub const WRITE_TEXT: &str = "hello\n";
+
+/// The slash commands the `stream` scenario sends after `session/new` (brief 0057), in ACP's `AvailableCommand` shape.
+pub fn stream_commands() -> Value {
+    json!([
+        {"name": "compact", "description": "Free up context by summarizing the conversation so far",
+         "input": {"hint": "<optional custom summarization instructions>"}},
+        {"name": "model", "description": "Set the AI model for Claude Code", "input": {"hint": "<model>"}}
+    ])
+}
+
+/// The text the `stream` scenario answers a slash command `prompt` with (brief 0057).
+pub fn slash_reply(prompt: &str) -> String {
+    format!("Ran the local command {prompt}")
+}
+
+/// The modes `--options` offers (brief 0058), in ACP's `SessionMode` shape.
+pub fn fake_modes() -> Value {
+    json!([
+        {"id": "default", "name": "Manual", "description": "Prompts as the policy says"},
+        {"id": "plan", "name": "Plan", "description": "Plans before making changes"}
+    ])
+}
+
+/// The config options `--options` offers (brief 0058) with these current values, in ACP's `SessionConfigOption` shape.
+pub fn fake_options(model: &str, effort: &str) -> Value {
+    json!([
+        {"id": "model", "name": "Model", "description": "The model the agent uses", "category": "model",
+         "type": "select", "currentValue": model, "options": [
+            {"value": "fast", "name": "Fast", "description": "Quick answers"},
+            {"value": "smart", "name": "Smart", "description": "For complex work"}
+        ]},
+        {"id": "effort", "name": "Effort", "category": "thought_level", "type": "select", "currentValue": effort,
+         "options": [
+            {"value": "default", "name": "Default", "description": "The model decides"},
+            {"value": "low", "name": "Low"},
+            {"value": "high", "name": "High"},
+            {"value": "max", "name": "Max", "description": "Refused by the fake agent"}
+        ]}
+    ])
+}
+
+/// The effort `--options` lists but refuses to set, and why.
+pub const REFUSED_EFFORT: &str = "max";
+pub const REFUSED_WHY: &str = "max effort is not available to this account";
+
+/// Whether `value` is one of the `--options` option `id`'s values.
+fn fake_option_has(id: &str, value: &str) -> bool {
+    fake_options("", "")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|o| o["id"] == id)
+        .flat_map(|o| o["options"].as_array().into_iter().flatten())
+        .any(|c| c["value"] == value)
+}
 
 /// The `usage_update` the `stream` scenario ends its turn with (brief 0034), in eludite-claude-acp's shape: brief
 /// 0030's first OffByOne run's counts.
@@ -201,6 +277,14 @@ pub struct Options {
     pub url: Option<String>,
     /// [`Scenario::Planned`]'s planner.
     pub planner: Option<PlannerHandle>,
+    /// Offer modes and config options (`--options`, brief 0058).
+    pub options: bool,
+    /// End the diagnostics scenarios' turns with [`stream_usage`] (`--usage`, brief 0059).
+    pub usage: bool,
+    /// Advertise `loadSession` and resume the sessions given in this process (`--load`, brief 0061).
+    pub load: bool,
+    /// With `--load`, resume any id (`--load-any`).
+    pub load_any: bool,
 }
 
 impl Default for Options {
@@ -217,6 +301,10 @@ impl Default for Options {
             script: Vec::new(),
             url: None,
             planner: None,
+            options: false,
+            usage: false,
+            load: false,
+            load_any: false,
         }
     }
 }
@@ -239,6 +327,13 @@ impl Options {
                         serde_json::from_str(&val()?).map_err(|e| format!("--script: {e}"))?
                 }
                 "--url" => o.url = Some(val()?),
+                "--options" => o.options = true,
+                "--usage" => o.usage = true,
+                "--load" => o.load = true,
+                "--load-any" => {
+                    o.load = true;
+                    o.load_any = true;
+                }
                 other => return Err(format!("unknown argument {other}")),
             }
         }
@@ -248,6 +343,16 @@ impl Options {
         Ok(o)
     }
 }
+
+/// What `session/load` replays before it answers (brief 0061): the earlier prompt and the agent's answer.
+pub const LOAD_REPLAY: [(&str, &str); 2] = [
+    ("user_message_chunk", "An earlier prompt"),
+    ("agent_message_chunk", "An earlier answer"),
+];
+
+/// The session ids `--load` gave in this process (brief 0061), which `session/load` resumes.
+static GIVEN_SESSIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
 /// Key in a stream chunk's content `_meta` holding its send time (ns since the Unix epoch).
 pub const SENT_AT_META: &str = "eludite/sentAtNs";
@@ -271,6 +376,10 @@ struct Agent<R, W> {
     next_id: u64,
     /// The text of the prompt being answered.
     prompt: String,
+    /// `--options`: the current mode, model and effort.
+    mode: String,
+    model: String,
+    effort: String,
 }
 
 /// Serve one client until its stdin closes.
@@ -286,6 +395,9 @@ pub fn run(input: impl BufRead, output: impl Write, opts: Options) -> io::Result
         cancelled: false,
         next_id: 0,
         prompt: String::new(),
+        mode: "default".into(),
+        model: "smart".into(),
+        effort: "default".into(),
     };
     while let Some(msg) = agent.next_message()? {
         agent.dispatch(msg)?;
@@ -359,22 +471,80 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 };
                 self.reply(&id, json!({
                     "protocolVersion": 1,
-                    "agentCapabilities": {"loadSession": false, "promptCapabilities": {"image": false, "embeddedContext": false}, "mcpCapabilities": {"http": false, "sse": false}},
+                    "agentCapabilities": {"loadSession": self.opts.load, "promptCapabilities": {"image": false, "embeddedContext": false}, "mcpCapabilities": {"http": false, "sse": false}},
                     "agentInfo": {"name": "eludite-fake-acp-agent", "title": "Fake agent", "version": env!("CARGO_PKG_VERSION")},
                     "authMethods": auth_methods
                 }))
             }
+            (methods::SESSION_LOAD, Some(id)) if self.opts.load => {
+                let wanted = params["sessionId"].as_str().unwrap_or_default().to_owned();
+                let known = GIVEN_SESSIONS
+                    .lock()
+                    .is_ok_and(|g| g.contains(&wanted));
+                if !known && !self.opts.load_any {
+                    return self.invalid(&id, &format!("unknown session {wanted}"));
+                }
+                self.session = wanted;
+                self.mcp = serde_json::from_value(params["mcpServers"].clone()).unwrap_or_default();
+                self.cwd = params["cwd"].as_str().unwrap_or_default().to_owned();
+                for (kind, text) in LOAD_REPLAY {
+                    self.update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}))?;
+                }
+                if self.opts.options {
+                    let options = fake_options(&self.model, &self.effort);
+                    self.reply(&id, json!({"modes": {"currentModeId": self.mode, "availableModes": fake_modes()},
+                        "configOptions": options}))?;
+                } else {
+                    self.reply(&id, json!({}))?;
+                }
+                if self.opts.scenario == Scenario::Stream {
+                    self.update(json!({"sessionUpdate": "available_commands_update", "availableCommands": stream_commands()}))?;
+                }
+                Ok(())
+            }
             (methods::SESSION_NEW, Some(id)) => {
                 self.mcp = serde_json::from_value(params["mcpServers"].clone()).unwrap_or_default();
                 self.cwd = params["cwd"].as_str().unwrap_or_default().to_owned();
+                if self.opts.load {
+                    // An id of its own, which a later `session/load` in this process resumes (brief 0061).
+                    self.session = format!("fake-session-{}", NEXT_SESSION.fetch_add(1, Ordering::Relaxed));
+                    if let Ok(mut g) = GIVEN_SESSIONS.lock() {
+                        g.push(self.session.clone());
+                    }
+                }
                 let session = self.session.clone();
-                self.reply(&id, json!({"sessionId": session}))?;
+                if self.opts.options {
+                    // What the client remembered, when it is a listed value (brief 0058).
+                    let meta = |k: &str| {
+                        params
+                            .pointer(&format!("/_meta/claudeCode/options/{k}"))
+                            .and_then(Value::as_str)
+                            .filter(|v| fake_option_has(k, v))
+                            .map(str::to_owned)
+                    };
+                    if let Some(m) = meta("model") {
+                        self.model = m;
+                    }
+                    if let Some(e) = meta("effort") {
+                        self.effort = e;
+                    }
+                    let options = fake_options(&self.model, &self.effort);
+                    self.reply(&id, json!({"sessionId": session,
+                        "modes": {"currentModeId": self.mode, "availableModes": fake_modes()},
+                        "configOptions": options}))?;
+                } else {
+                    self.reply(&id, json!({"sessionId": session}))?;
+                }
                 let status = if self.opts.scenario == Scenario::LoginRequired {
                     json!({"kind": "none", "label": "Not logged in"})
                 } else {
                     json!({"kind": "account", "label": "Fake subscription"})
                 };
-                self.write(json!({"jsonrpc": "2.0", "method": "_auth/status_update", "params": {"authStatus": status}}))
+                self.write(json!({"jsonrpc": "2.0", "method": "_auth/status_update", "params": {"authStatus": status}}))?;
+                if self.opts.scenario == Scenario::Stream {
+                    self.update(json!({"sessionUpdate": "available_commands_update", "availableCommands": stream_commands()}))?;
+                }
+                Ok(())
             }
             (methods::SESSION_PROMPT, Some(id)) => {
                 self.cancelled = false;
@@ -389,9 +559,21 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                     Scenario::LoginRequired => {
                         return self.write(json!({"jsonrpc": "2.0", "id": id, "error": {"code": AUTH_REQUIRED, "message": "Authentication required"}}));
                     }
+                    Scenario::Stream if self.prompt.starts_with('/') => {
+                        let reply = slash_reply(&self.prompt);
+                        self.say(&reply)?;
+                        "end_turn"
+                    }
                     Scenario::Stream => self.stream()?,
-                    Scenario::Diagnostics => self.diagnostics(false)?,
-                    Scenario::DiagnosticsThenShell => self.diagnostics(true)?,
+                    Scenario::Diagnostics | Scenario::DiagnosticsThenShell => {
+                        let stop =
+                            self.diagnostics(self.opts.scenario == Scenario::DiagnosticsThenShell)?;
+                        // Brief 0059: the turn's usage, as `stream` reports it.
+                        if self.opts.usage {
+                            self.update(stream_usage())?;
+                        }
+                        stop
+                    }
                     Scenario::Edit => self.edit()?,
                     Scenario::Write => self.write_file()?,
                     Scenario::Script => self.script()?,
@@ -408,9 +590,42 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 self.cancelled = true;
                 Ok(())
             }
+            (methods::SESSION_SET_MODE, Some(id)) if self.opts.options => {
+                let mode = params["modeId"].as_str().unwrap_or_default().to_owned();
+                if !fake_modes()
+                    .as_array()
+                    .is_some_and(|m| m.iter().any(|m| m["id"] == mode.as_str()))
+                {
+                    return self.invalid(&id, &format!("unknown mode {mode}"));
+                }
+                self.mode = mode.clone();
+                self.reply(&id, json!({}))?;
+                self.update(json!({"sessionUpdate": "current_mode_update", "currentModeId": mode}))
+            }
+            (methods::SESSION_SET_CONFIG_OPTION, Some(id)) if self.opts.options => {
+                let config = params["configId"].as_str().unwrap_or_default().to_owned();
+                let value = params["value"].as_str().unwrap_or_default().to_owned();
+                if !fake_option_has(&config, &value) {
+                    return self.invalid(&id, &format!("unknown value {value} for {config}"));
+                }
+                if config == "effort" && value == REFUSED_EFFORT {
+                    return self.invalid(&id, REFUSED_WHY);
+                }
+                match config.as_str() {
+                    "model" => self.model = value,
+                    _ => self.effort = value,
+                }
+                let options = fake_options(&self.model, &self.effort);
+                self.reply(&id, json!({"configOptions": options}))?;
+                self.update(json!({"sessionUpdate": "config_option_update", "configOptions": options}))
+            }
             (_, Some(id)) if !method.is_empty() => self.write(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": format!("fake agent: no {method}")}})),
             _ => Ok(()),
         }
+    }
+
+    fn invalid(&mut self, id: &Value, why: &str) -> io::Result<()> {
+        self.write(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "Invalid params", "data": why}}))
     }
 
     fn stream(&mut self) -> io::Result<&'static str> {
@@ -1331,6 +1546,150 @@ mod tests {
                 "resources/read",
                 "tools/call"
             ]
+        );
+    }
+
+    /// Brief 0058: `--options` answers `session/new` with modes and config options (the current ones from `_meta`),
+    /// echoes `session/set_mode` and `session/set_config_option` with a notification, and refuses unlisted values.
+    #[test]
+    fn the_options_flag_offers_modes_and_options_and_echoes_changes() {
+        let lines = [
+            json!({"jsonrpc": "2.0", "id": 1, "method": methods::SESSION_NEW, "params": {
+                "cwd": "/", "mcpServers": [], "_meta": {"claudeCode": {"options": {"model": "fast", "effort": "nope"}}}}}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": methods::SESSION_SET_MODE, "params": {
+                "sessionId": "fake-session-1", "modeId": "plan"}}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": methods::SESSION_SET_CONFIG_OPTION, "params": {
+                "sessionId": "fake-session-1", "configId": "effort", "value": "high"}}),
+            json!({"jsonrpc": "2.0", "id": 4, "method": methods::SESSION_SET_CONFIG_OPTION, "params": {
+                "sessionId": "fake-session-1", "configId": "model", "value": "huge"}}),
+            json!({"jsonrpc": "2.0", "id": 5, "method": methods::SESSION_SET_MODE, "params": {
+                "sessionId": "fake-session-1", "modeId": "bypassPermissions"}}),
+            json!({"jsonrpc": "2.0", "id": 6, "method": methods::SESSION_SET_CONFIG_OPTION, "params": {
+                "sessionId": "fake-session-1", "configId": "effort", "value": REFUSED_EFFORT}}),
+        ];
+        let input: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        let mut output = Vec::new();
+        let opts =
+            Options::from_args(["--scenario".into(), "edit".into(), "--options".into()]).unwrap();
+        run(input.as_bytes(), &mut output, opts).unwrap();
+        let out: Vec<Value> = String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let answer = |id: u64| out.iter().find(|m| m["id"] == id).unwrap().clone();
+        let new = answer(1)["result"].clone();
+        assert_eq!(new["modes"]["currentModeId"], "default");
+        assert_eq!(new["modes"]["availableModes"], fake_modes());
+        assert_eq!(
+            new["configOptions"],
+            fake_options("fast", "default"),
+            "an unlisted effort is ignored"
+        );
+        assert_eq!(answer(2)["result"], json!({}));
+        assert_eq!(
+            answer(3)["result"]["configOptions"],
+            fake_options("fast", "high")
+        );
+        assert_eq!(answer(4)["error"]["code"], -32602);
+        assert_eq!(answer(5)["error"]["code"], -32602);
+        assert_eq!(answer(6)["error"]["data"], REFUSED_WHY);
+        let kinds: Vec<&str> = out
+            .iter()
+            .filter_map(|m| m["params"]["update"]["sessionUpdate"].as_str())
+            .collect();
+        assert_eq!(kinds, ["current_mode_update", "config_option_update"]);
+        // Without the flag: no modes, no options, and the methods are unknown.
+        let mut output = Vec::new();
+        let opts = Options::from_args(["--scenario".into(), "edit".into()]).unwrap();
+        run(input.as_bytes(), &mut output, opts).unwrap();
+        let first: Value =
+            serde_json::from_str(String::from_utf8(output).unwrap().lines().next().unwrap())
+                .unwrap();
+        assert_eq!(first["result"], json!({"sessionId": "fake-session-1"}));
+    }
+
+    /// Brief 0059: `--usage` ends a diagnostics turn with the stream scenario's `usage_update`.
+    #[test]
+    fn the_usage_flag_ends_a_diagnostics_turn_with_the_streams_usage() {
+        let session_new = json!({"jsonrpc": "2.0", "id": 1, "method": methods::SESSION_NEW, "params": {
+            "cwd": "/", "mcpServers": []}});
+        let prompt = json!({"jsonrpc": "2.0", "id": 2, "method": methods::SESSION_PROMPT, "params": {
+            "sessionId": "fake-session-1", "prompt": [{"type": "text", "text": "List the errors"}]}});
+        let input = format!("{session_new}\n{prompt}\n");
+        let run_with = |args: &[&str]| {
+            let opts = Options::from_args(args.iter().map(|a| (*a).to_owned())).unwrap();
+            let mut output = Vec::new();
+            run(input.as_bytes(), &mut output, opts).unwrap();
+            String::from_utf8(output)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let usage = |out: &[Value]| {
+            out.iter()
+                .position(|m| m["params"]["update"]["sessionUpdate"] == "usage_update")
+        };
+        // The permission request goes unanswered (the input ends): the turn still ends, with the usage first.
+        let out = run_with(&["--scenario", "diagnostics-then-shell", "--usage"]);
+        let at = usage(&out).expect("a usage_update");
+        assert_eq!(out[at]["params"]["update"], stream_usage());
+        let ended = out
+            .iter()
+            .position(|m| m["id"] == 2 && m["result"]["stopReason"] == "end_turn")
+            .expect("the turn's end");
+        assert!(at < ended);
+        assert!(usage(&run_with(&["--scenario", "diagnostics", "--usage"])).is_some());
+        // Without the flag, nothing changes.
+        assert!(usage(&run_with(&["--scenario", "diagnostics-then-shell"])).is_none());
+    }
+
+    /// Brief 0057: the stream scenario lists its slash commands right after `session/new` answers, and answers a
+    /// slash command with one line instead of the stream; other scenarios list none.
+    #[test]
+    fn the_stream_scenario_lists_its_commands_after_session_new_and_answers_one() {
+        let session_new = json!({"jsonrpc": "2.0", "id": 1, "method": methods::SESSION_NEW, "params": {
+            "cwd": "/", "mcpServers": []}});
+        let prompt = json!({"jsonrpc": "2.0", "id": 2, "method": methods::SESSION_PROMPT, "params": {
+            "sessionId": "fake-session-1", "prompt": [{"type": "text", "text": "/compact keep the plan"}]}});
+        let input = format!("{session_new}\n{prompt}\n");
+        let run_with = |scenario, input: &str| {
+            let mut output = Vec::new();
+            let opts = Options {
+                scenario,
+                ..Options::default()
+            };
+            run(input.as_bytes(), &mut output, opts).unwrap();
+            String::from_utf8(output)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let out = run_with(Scenario::Stream, &input);
+        let answered = out.iter().position(|m| m["id"] == 1).unwrap();
+        let listed = out
+            .iter()
+            .position(|m| m["params"]["update"]["sessionUpdate"] == "available_commands_update")
+            .expect("the commands");
+        assert!(listed > answered);
+        assert_eq!(
+            out[listed]["params"]["update"]["availableCommands"],
+            stream_commands()
+        );
+        let said: String = out
+            .iter()
+            .filter(|m| m["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+            .filter_map(|m| m["params"]["update"]["content"]["text"].as_str())
+            .collect();
+        assert_eq!(said, slash_reply("/compact keep the plan"));
+        assert!(out.iter().any(|m| m["result"]["stopReason"] == "end_turn"));
+        let edit = run_with(Scenario::Edit, &format!("{session_new}\n"));
+        assert!(
+            !edit
+                .iter()
+                .any(|m| m["params"]["update"]["sessionUpdate"] == "available_commands_update")
         );
     }
 }

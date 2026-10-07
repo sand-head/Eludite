@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-new-session.input.json",
+  "title": "eludite.agents.new_session input",
+  "description": "Start a new session, as the Agents window's New session button (`+` in the header) does: the agent is started with ACP initialize and session/new and the new session becomes the one the window shows; the session shown before keeps running. At most 8 sessions are live at once: a ninth stops the oldest idle one (its record stays). Answers the state (agents-state.output.json).",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "description": "The name of an agent in the registry (see the state's `agents`); by default the window's selected agent.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

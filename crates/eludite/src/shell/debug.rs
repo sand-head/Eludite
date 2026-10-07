@@ -7089,7 +7089,15 @@ impl Shell {
             .session
             .as_ref()
             .map(|s| file_name(&s.project))
-            .map(|n| n.trim_end_matches(".csproj").to_owned())
+            .map(|n| {
+                // Any MSBuild project kind (brief 0063).
+                let n = n.as_str();
+                [".csproj", ".vbproj", ".fsproj"]
+                    .iter()
+                    .find_map(|e| n.strip_suffix(e))
+                    .unwrap_or(n)
+                    .to_owned()
+            })
             .unwrap_or_default();
         // While an agent's command drove the debuggee last, the slot says so (proposal 0001 section 7).
         let driving = match (m.agent_driving(), m.agents_allowed) {

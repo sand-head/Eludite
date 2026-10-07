@@ -90,6 +90,11 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       run the fake ACP agent at PATH (eludite-fake-acp-agent)
                       streaming 2000 chunks at 200/s into the Agents window;
                       report the UI frame work and the per-batch apply cost
+  --bench-agent-prompt PATH
+                      as --bench-agent-stream, after typing 2,000 characters
+                      into the Agents window's prompt box one keystroke at a
+                      time (report keystroke-to-frame), then stream with 500
+                      characters in the focused box
   --bench-diff N      N times, hold a 20-edit change to a 2000-line file as a
                       pending change and open its review view; report the
                       time to the first frame showing the diff
@@ -176,6 +181,9 @@ pub struct Args {
     pub transcript_out: Option<PathBuf>,
     pub bench_agent_ready: Option<usize>,
     pub bench_agent_stream: Option<PathBuf>,
+    /// `--bench-agent-prompt PATH` (brief 0057): the stream bench's setup (the fake agent at PATH in
+    /// `bench_agent_stream`), typing into the prompt box first.
+    pub bench_agent_prompt: bool,
     pub bench_diff: Option<usize>,
     /// `--bench-output SECS` (brief 0017).
     pub bench_output: Option<u64>,
@@ -258,6 +266,10 @@ impl Args {
                 }
                 "--bench-agent-stream" => {
                     a.bench_agent_stream = Some(value("--bench-agent-stream")?.into())
+                }
+                "--bench-agent-prompt" => {
+                    a.bench_agent_stream = Some(value("--bench-agent-prompt")?.into());
+                    a.bench_agent_prompt = true;
                 }
                 "--bench-diff" => {
                     let n = value("--bench-diff")?;
@@ -390,6 +402,15 @@ mod tests {
         assert!(a.benching());
         assert!(parse(&["--bench-agent-ready", "x"]).is_err());
         assert!(parse(&["--bench-agent-stream", "/f"]).unwrap().benching());
+        // Brief 0057: the prompt bench is the stream bench's setup with typing first.
+        let a = parse(&["--bench-agent-prompt", "/f"]).unwrap();
+        assert!(a.benching() && a.bench_agent_prompt);
+        assert_eq!(a.bench_agent_stream, Some(PathBuf::from("/f")));
+        assert!(
+            !parse(&["--bench-agent-stream", "/f"])
+                .unwrap()
+                .bench_agent_prompt
+        );
         let a = parse(&["--bench-output", "10"]).unwrap();
         assert_eq!(a.bench_output, Some(10));
         assert!(a.benching());

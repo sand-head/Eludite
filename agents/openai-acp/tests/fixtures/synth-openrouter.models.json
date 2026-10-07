@@ -1,0 +1,13 @@
+{
+  "data": [
+    {
+      "id": "deepseek/deepseek-r1",
+      "name": "DeepSeek: R1",
+      "context_length": 163840,
+      "pricing": {
+        "prompt": "0.0000004",
+        "completion": "0.000002"
+      }
+    }
+  ]
+}

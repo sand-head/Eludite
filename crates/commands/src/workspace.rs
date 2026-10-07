@@ -7,7 +7,9 @@
 //! `eludite.error_list.filter`. Brief 0015 adds rename and code actions, `eludite.editor.rename` (Ctrl+R, Ctrl+R and
 //! F2), `eludite.editor.code_actions` (Ctrl+.) and `eludite.editor.apply_code_action`, and the workspace-edit applier
 //! itself, `eludite.workspace.apply_edit`. Brief 0019 adds File > Open Folder, `eludite.workspace.open_folder`: a
-//! folder (or a `Cargo.toml`), with its .NET solution and Cargo workspace.
+//! folder (or a `Cargo.toml`), with its .NET solution and Cargo workspace. Brief 0062 adds the Workspace window's
+//! search box as `eludite.workspace.search` ([`register_search`], [`WorkspaceSearchTarget`]): registered on its own,
+//! with the Workspace window as its target, so it is not one of [`ALL`].
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4), embedded at compile
 //! time. This module parses and validates input into a typed [`WorkspaceRequest`] and serializes the typed
@@ -1482,6 +1484,103 @@ pub fn register(registry: &mut CommandRegistry, target: Arc<dyn WorkspaceTarget>
     }
 }
 
+/// `eludite.workspace.search` (brief 0062): the Workspace window's box "Search Workspace (Ctrl+;)".
+pub const WORKSPACE_SEARCH: &str = "eludite.workspace.search";
+
+/// Rows `eludite.workspace.search` lists at most.
+pub const MAX_SEARCH_ROWS: usize = 500;
+
+/// The longest query the box takes, in characters.
+pub const MAX_SEARCH_QUERY: usize = 1000;
+
+/// `workspace-search.input.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceSearchInput {
+    /// `None`: keep the box's text; `Some("")`: clear the search.
+    pub query: Option<String>,
+    /// Focus the box and show the Workspace window (Ctrl+;).
+    #[serde(default)]
+    pub focus: bool,
+}
+
+/// One row of `workspace-search.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceSearchRow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub name: String,
+    /// `workspace`, `solution`, `project`, `folder`, `file`, `cargo_workspace`, `cargo_package`, `cargo_targets`,
+    /// `cargo_target`, `dependencies`, `dependency_group`, `package`, `framework` or `project_reference`.
+    pub kind: String,
+}
+
+/// `workspace-search.output.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceSearchOutput {
+    pub query: String,
+    pub rows: Vec<WorkspaceSearchRow>,
+    pub total: usize,
+    pub truncated: bool,
+}
+
+/// The Workspace window, which answers `eludite.workspace.search`. Called on the invoking thread (the UI thread for
+/// Ctrl+;, a server thread for agents): it answers from what it can read on any thread and hands the box's change to
+/// the UI thread without waiting for it.
+pub trait WorkspaceSearchTarget: Send + Sync {
+    fn search(&self, input: WorkspaceSearchInput) -> Result<WorkspaceSearchOutput, CommandError>;
+}
+
+/// The public description of `eludite.workspace.search`: agent-visible, class `read`.
+pub fn search_spec() -> CommandSpec {
+    CommandSpec {
+        id: CommandId::new(WORKSPACE_SEARCH).expect("valid id"),
+        title: "Workspace: Search".into(),
+        input_schema: parse_schema(include_str!(
+            "../../../protocol/schemas/workspace-search.input.json"
+        )),
+        output_schema: parse_schema(include_str!(
+            "../../../protocol/schemas/workspace-search.output.json"
+        )),
+        permission: PermissionClass::Read,
+        agent_visible: true,
+    }
+}
+
+/// Parse and validate `eludite.workspace.search`'s input.
+pub fn parse_search(value: Value) -> Result<WorkspaceSearchInput, CommandError> {
+    let input: WorkspaceSearchInput = self::input(value)?;
+    if input
+        .query
+        .as_ref()
+        .is_some_and(|q| q.chars().count() > MAX_SEARCH_QUERY)
+    {
+        return Err(CommandError::InvalidInput(format!(
+            "`query` is at most {MAX_SEARCH_QUERY} characters"
+        )));
+    }
+    Ok(input)
+}
+
+/// Register `eludite.workspace.search` on `registry`, answered by `target`. The answer holds at most
+/// [`MAX_SEARCH_ROWS`] rows, `total` counting the rest.
+pub fn register_search(
+    registry: &CommandRegistry,
+    target: Arc<dyn WorkspaceSearchTarget>,
+) -> Result<(), CommandError> {
+    registry.register(search_spec(), move |value| {
+        let mut out = target.search(parse_search(value)?)?;
+        out.total = out.total.max(out.rows.len());
+        if out.rows.len() > MAX_SEARCH_ROWS {
+            out.rows.truncate(MAX_SEARCH_ROWS);
+        }
+        out.truncated = out.total > out.rows.len();
+        serde_json::to_value(out).map_err(|e| CommandError::Failed(e.to_string()))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -2248,5 +2347,97 @@ mod tests {
                 .count(),
             1
         );
+    }
+    /// Answers `rows` matches of the query, recording what it was asked.
+    struct Searcher {
+        rows: usize,
+        asked: Mutex<Vec<WorkspaceSearchInput>>,
+    }
+
+    impl WorkspaceSearchTarget for Searcher {
+        fn search(
+            &self,
+            input: WorkspaceSearchInput,
+        ) -> Result<WorkspaceSearchOutput, CommandError> {
+            self.asked.lock().unwrap().push(input.clone());
+            let query = input.query.unwrap_or_default();
+            let rows = if query.is_empty() { 0 } else { self.rows };
+            Ok(WorkspaceSearchOutput {
+                query,
+                rows: (0..rows)
+                    .map(|i| WorkspaceSearchRow {
+                        path: (i % 2 == 0).then(|| format!("/w/File{i}.cs")),
+                        name: format!("File{i}.cs"),
+                        kind: "file".into(),
+                    })
+                    .collect(),
+                total: rows,
+                truncated: false,
+            })
+        }
+    }
+
+    #[test]
+    fn search_answers_its_schema_caps_the_rows_and_rejects_bad_input() {
+        let r = CommandRegistry::new();
+        let target = Arc::new(Searcher {
+            rows: 700,
+            asked: Mutex::default(),
+        });
+        register_search(&r, target.clone()).unwrap();
+        let spec = r.lookup(WORKSPACE_SEARCH).unwrap();
+        assert!(spec.agent_visible);
+        assert_eq!(spec.permission, PermissionClass::Read);
+        assert_eq!(spec.input_schema["additionalProperties"], false);
+        assert!(
+            spec.output_schema["$id"]
+                .as_str()
+                .unwrap()
+                .ends_with("workspace-search.output.json")
+        );
+
+        let out = r
+            .invoke(WORKSPACE_SEARCH, json!({"query": "file"}))
+            .unwrap();
+        conforms(&spec.output_schema, &out);
+        assert_eq!(out["rows"].as_array().unwrap().len(), MAX_SEARCH_ROWS);
+        assert_eq!(out["total"], 700);
+        assert_eq!(out["truncated"], true);
+        let row_schema = &spec.output_schema["properties"]["rows"]["items"];
+        for row in out["rows"].as_array().unwrap() {
+            conforms(row_schema, row);
+        }
+        assert_eq!(out["rows"][1].get("path"), None);
+
+        // An empty query clears: nothing matches.
+        let out = r.invoke(WORKSPACE_SEARCH, json!({"query": ""})).unwrap();
+        conforms(&spec.output_schema, &out);
+        assert_eq!(out["rows"], json!([]));
+        assert_eq!(out["truncated"], false);
+        // Ctrl+;: no query, focus.
+        r.invoke(WORKSPACE_SEARCH, json!({"focus": true})).unwrap();
+        r.invoke(WORKSPACE_SEARCH, Value::Null).unwrap();
+        let asked = target.asked.lock().unwrap().clone();
+        assert_eq!(
+            asked[2],
+            WorkspaceSearchInput {
+                query: None,
+                focus: true
+            }
+        );
+        assert_eq!(asked[3], WorkspaceSearchInput::default());
+
+        assert!(r.invoke(WORKSPACE_SEARCH, json!({"bogus": 1})).is_err());
+        assert!(r.invoke(WORKSPACE_SEARCH, json!({"query": 3})).is_err());
+        assert!(
+            r.invoke(
+                WORKSPACE_SEARCH,
+                json!({"query": "x".repeat(MAX_SEARCH_QUERY + 1)})
+            )
+            .is_err()
+        );
+        assert_eq!(target.asked.lock().unwrap().len(), 4);
+        // Not one of the workspace commands the shell applies itself.
+        assert!(!ALL.contains(&WORKSPACE_SEARCH));
     }
 }

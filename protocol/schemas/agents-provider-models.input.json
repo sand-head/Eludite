@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-provider-models.input.json",
+  "title": "eludite.agents.provider_models input",
+  "description": "List a server's models through the adapter's own code path (`eludite-openai-acp models`), off the UI thread: `GET {baseUrl}/models` with a 30 s timeout, or the provider's catalog. Give `name` for a saved server (its base url, headers, catalog and stored key), or `baseUrl` (and `apiKey`) for one being added; `baseUrl` and `apiKey` given with `name` override the saved ones. Execute: it makes a network call.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "The server's name: unique, shown as the agent's name in the Agents window, and the credential key `provider:<name>`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "baseUrl": {
+      "description": "The API root ending in the version segment, such as `http://localhost:8080/v1` (llama.cpp) or `https://openrouter.ai/api/v1`; the adapter appends `/models` and `/chat/completions` and strips one trailing slash.",
+      "type": "string",
+      "minLength": 8,
+      "pattern": "^https?://"
+    },
+    "apiKey": {
+      "description": "The key to try; never stored by this command.",
+      "type": "string"
+    }
+  }
+}

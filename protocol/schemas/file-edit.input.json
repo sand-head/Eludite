@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-edit.input.json",
+  "title": "eludite.file.edit input",
+  "description": "Replace `oldText` with `newText` in a file: `oldText` must occur exactly once (or every occurrence is replaced with `replaceAll`), else the error says how many times it occurs. The match is made in the open document's text when it is open, else in the file on disk. The edit becomes one eludite.workspace.apply_edit with the matching ranges, so for an agent it is a pending change the person reviews like any other.",
+  "type": "object",
+  "required": [
+    "path",
+    "oldText",
+    "newText"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path, or a path relative to the workspace folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "oldText": {
+      "description": "The exact text to replace, with enough surrounding text to occur once.",
+      "type": "string",
+      "minLength": 1
+    },
+    "newText": {
+      "description": "The replacement.",
+      "type": "string"
+    },
+    "replaceAll": {
+      "description": "Replace every occurrence of `oldText` instead of requiring exactly one.",
+      "type": "boolean"
+    }
+  }
+}

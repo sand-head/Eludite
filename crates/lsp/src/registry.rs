@@ -9,6 +9,15 @@
 //! configuration file: [`Activation`]), located modules (the project's TypeScript: [`ModuleSpec`]) and `${...}`
 //! substitutions in the options ([`substitute`]), settings pushed with `workspace/didChangeConfiguration`, and the
 //! formatters Format Document runs ([`FormatterSpec`], [`ServerRegistry::pick_formatter`]).
+//!
+//! Brief 0063 adds the .NET languages: `*.vb` goes to the host as the `roslyn` registration's second glob with the
+//! `languageId` `vb`, and FsAutoComplete (`fsautocomplete`, the F# server) is a `process` server that is a .NET
+//! global tool ([`CommandSpec::dotnet_tool`]): found beside `eludite`, at its override variable, in the pinned cache
+//! `tools/fsautocomplete/fetch.sh` installs (`~/.cache/eludite/<tool>/<pin>/`, [`ServerRegistry::dotnet_tool_cache`]),
+//! in the .NET global tools folder (`~/.dotnet/tools`, `%USERPROFILE%\.dotnet\tools`, or under `DOTNET_CLI_HOME`),
+//! then on `PATH`. A .NET tool's apphost refuses to start when `dotnet` is not at the default location and
+//! `DOTNET_ROOT` is unset, so a located .NET tool carries that variable ([`Located::envs`], [`dotnet_tool_envs`]) for
+//! its probe and its spawn. Root markers with a `*` (`*.fsproj`) match the folder's file names by glob.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -61,6 +70,12 @@ pub struct CommandSpec {
     /// the web servers' cache, then `PATH`; a script is run by Node.js.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub npm_package: Option<String>,
+    /// The .NET global tool that provides it (`fsautocomplete`, brief 0063): searched beside `eludite`, then the
+    /// override variable, then the pinned cache (`~/.cache/eludite/<tool>/<pin>/`, [`ServerRegistry::dotnet_tools`]),
+    /// then the .NET global tools folder (`~/.dotnet/tools`), then `PATH`; spawned with `DOTNET_ROOT` when needed
+    /// ([`dotnet_tool_envs`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dotnet_tool: Option<String>,
     #[serde(default)]
     pub probe: Probe,
 }
@@ -171,6 +186,17 @@ pub struct WorkerSpec {
     pub resolve_config: Option<String>,
 }
 
+/// A .NET global tool a server is (brief 0063), by tool name under [`ServerRegistry::dotnet_tools`]: its pinned
+/// version, installed by its fetch script into `~/.cache/eludite/<tool>/<pin>/`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ToolSpec {
+    /// `tools/<tool>/PIN`'s `version`: the folder under `~/.cache/eludite/<tool>/`.
+    pub pin: String,
+    /// The command that installs it (`tools/fsautocomplete/fetch.sh`), for the "not found" messages.
+    pub fetch: String,
+}
+
 /// The folder `tools/web-servers/fetch.sh` installs into.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -192,10 +218,14 @@ pub struct Located {
     pub path: PathBuf,
     /// The first line of its `--version` output, or its package's version.
     pub version: String,
-    /// `beside eludite`, `ELUDITE_RUST_ANALYZER`, `PATH`, `rustup`, `project node_modules`, `web servers cache`.
+    /// `beside eludite`, `ELUDITE_RUST_ANALYZER`, `PATH`, `rustup`, `project node_modules`, `web servers cache`,
+    /// `pinned cache`, `.NET global tools`.
     pub source: String,
     /// The Node.js that runs [`Located::path`], for a script.
     pub node: Option<PathBuf>,
+    /// Environment variables the process needs (brief 0063): `DOTNET_ROOT` for a .NET tool when the variable is
+    /// unset ([`dotnet_tool_envs`]); empty otherwise.
+    pub envs: Vec<(String, String)>,
 }
 
 /// A located [`ModuleSpec`].
@@ -208,6 +238,11 @@ pub struct LocatedModule {
     pub source: &'static str,
 }
 
+/// `--version` of a candidate executable (run by Node.js when the second argument is given, with the third argument's
+/// environment variables set): its first line, or `None` when it does not run. [`probe_version`] in the real
+/// environment.
+pub type ProbeFn<'a> = dyn Fn(&Path, Option<&Path>, &[(String, String)]) -> Option<String> + 'a;
+
 /// What [`ServerRegistration::locate_with`] may consult; the real process environment in
 /// [`ServerRegistration::locate`].
 pub struct Environment<'a> {
@@ -215,17 +250,21 @@ pub struct Environment<'a> {
     pub beside: Option<&'a Path>,
     pub var: &'a dyn Fn(&str) -> Option<OsString>,
     pub path_var: Option<OsString>,
-    /// `--version` of a candidate (run by Node.js when the second argument is given): its first line, or `None`
-    /// when it does not run.
-    pub probe: &'a dyn Fn(&Path, Option<&Path>) -> Option<String>,
+    /// `--version` of a candidate ([`ProbeFn`]; the variables are a .NET tool's `DOTNET_ROOT`).
+    pub probe: &'a ProbeFn<'a>,
     /// `rustup which <executable>`.
     pub rustup: &'a dyn Fn(&str) -> Option<PathBuf>,
     /// Where the `node_modules` search starts: the server's root, a formatter's document folder.
     pub project: Option<&'a Path>,
-    /// The web servers' cache folder, when it exists.
+    /// The registration's cache folder, when it exists: the web servers' for an npm package
+    /// ([`ServerRegistry::web_servers_cache`]), the tool's pinned folder for a .NET tool
+    /// ([`ServerRegistry::dotnet_tool_cache`]).
     pub cache: Option<&'a Path>,
     /// Node.js, for an npm package's script.
     pub node: &'a dyn Fn() -> Result<PathBuf, String>,
+    /// The home folder (`HOME`, `USERPROFILE`), for the .NET global tools folder `.dotnet/tools` (under
+    /// `DOTNET_CLI_HOME` instead when that is set).
+    pub home: Option<&'a Path>,
 }
 
 /// A file name with a node shebang or a JavaScript suffix: run by Node.js.
@@ -272,6 +311,25 @@ pub fn node_modules_above(dir: &Path) -> impl Iterator<Item = PathBuf> + '_ {
         .filter(|d| d.is_dir())
 }
 
+/// Whether `dir` holds root marker `marker`: a file of that name, or with a `*` a file whose name matches the glob.
+fn has_marker(dir: &Path, marker: &str) -> bool {
+    if !marker.contains('*') {
+        return dir.join(marker).is_file();
+    }
+    std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| glob_match(marker, name))
+                && entry.path().is_file()
+        })
+}
+
 /// Whether one of `names` is a file at or above `dir`.
 pub fn file_above(dir: &Path, names: &[String]) -> Option<PathBuf> {
     dir.ancestors()
@@ -301,12 +359,13 @@ impl ServerRegistration {
             .map_or(self.language_id.as_str(), |(_, id)| id.as_str())
     }
 
-    /// The nearest folder at or above `file`'s that holds one of the root markers.
+    /// The nearest folder at or above `file`'s that holds one of the root markers: a marker with a `*` (`*.fsproj`)
+    /// matches the folder's file names by glob, one without is a file name (`Cargo.toml`).
     pub fn find_root(&self, file: &Path) -> Option<PathBuf> {
         let start = if file.is_dir() { file } else { file.parent()? };
         start
             .ancestors()
-            .find(|dir| self.root_markers.iter().any(|m| dir.join(m).is_file()))
+            .find(|dir| self.root_markers.iter().any(|m| has_marker(dir, m)))
             .map(Path::to_path_buf)
     }
 
@@ -324,8 +383,8 @@ impl ServerRegistration {
     }
 
     /// Find the executable in the real environment (see [`ServerRegistration::locate_with`]), for a workspace at
-    /// `project`, with the web servers' `cache` and the Node.js `node` finds. Spawns processes: call it off the UI
-    /// thread.
+    /// `project`, with the registration's `cache` folder (the web servers' for an npm package, the pinned one for a
+    /// .NET tool) and the Node.js `node` finds. Spawns processes: call it off the UI thread.
     pub fn locate(
         &self,
         project: Option<&Path>,
@@ -335,6 +394,7 @@ impl ServerRegistration {
         let beside = std::env::current_exe()
             .ok()
             .and_then(|exe| exe.parent().map(Path::to_path_buf));
+        let home = crate::node::home_dir();
         self.locate_with(&Environment {
             beside: beside.as_deref(),
             var: &|k| std::env::var_os(k).filter(|v| !v.is_empty()),
@@ -344,13 +404,16 @@ impl ServerRegistration {
             project,
             cache,
             node,
+            home: home.as_deref(),
         })
     }
 
     /// [`ServerRegistration::locate`] against `env`. For an npm package: the project's `node_modules` (nearest at
-    /// or above `env.project`), then the override variable, then the web servers' cache, then `PATH`. Otherwise:
-    /// beside the `eludite` executable, then the override variable, then `PATH`, then the rustup component. Each
-    /// candidate must prove it runs ([`Probe`]).
+    /// or above `env.project`), then the override variable, then the web servers' cache, then `PATH`. For a .NET
+    /// tool: beside the `eludite` executable, then the override variable, then the pinned cache (`env.cache`), then
+    /// the .NET global tools folder, then `PATH`, each probed with the tool's environment ([`dotnet_tool_envs`]).
+    /// Otherwise: beside the `eludite` executable, then the override variable, then `PATH`, then the rustup
+    /// component. Each candidate must prove it runs ([`Probe`]).
     pub fn locate_with(&self, env: &Environment<'_>) -> Result<Located, String> {
         let Some(cmd) = &self.command else {
             return Err(format!("{} is not launched by the shell", self.id));
@@ -421,6 +484,12 @@ fn locate_command(
     places: Option<NpmPlaces>,
 ) -> Result<Located, String> {
     let exe = format!("{}{}", cmd.executable, std::env::consts::EXE_SUFFIX);
+    // A .NET tool runs with `DOTNET_ROOT` when the variable is unset (brief 0063); anything else with nothing added.
+    let envs = if cmd.dotnet_tool.is_some() {
+        dotnet_tool_envs(env.var, env.path_var.as_ref())
+    } else {
+        Vec::new()
+    };
     // A candidate that runs: probed directly, or a script under Node.js.
     let try_path = |p: &Path,
                     source: &str,
@@ -436,14 +505,29 @@ fn locate_command(
         };
         let version = match (cmd.probe, package_version) {
             (Probe::PackageJson, Some(v)) => Some(v.to_owned()),
-            _ => (env.probe)(p, node.as_deref()),
+            _ => (env.probe)(p, node.as_deref(), &envs),
         };
         Ok(version.map(|version| Located {
             path: p.to_path_buf(),
             version,
             source: source.to_owned(),
             node,
+            envs: envs.clone(),
         }))
+    };
+    let on_path = |exe: &str| -> Result<Option<Located>, String> {
+        if let Some(paths) = &env.path_var {
+            for dir in std::env::split_paths(paths) {
+                if let Some(found) = try_path(&dir.join(exe), "PATH", None)? {
+                    return Ok(Some(found));
+                }
+            }
+        }
+        Ok(None)
+    };
+    let from_var = |var: &str, value: OsString| -> Result<Located, String> {
+        let p = PathBuf::from(value);
+        try_path(&p, var, None)?.ok_or_else(|| format!("{var}={} does not run", p.display()))
     };
     if let Some(package) = &cmd.npm_package {
         let places = places.unwrap_or(NpmPlaces::All);
@@ -463,9 +547,7 @@ fn locate_command(
         if let Some(var) = &cmd.env_override
             && let Some(value) = (env.var)(var)
         {
-            let p = PathBuf::from(value);
-            return try_path(&p, var, None)?
-                .ok_or_else(|| format!("{var}={} does not run", p.display()));
+            return from_var(var, value);
         }
         if let Some(cache) = env.cache
             && let Some((script, version)) =
@@ -474,12 +556,8 @@ fn locate_command(
         {
             return Ok(found);
         }
-        if let Some(paths) = &env.path_var {
-            for dir in std::env::split_paths(paths) {
-                if let Some(found) = try_path(&dir.join(&exe), "PATH", None)? {
-                    return Ok(found);
-                }
-            }
+        if let Some(found) = on_path(&exe)? {
+            return Ok(found);
         }
         return Err(format!(
             "{} not found in the project's node_modules, {}the web servers' cache or on PATH",
@@ -498,16 +576,34 @@ fn locate_command(
     if let Some(var) = &cmd.env_override
         && let Some(value) = (env.var)(var)
     {
-        let p = PathBuf::from(value);
-        return try_path(&p, var, None)?
-            .ok_or_else(|| format!("{var}={} does not run", p.display()));
+        return from_var(var, value);
     }
-    if let Some(paths) = &env.path_var {
-        for dir in std::env::split_paths(paths) {
-            if let Some(found) = try_path(&dir.join(&exe), "PATH", None)? {
-                return Ok(found);
-            }
+    if cmd.dotnet_tool.is_some() {
+        // The pinned cache (the registration's fetch script), the .NET global tools folder, then PATH.
+        if let Some(cache) = env.cache
+            && let Some(found) = try_path(&cache.join(&exe), "pinned cache", None)?
+        {
+            return Ok(found);
         }
+        if let Some(tools) = dotnet_global_tools(env.var, env.home)
+            && let Some(found) = try_path(&tools.join(&exe), ".NET global tools", None)?
+        {
+            return Ok(found);
+        }
+        if let Some(found) = on_path(&exe)? {
+            return Ok(found);
+        }
+        return Err(format!(
+            "{} not found beside eludite, {}in the pinned cache, in the .NET global tools folder or on PATH",
+            cmd.executable,
+            cmd.env_override
+                .as_deref()
+                .map(|v| format!("in {v}, "))
+                .unwrap_or_default(),
+        ));
+    }
+    if let Some(found) = on_path(&exe)? {
+        return Ok(found);
     }
     if let Some(component) = &cmd.rustup_component
         && let Some(p) = (env.rustup)(&cmd.executable)
@@ -527,6 +623,58 @@ fn locate_command(
             .map(|c| format!(" or as the rustup component (`rustup component add {c}`)"))
             .unwrap_or_default()
     ))
+}
+
+/// The .NET global tools folder: `.dotnet/tools` under `DOTNET_CLI_HOME` when set, else under `home` (`HOME`,
+/// `%USERPROFILE%`).
+fn dotnet_global_tools(
+    var: &dyn Fn(&str) -> Option<OsString>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    let base = match var("DOTNET_CLI_HOME") {
+        Some(h) => PathBuf::from(h),
+        None => home?.to_path_buf(),
+    };
+    Some(base.join(".dotnet").join("tools"))
+}
+
+/// The environment a .NET global tool's apphost needs (brief 0063): nothing when `DOTNET_ROOT` is set, else
+/// `DOTNET_ROOT` as the folder of the `dotnet` executable on `PATH` with symlinks resolved (the SDK root, which holds
+/// `shared/`). The apphost refuses to start when `dotnet` is neither at the default location nor registered nor named
+/// by the variable, as with a user-local SDK (`~/.dotnet`). Nothing when `dotnet` is not on `PATH` either.
+pub fn dotnet_tool_envs(
+    var: &dyn Fn(&str) -> Option<OsString>,
+    path_var: Option<&OsString>,
+) -> Vec<(String, String)> {
+    if var("DOTNET_ROOT").is_some() {
+        return Vec::new();
+    }
+    let dotnet = format!("dotnet{}", std::env::consts::EXE_SUFFIX);
+    let root = path_var
+        .into_iter()
+        .flat_map(std::env::split_paths)
+        .map(|dir| dir.join(&dotnet))
+        .filter(|p| p.is_file())
+        .find_map(|p| {
+            let real = std::fs::canonicalize(&p).unwrap_or(p);
+            real.parent()
+                .map(|d| without_verbatim_prefix(d.to_path_buf()))
+        });
+    match root {
+        Some(root) => vec![(
+            "DOTNET_ROOT".to_owned(),
+            root.to_string_lossy().into_owned(),
+        )],
+        None => Vec::new(),
+    }
+}
+
+/// `canonicalize` on Windows yields `\\?\C:\...`, which the apphost does not read: the plain form.
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(plain) if cfg!(windows) => PathBuf::from(plain),
+        _ => path,
+    }
 }
 
 /// What Format Document runs for a file.
@@ -586,6 +734,10 @@ pub struct ServerRegistry {
     /// The web servers' cache (`tools/web-servers/fetch.sh`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_servers: Option<CacheSpec>,
+    /// The .NET global tools servers are (brief 0063), by tool name (`fsautocomplete`): the pin of
+    /// `tools/<tool>/PIN` and the fetch script.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dotnet_tools: BTreeMap<String, ToolSpec>,
 }
 
 impl ServerRegistry {
@@ -634,6 +786,29 @@ impl ServerRegistry {
     /// The command that installs the web servers (`tools/web-servers/fetch.sh`), for messages.
     pub fn fetch_command(&self) -> Option<&str> {
         self.web_servers.as_ref().map(|c| c.fetch.as_str())
+    }
+
+    /// The pinned cache folder of .NET tool `tool`: `<home>/.cache/eludite/<tool>/<pin>`, what `tools/<tool>/fetch.sh`
+    /// installs into; `None` for a tool the registry does not pin, or when the folder does not exist.
+    pub fn dotnet_tool_cache(&self, tool: &str, home: Option<&Path>) -> Option<PathBuf> {
+        let spec = self.dotnet_tools.get(tool)?;
+        let dir = home?
+            .join(".cache")
+            .join("eludite")
+            .join(tool)
+            .join(&spec.pin);
+        dir.is_dir().then_some(dir)
+    }
+
+    /// The command that installs server `reg` when it is not found, for its status message: the web servers' for an
+    /// npm package, the tool's for a .NET tool, none otherwise (rust-analyzer is a rustup component).
+    pub fn fetch_command_for(&self, reg: &ServerRegistration) -> Option<&str> {
+        let cmd = reg.command.as_ref()?;
+        if cmd.npm_package.is_some() {
+            return self.fetch_command();
+        }
+        let tool = cmd.dotnet_tool.as_deref()?;
+        self.dotnet_tools.get(tool).map(|t| t.fetch.as_str())
     }
 
     /// What formats `file` under `editor.formatter`'s `choice` (`auto`, `prettier`, `biome`, `server`):
@@ -716,8 +891,13 @@ pub fn glob_match(pattern: &str, name: &str) -> bool {
     go(pattern.as_bytes(), name.as_bytes())
 }
 
-/// `--version` of `path` (under `node` for a script): its first line, or `None` when it does not run.
-pub fn probe_version(path: &Path, node: Option<&Path>) -> Option<String> {
+/// `--version` of `path` (under `node` for a script, with `envs` set): its first line, or `None` when it does not
+/// run.
+pub fn probe_version(
+    path: &Path,
+    node: Option<&Path>,
+    envs: &[(String, String)],
+) -> Option<String> {
     let mut command = match node {
         Some(node) => {
             let mut c = Command::new(node);
@@ -727,6 +907,7 @@ pub fn probe_version(path: &Path, node: Option<&Path>) -> Option<String> {
         None => Command::new(path),
     };
     let out = command
+        .envs(envs.iter().map(|(k, v)| (k, v)))
         .arg("--version")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -972,7 +1153,7 @@ mod tests {
         let ra = ServerRegistry::builtin();
         let ra = ra.get("rust-analyzer").unwrap();
         // The rustup proxy on PATH answers nothing (no component installed).
-        let probe = |p: &Path, _: Option<&Path>| {
+        let probe = |p: &Path, _: Option<&Path>, _: &[(String, String)]| {
             (!p.starts_with(dir.path().join("proxy"))).then(|| "rust-analyzer 1.0".to_owned())
         };
         let rustup_path = rustup_dir.join(&exe);
@@ -993,6 +1174,7 @@ mod tests {
                 project: None,
                 cache: None,
                 node: &no_node,
+                home: None,
             })
         };
         let found = env(Some(&beside), &with_env, path_var.clone()).unwrap();
@@ -1038,7 +1220,7 @@ mod tests {
         let ts = r.get("typescript").unwrap();
         let html = r.get("html").unwrap();
         let probed = std::cell::RefCell::new(Vec::new());
-        let probe = |p: &Path, n: Option<&Path>| {
+        let probe = |p: &Path, n: Option<&Path>, _: &[(String, String)]| {
             probed
                 .borrow_mut()
                 .push((p.to_path_buf(), n.map(Path::to_path_buf)));
@@ -1062,6 +1244,7 @@ mod tests {
                 project: Some(&root),
                 cache,
                 node: &node_found,
+                home: None,
             })
         };
         // Only PATH.
@@ -1137,6 +1320,7 @@ mod tests {
                 project: Some(&root),
                 cache: Some(&cache),
                 node: &no_node,
+                home: None,
             })
             .unwrap_err();
         assert!(e.contains("Node.js was not found"), "{e}");
@@ -1151,6 +1335,7 @@ mod tests {
                 project: Some(&root),
                 cache: None,
                 node: &node_found,
+                home: None,
             })
             .unwrap_err();
         assert!(
@@ -1250,11 +1435,12 @@ mod tests {
                     beside: None,
                     var: &|_| None,
                     path_var: None,
-                    probe: &|_, _| Some("3.9.9".to_owned()),
+                    probe: &|_, _, _| Some("3.9.9".to_owned()),
                     rustup: &|_| None,
                     project: file.parent(),
                     cache,
                     node: &node_found,
+                    home: None,
                 };
                 Ok(match r.pick_formatter(file, choice, &env)? {
                     FormatterPick::Server => ("server".into(), String::new()),
@@ -1397,5 +1583,338 @@ mod tests {
         }
         let pinned = pin.lines().find_map(|l| l.strip_prefix("pin ")).unwrap();
         assert_eq!(ServerRegistry::builtin().web_servers.unwrap().pin, pinned);
+    }
+
+    /// Brief 0063: `.vb` is the host's (Roslyn), as `vb`; the F# files are FsAutoComplete's, as `fsharp`, a .NET tool
+    /// with its variable and its workspace options.
+    #[test]
+    fn vb_goes_to_the_host_and_fsharp_to_fsautocomplete() {
+        let r = ServerRegistry::builtin();
+        let vb = r.for_path(Path::new("/s/App/Module1.vb")).unwrap();
+        assert_eq!((vb.id.as_str(), vb.via), ("roslyn", Via::EluditeHost));
+        assert_eq!(vb.name, "C# and Visual Basic");
+        assert_eq!(vb.language_id_for(Path::new("/s/App/Module1.vb")), "vb");
+        assert_eq!(vb.language_id_for(Path::new("/s/App/Program.cs")), "csharp");
+        assert_eq!(r.all_for_path(Path::new("/s/App/Module1.VB")).len(), 1);
+        for f in [
+            "/f/Library.fs",
+            "/f/Library.fsi",
+            "/f/script.fsx",
+            "/f/old.fsscript",
+        ] {
+            let regs = r.all_for_path(Path::new(f));
+            assert_eq!(regs.len(), 1, "{f}");
+            let fsac = regs[0];
+            assert_eq!(
+                (fsac.id.as_str(), fsac.via),
+                ("fsautocomplete", Via::Process)
+            );
+            assert_eq!(fsac.name, "FsAutoComplete");
+            assert_eq!(fsac.language_id_for(Path::new(f)), "fsharp", "{f}");
+        }
+        let fsac = r.get("fsautocomplete").unwrap();
+        assert_eq!(fsac.root_markers, ["*.fsproj", "*.sln", "*.slnx"]);
+        let cmd = fsac.command.as_ref().unwrap();
+        assert_eq!(cmd.executable, "fsautocomplete");
+        assert!(cmd.args.is_empty());
+        assert_eq!(cmd.env_override.as_deref(), Some("ELUDITE_FSAUTOCOMPLETE"));
+        assert_eq!(cmd.dotnet_tool.as_deref(), Some("fsautocomplete"));
+        assert_eq!(cmd.probe, Probe::Version);
+        assert_eq!(
+            fsac.initialization_options,
+            json!({"AutomaticWorkspaceInit": true})
+        );
+        assert_eq!(
+            r.fetch_command_for(fsac),
+            Some("tools/fsautocomplete/fetch.sh")
+        );
+        assert_eq!(
+            r.fetch_command_for(r.get("typescript").unwrap()),
+            Some("tools/web-servers/fetch.sh")
+        );
+        assert_eq!(r.fetch_command_for(r.get("rust-analyzer").unwrap()), None);
+        assert_eq!(r.fetch_command_for(vb), None);
+        assert!(r.for_path(Path::new("/f/Lib.fsproj")).is_none());
+    }
+
+    /// Brief 0063: a root marker with a `*` matches the folder's file names (`*.fsproj`), the nearest folder wins, and
+    /// a marker without one is still a file name (`Cargo.toml`: a folder named so does not count).
+    #[test]
+    fn glob_root_markers_find_the_folder_holding_a_project_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let types = dir.path().join("repo/src/Lib/Types");
+        std::fs::create_dir_all(&types).unwrap();
+        std::fs::write(types.join("Shapes.fs"), "").unwrap();
+        let r = ServerRegistry::builtin();
+        let fsac = r.get("fsautocomplete").unwrap();
+        assert_eq!(fsac.find_root(&types.join("Shapes.fs")), None);
+        std::fs::write(dir.path().join("repo/App.sln"), "").unwrap();
+        assert_eq!(
+            fsac.find_root(&types.join("Shapes.fs")).as_deref(),
+            Some(dir.path().join("repo").as_path())
+        );
+        std::fs::write(dir.path().join("repo/src/Lib/Lib.fsproj"), "").unwrap();
+        assert_eq!(
+            fsac.find_root(&types.join("Shapes.fs")).as_deref(),
+            Some(dir.path().join("repo/src/Lib").as_path())
+        );
+        // A folder whose name matches is not a marker.
+        std::fs::create_dir_all(types.join("Nope.fsproj")).unwrap();
+        assert_eq!(
+            fsac.find_root(&types.join("Shapes.fs")).as_deref(),
+            Some(dir.path().join("repo/src/Lib").as_path())
+        );
+        let ra = r.get("rust-analyzer").unwrap();
+        std::fs::create_dir_all(types.join("Cargo.toml")).unwrap();
+        assert_eq!(ra.find_root(&types.join("Shapes.fs")), None);
+    }
+
+    /// Brief 0063: a .NET tool is found beside eludite, then at its variable, then in the pinned cache, then in the
+    /// .NET global tools folder (under `DOTNET_CLI_HOME` when set), then on PATH; every candidate is probed with the
+    /// tool's environment; nothing anywhere names the places.
+    #[test]
+    fn dotnet_tools_are_found_beside_then_variable_then_cache_then_global_tools_then_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = format!("fsautocomplete{}", std::env::consts::EXE_SUFFIX);
+        let mk = |sub: &str| {
+            let d = dir.path().join(sub);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join(&exe), "").unwrap();
+            d
+        };
+        let (beside, env_dir, cache, path_dir) = (mk("beside"), mk("env"), mk("cache"), mk("bin"));
+        let home = dir.path().join("home");
+        let tools = home.join(".dotnet/tools");
+        let cli_home = dir.path().join("cli-home");
+        let cli_tools = cli_home.join(".dotnet/tools");
+        let r = ServerRegistry::builtin();
+        let fsac = r.get("fsautocomplete").unwrap();
+        let probed = std::cell::RefCell::new(Vec::new());
+        let probe = |p: &Path, n: Option<&Path>, envs: &[(String, String)]| {
+            assert_eq!(n, None);
+            probed.borrow_mut().push((p.to_path_buf(), envs.to_vec()));
+            Some("0.84.0+abc".to_owned())
+        };
+        let vars: std::cell::RefCell<BTreeMap<String, OsString>> = Default::default();
+        let var = |k: &str| vars.borrow().get(k).cloned();
+        let path_var = std::env::join_paths([&path_dir]).ok();
+        let locate = |beside: Option<&Path>, cache: Option<&Path>, home: Option<&Path>| {
+            fsac.locate_with(&Environment {
+                beside,
+                var: &var,
+                path_var: path_var.clone(),
+                probe: &probe,
+                rustup: &|_| panic!("not a rustup component"),
+                project: Some(dir.path()),
+                cache,
+                node: &no_node,
+                home,
+            })
+        };
+        // Only PATH (no `dotnet` there: nothing to set).
+        let found = locate(None, None, Some(&home)).unwrap();
+        assert_eq!(
+            (
+                found.source.as_str(),
+                found.path.as_path(),
+                found.node.as_deref()
+            ),
+            ("PATH", path_dir.join(&exe).as_path(), None)
+        );
+        assert_eq!(found.version, "0.84.0+abc");
+        assert!(found.envs.is_empty(), "{:?}", found.envs);
+        // The global tools folder, before PATH.
+        mk("home/.dotnet/tools");
+        let found = locate(None, None, Some(&home)).unwrap();
+        assert_eq!(
+            (found.source.as_str(), found.path.as_path()),
+            (".NET global tools", tools.join(&exe).as_path())
+        );
+        // DOTNET_CLI_HOME moves it.
+        vars.borrow_mut()
+            .insert("DOTNET_CLI_HOME".into(), cli_home.clone().into_os_string());
+        assert_eq!(locate(None, None, Some(&home)).unwrap().source, "PATH");
+        mk("cli-home/.dotnet/tools");
+        assert_eq!(
+            locate(None, None, Some(&home)).unwrap().path,
+            cli_tools.join(&exe)
+        );
+        vars.borrow_mut().remove("DOTNET_CLI_HOME");
+        // The pinned cache, before the global tools.
+        let found = locate(None, Some(&cache), Some(&home)).unwrap();
+        assert_eq!(
+            (found.source.as_str(), found.path.as_path()),
+            ("pinned cache", cache.join(&exe).as_path())
+        );
+        // The variable, before the cache.
+        vars.borrow_mut().insert(
+            "ELUDITE_FSAUTOCOMPLETE".into(),
+            env_dir.join(&exe).into_os_string(),
+        );
+        let found = locate(None, Some(&cache), Some(&home)).unwrap();
+        assert_eq!(found.source, "ELUDITE_FSAUTOCOMPLETE");
+        // Beside eludite, before everything.
+        let found = locate(Some(&beside), Some(&cache), Some(&home)).unwrap();
+        assert_eq!(
+            (found.source.as_str(), found.path.as_path()),
+            ("beside eludite", beside.join(&exe).as_path())
+        );
+        // A variable naming something that does not run is an error, not a fallthrough.
+        vars.borrow_mut().insert(
+            "ELUDITE_FSAUTOCOMPLETE".into(),
+            dir.path().join("nope").into_os_string(),
+        );
+        let e = locate(None, Some(&cache), Some(&home)).unwrap_err();
+        assert!(
+            e.contains("ELUDITE_FSAUTOCOMPLETE") && e.contains("does not run"),
+            "{e}"
+        );
+        vars.borrow_mut().remove("ELUDITE_FSAUTOCOMPLETE");
+        // Nothing anywhere: the message names the places.
+        let e = fsac
+            .locate_with(&Environment {
+                beside: None,
+                var: &var,
+                path_var: None,
+                probe: &probe,
+                rustup: &|_| None,
+                project: None,
+                cache: None,
+                node: &no_node,
+                home: None,
+            })
+            .unwrap_err();
+        assert!(
+            e.contains("fsautocomplete not found")
+                && e.contains("ELUDITE_FSAUTOCOMPLETE")
+                && e.contains("pinned cache")
+                && e.contains(".NET global tools")
+                && e.contains("PATH"),
+            "{e}"
+        );
+        // Every candidate was probed directly (no Node.js) and without a variable: `dotnet` was not on PATH.
+        assert!(!probed.borrow().is_empty());
+        assert!(probed.borrow().iter().all(|(_, envs)| envs.is_empty()));
+    }
+
+    /// Brief 0063: with `dotnet` on PATH and `DOTNET_ROOT` unset, a .NET tool is probed and located with `DOTNET_ROOT`
+    /// set to the resolved `dotnet`'s folder (symlinks followed); set already, nothing is added; a server that is not
+    /// a .NET tool never gets it.
+    #[test]
+    fn dotnet_root_is_added_for_a_dotnet_tool_when_unset_and_not_otherwise() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = format!("fsautocomplete{}", std::env::consts::EXE_SUFFIX);
+        let dotnet = format!("dotnet{}", std::env::consts::EXE_SUFFIX);
+        let sdk = dir.path().join("sdk");
+        std::fs::create_dir_all(sdk.join("shared")).unwrap();
+        std::fs::write(sdk.join(&dotnet), "").unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join(&exe), "").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(sdk.join(&dotnet), bin.join(&dotnet)).unwrap();
+        #[cfg(not(unix))]
+        std::fs::copy(sdk.join(&dotnet), bin.join(&dotnet)).unwrap();
+        // Through the symlink on Unix; a copy on Windows, so the folder is the copy's.
+        #[cfg(unix)]
+        let expected_root = without_verbatim_prefix(std::fs::canonicalize(&sdk).unwrap());
+        #[cfg(not(unix))]
+        let expected_root = without_verbatim_prefix(std::fs::canonicalize(&bin).unwrap());
+        let path_var = std::env::join_paths([&bin]).ok();
+        let none = |_: &str| None;
+        let envs = dotnet_tool_envs(&none, path_var.as_ref());
+        assert_eq!(
+            envs,
+            vec![(
+                "DOTNET_ROOT".to_owned(),
+                expected_root.to_string_lossy().into_owned()
+            )]
+        );
+        let set = |k: &str| (k == "DOTNET_ROOT").then(|| OsString::from("/opt/dotnet"));
+        assert!(dotnet_tool_envs(&set, path_var.as_ref()).is_empty());
+        assert!(dotnet_tool_envs(&none, None).is_empty());
+        let r = ServerRegistry::builtin();
+        let probed = std::cell::RefCell::new(Vec::new());
+        let probe = |p: &Path, _: Option<&Path>, envs: &[(String, String)]| {
+            probed.borrow_mut().push((p.to_path_buf(), envs.to_vec()));
+            Some("x".to_owned())
+        };
+        let locate = |id: &str, var: &dyn Fn(&str) -> Option<OsString>| {
+            r.get(id).unwrap().locate_with(&Environment {
+                beside: Some(&bin),
+                var,
+                path_var: path_var.clone(),
+                probe: &probe,
+                rustup: &|_| None,
+                project: None,
+                cache: None,
+                node: &no_node,
+                home: None,
+            })
+        };
+        let found = locate("fsautocomplete", &none).unwrap();
+        assert_eq!(found.envs, envs);
+        assert_eq!(probed.borrow().last().unwrap().1, envs, "probed with it");
+        assert!(locate("fsautocomplete", &set).unwrap().envs.is_empty());
+        // rust-analyzer beside eludite: not a .NET tool.
+        std::fs::write(
+            bin.join(format!("rust-analyzer{}", std::env::consts::EXE_SUFFIX)),
+            "",
+        )
+        .unwrap();
+        let found = locate("rust-analyzer", &none).unwrap();
+        assert_eq!(found.source, "beside eludite");
+        assert!(found.envs.is_empty());
+        assert!(probed.borrow().last().unwrap().1.is_empty());
+    }
+
+    /// Brief 0063: `tools/fsautocomplete/PIN`'s version is the pin servers.json searches under `~/.cache/eludite/`, the
+    /// fetch script is the one the messages name, and the cache folder is found by that pin.
+    #[test]
+    fn the_fsautocomplete_pin_matches_servers_json() {
+        let pin = include_str!("../../../tools/fsautocomplete/PIN");
+        let version = pin
+            .lines()
+            .find_map(|l| l.strip_prefix("version "))
+            .unwrap()
+            .trim();
+        assert!(
+            version.starts_with(|c: char| c.is_ascii_digit()),
+            "{version}"
+        );
+        let r = ServerRegistry::builtin();
+        let spec = r.dotnet_tools.get("fsautocomplete").unwrap();
+        assert_eq!(spec.pin, version);
+        assert_eq!(spec.fetch, "tools/fsautocomplete/fetch.sh");
+        assert!(
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/fsautocomplete/fetch.sh"
+            ))
+            .is_file()
+        );
+        assert!(
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/fsautocomplete/fetch.ps1"
+            ))
+            .is_file()
+        );
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            r.dotnet_tool_cache("fsautocomplete", Some(dir.path())),
+            None
+        );
+        assert_eq!(r.dotnet_tool_cache("fsautocomplete", None), None);
+        let pinned = dir
+            .path()
+            .join(".cache/eludite/fsautocomplete")
+            .join(version);
+        std::fs::create_dir_all(&pinned).unwrap();
+        assert_eq!(
+            r.dotnet_tool_cache("fsautocomplete", Some(dir.path())),
+            Some(pinned)
+        );
+        assert_eq!(r.dotnet_tool_cache("other-tool", Some(dir.path())), None);
     }
 }

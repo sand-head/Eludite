@@ -2,6 +2,26 @@
 //! (`eludite-acp`), against a fake `claude` replaying a recorded and redacted
 //! real session (`tests/fixtures/claude-2.1.287-session.jsonl`).
 //!
+//! Brief 0057: `claude-2.1.289-commands.jsonl` (no prompt; the `initialize`
+//! reply with Claude Code's built-in slash commands) proves the adapter sends
+//! one `available_commands_update` right after `session/new`.
+//!
+//! Brief 0058: `claude-2.1.289-options.jsonl` (no model call: the
+//! `initialize` reply with `claude`'s models, `set_permission_mode` to `plan`
+//! and back, `set_model` to `opus`, the local command `/effort high`) proves
+//! `session/new`'s modes and config options, `session/set_mode` and
+//! `session/set_config_option`, their notifications, and that the effort's
+//! local command is not a turn. The ACP side is pinned in
+//! `claude-2.1.289-options.acp.jsonl` (`UPDATE_GOLDEN=1` rewrites it).
+//!
+//! Brief 0061: `claude-2.1.289-resume.jsonl` holds three `claude` processes
+//! (no model call): a new session that runs the local command `/effort low`
+//! (which writes Claude Code's session file), `--resume` of that session (its
+//! own `initialize`), and `--resume` of an id no session has (refused). With
+//! `claude-2.1.289-session-file.jsonl` as Claude Code's session file, it
+//! proves `session/load`: the replay before the answer, `--resume` in the
+//! child's argv, an id already live refused, and the refusal's message.
+//!
 //! The recorded session has three turns: the diagnostics question (ToolSearch,
 //! then the Eludite MCP tool, allowed), a Write (denied), and a long answer
 //! interrupted by the client.
@@ -16,7 +36,7 @@ use eludite_acp::protocol::{
     RequestPermissionRequest, SessionNotification, SessionUpdate, StopReason, ToolCall,
     ToolCallStatus,
 };
-use eludite_acp::{AcpClient, AgentDescriptor, ClientEvent, EventSink};
+use eludite_acp::{AcpClient, AcpError, AgentDescriptor, ClientEvent, EventSink};
 use serde_json::{Value, json};
 
 const ADAPTER: &str = env!("CARGO_BIN_EXE_eludite-claude-acp");
@@ -241,7 +261,8 @@ fn recorded_session_full_mapping_permissions_and_cancel() {
     assert_eq!(agent.name, "eludite-claude-acp");
     assert!(init.agent_capabilities.mcp_capabilities.http);
     assert!(!init.agent_capabilities.mcp_capabilities.sse);
-    assert!(!init.agent_capabilities.load_session);
+    // Brief 0061: the adapter resumes sessions (`session/load` over `claude --resume`).
+    assert!(init.agent_capabilities.load_session);
     let login = &init.auth_methods[0];
     assert_eq!(login.kind.as_deref(), Some("terminal"));
     assert_eq!(login.args, ["auth", "login"]);
@@ -690,4 +711,561 @@ fn cancel_while_permission_pending() {
         inputs[answer]["response"]["response"],
         json!({"behavior": "deny", "message": "The prompt was cancelled", "interrupt": true})
     );
+}
+
+#[test]
+fn recorded_commands_follow_session_new() {
+    let mut env = fake_env("claude-2.1.289-commands.jsonl");
+    env.push(("FAKE_CLAUDE_VERSION".into(), "2.1.289 (Claude Code)".into()));
+    let h = spawn("commands", env, read_policy());
+    h.client.initialize(info(), T).unwrap();
+    // Nothing arrives before the session exists.
+    assert!(updates(&drain(&h.events)).is_empty());
+    let session = h
+        .client
+        .new_session(&h.cwd, vec![eludite_server()], T)
+        .unwrap();
+    let ev = drain(&h.events);
+    let lists: Vec<(String, Vec<String>)> = ev
+        .iter()
+        .filter_map(|e| match e {
+            ClientEvent::Update(SessionNotification { session_id, update }) => update
+                .available_commands()
+                .map(|c| (session_id.clone(), c.into_iter().map(|c| c.name).collect())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lists.len(), 1, "one list: {lists:?}");
+    let (sid, names) = &lists[0];
+    assert_eq!(sid, &session.session_id);
+    for want in ["model", "effort", "compact", "clear", "context"] {
+        assert!(names.iter().any(|n| n == want), "{want} in {names:?}");
+    }
+    assert!(!names.iter().any(|n| n.starts_with("__")), "{names:?}");
+    let commands = updates(&ev)
+        .iter()
+        .find_map(SessionUpdate::available_commands)
+        .unwrap();
+    let compact = commands.iter().find(|c| c.name == "compact").unwrap();
+    assert_eq!(
+        compact.hint(),
+        Some("<optional custom summarization instructions>")
+    );
+    let context = commands.iter().find(|c| c.name == "context").unwrap();
+    assert_eq!(context.hint(), None);
+    // The replay matched: the fake saw only the initialize request, no mismatch.
+    h.client.shutdown();
+    let log = fake_log(&h.log);
+    assert!(!log.iter().any(|e| e["event"] == "mismatch"), "{log:?}");
+}
+
+/// A JSON-RPC error as the agent sent it (code, message, data).
+fn rpc_error(e: &AcpError) -> Value {
+    match e {
+        AcpError::Rpc(o) => serde_json::to_value(o).unwrap(),
+        other => panic!("not an agent error: {other}"),
+    }
+}
+
+/// Write or compare the golden `name` (one JSON value per line).
+fn check_golden(name: &str, got: &[Value]) {
+    let rendered: String = got.iter().map(|v| format!("{v}\n")).collect();
+    let path = fixture(name);
+    if std::env::var("UPDATE_GOLDEN").as_deref() == Ok("1") {
+        std::fs::write(&path, &rendered).unwrap();
+    }
+    let want = std::fs::read_to_string(&path).expect("golden file (UPDATE_GOLDEN=1 to create)");
+    for (i, (g, w)) in rendered.lines().zip(want.lines()).enumerate() {
+        assert_eq!(g, w, "line {} of {name}", i + 1);
+    }
+    assert_eq!(rendered.lines().count(), want.lines().count());
+}
+
+/// The option `id` of a `configOptions` list.
+fn config_option<'a>(options: &'a Value, id: &str) -> &'a Value {
+    options
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == id)
+        .unwrap_or_else(|| panic!("no option {id} in {options}"))
+}
+
+fn choice_values(option: &Value) -> Vec<&str> {
+    option["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["value"].as_str().unwrap())
+        .collect()
+}
+
+/// The updates of `kind` among `events`, raw, with the session id.
+fn raw_updates(events: &[ClientEvent], kind: &str) -> Vec<(String, Value)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            ClientEvent::Update(SessionNotification {
+                session_id,
+                update: SessionUpdate::Other { kind: k, raw },
+            }) if k == kind => Some((session_id.clone(), raw.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn recorded_options_follow_mode_model_and_effort_changes() {
+    let mut env = fake_env("claude-2.1.289-options.jsonl");
+    env.push(("FAKE_CLAUDE_VERSION".into(), "2.1.289 (Claude Code)".into()));
+    let h = spawn("options", env, read_policy());
+    h.client.initialize(info(), T).unwrap();
+    let mut golden = Vec::new();
+    // session/new: the two modes, the model and the effort options.
+    let new = h
+        .client
+        .call("session/new", json!({"cwd": h.cwd, "mcpServers": []}), T)
+        .unwrap();
+    let sid = new["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        new["modes"],
+        json!({"currentModeId": "default", "availableModes": [
+            {"id": "default", "name": "Manual", "description": "Eludite reviews each edit and prompts as the policy says"},
+            {"id": "plan", "name": "Plan", "description": "Plans before making changes"}
+        ]})
+    );
+    let model = config_option(&new["configOptions"], "model");
+    assert_eq!(
+        (&model["category"], &model["currentValue"]),
+        (&json!("model"), &json!("default"))
+    );
+    let values = choice_values(model);
+    assert_eq!(values.len(), 12, "{values:?}");
+    assert_eq!(
+        &values[..5],
+        ["default", "opus", "fable", "sonnet", "haiku"]
+    );
+    assert_eq!(model["options"][1]["name"], "Opus 5.5");
+    assert_eq!(model["options"][0]["description"], "Fable 5.1");
+    let effort = config_option(&new["configOptions"], "effort");
+    assert_eq!(
+        (&effort["category"], &effort["currentValue"]),
+        (&json!("thought_level"), &json!("default"))
+    );
+    assert_eq!(
+        choice_values(effort),
+        ["default", "low", "medium", "high", "xhigh", "max"]
+    );
+    golden.push(
+        json!({"session/new": {"modes": new["modes"], "configOptions": new["configOptions"]}}),
+    );
+    let ev = drain(&h.events);
+    assert_eq!(raw_updates(&ev, "available_commands_update").len(), 1);
+
+    // set_mode: plan and back, each answered and notified; a mode not offered is refused with nothing sent.
+    let set_mode = |mode: &str| {
+        h.client.call(
+            "session/set_mode",
+            json!({"sessionId": sid, "modeId": mode}),
+            T,
+        )
+    };
+    for mode in ["plan", "default"] {
+        let answer = set_mode(mode).unwrap();
+        assert_eq!(answer, json!({}));
+        let ev = drain(&h.events);
+        let notified = raw_updates(&ev, "current_mode_update");
+        assert_eq!(
+            notified,
+            [(
+                sid.clone(),
+                json!({"sessionUpdate": "current_mode_update", "currentModeId": mode})
+            )]
+        );
+        golden.push(json!({"session/set_mode": mode, "answer": answer, "notified": notified[0].1}));
+    }
+    let refused = rpc_error(&set_mode("bypassPermissions").unwrap_err());
+    assert_eq!(refused["code"], -32602);
+    assert_eq!(refused["data"], "unknown mode bypassPermissions");
+    golden.push(json!({"session/set_mode": "bypassPermissions", "error": refused}));
+
+    // set_config_option: the model, then the effort; each answers every option and notifies the same list.
+    let set_option = |id: &str, value: &str| {
+        h.client.call(
+            "session/set_config_option",
+            json!({"sessionId": sid, "configId": id, "value": value}),
+            T,
+        )
+    };
+    for (id, value) in [("model", "opus"), ("effort", "high")] {
+        let started = std::time::Instant::now();
+        let answer = set_option(id, value).unwrap();
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(2), "{id}: {took:?}");
+        assert_eq!(
+            config_option(&answer["configOptions"], id)["currentValue"],
+            value
+        );
+        let ev = drain(&h.events);
+        let notified = raw_updates(&ev, "config_option_update");
+        assert_eq!(notified.len(), 1, "{notified:?}");
+        assert_eq!(notified[0].1["configOptions"], answer["configOptions"]);
+        // The effort's local command (`/effort high`, answered by a synthetic assistant message) is not a turn.
+        assert_eq!(message_text(&ev), "", "{id}");
+        assert!(
+            !updates(&ev).iter().any(|u| matches!(
+                u,
+                SessionUpdate::AgentMessageChunk(_) | SessionUpdate::AgentThoughtChunk(_)
+            )),
+            "{id}"
+        );
+        assert!(raw_updates(&ev, "usage_update").is_empty(), "{id}");
+        golden.push(json!({"session/set_config_option": {id: value}, "answer": answer, "notified": notified[0].1}));
+    }
+    // Opus supports effort: after the model change the effort stayed, with Opus's levels.
+    let answer = &golden[golden.len() - 1]["answer"]["configOptions"];
+    assert_eq!(config_option(answer, "model")["currentValue"], "opus");
+    // `default` cannot be set (claude has no way back to adaptive effort in a session); neither can an unknown
+    // value or option.
+    for (id, value) in [
+        ("effort", "default"),
+        ("effort", "huge"),
+        ("speed", "1"),
+        ("model", "nope"),
+    ] {
+        let e = rpc_error(&set_option(id, value).unwrap_err());
+        assert_eq!(e["code"], -32602, "{id}={value}: {e}");
+        golden.push(json!({"session/set_config_option": {id: value}, "error": e}));
+    }
+    // A refusal notifies nothing.
+    assert!(updates(&drain(&h.events)).is_empty());
+    check_golden("claude-2.1.289-options.acp.jsonl", &golden);
+
+    // The child side: the recorded controls in order, one user message (the local command), no mismatch.
+    h.client.shutdown();
+    let log = fake_log(&h.log);
+    assert!(!log.iter().any(|e| e["event"] == "mismatch"), "{log:?}");
+    let inputs: Vec<&Value> = log
+        .iter()
+        .filter(|e| e["event"] == "input")
+        .map(|e| &e["m"])
+        .collect();
+    let controls: Vec<(&str, &Value)> = inputs
+        .iter()
+        .filter(|m| m["type"] == "control_request")
+        .map(|m| (m["request"]["subtype"].as_str().unwrap(), &m["request"]))
+        .collect();
+    let subtypes: Vec<&str> = controls.iter().map(|(s, _)| *s).collect();
+    assert_eq!(
+        subtypes,
+        [
+            "initialize",
+            "set_permission_mode",
+            "set_permission_mode",
+            "set_model"
+        ]
+    );
+    assert_eq!(controls[1].1["mode"], "plan");
+    assert_eq!(controls[2].1["mode"], "default");
+    assert_eq!(controls[3].1["model"], "opus");
+    let users: Vec<&Value> = inputs
+        .iter()
+        .copied()
+        .filter(|m| m["type"] == "user")
+        .collect();
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0]["message"]["content"][0]["text"], "/effort high");
+}
+
+/// A change during a turn is refused (`in_turn`) and nothing reaches `claude`.
+#[test]
+fn a_change_during_a_turn_is_refused_without_writing_to_claude() {
+    let env = vec![
+        ("ELUDITE_CLAUDE_PATH".into(), FAKE.into()),
+        ("FAKE_CLAUDE_SCENARIO".into(), "stream".into()),
+        ("FAKE_CLAUDE_CHUNKS".into(), "300".into()),
+        ("FAKE_CLAUDE_RATE".into(), "100".into()),
+    ];
+    let h = spawn("in-turn", env, read_policy());
+    h.client.initialize(info(), T).unwrap();
+    let sid = h.client.new_session(&h.cwd, vec![], T).unwrap().session_id;
+    drain(&h.events);
+    let (client, sid2) = (h.client.clone(), sid.clone());
+    let turn = std::thread::spawn(move || client.prompt(&sid2, "stream"));
+    loop {
+        if let ClientEvent::Update(SessionNotification {
+            update: SessionUpdate::AgentMessageChunk(_),
+            ..
+        }) = h
+            .events
+            .recv_timeout(Duration::from_secs(10))
+            .expect("a chunk")
+        {
+            break;
+        }
+    }
+    for (method, params) in [
+        (
+            "session/set_config_option",
+            json!({"sessionId": sid, "configId": "model", "value": "opus"}),
+        ),
+        (
+            "session/set_config_option",
+            json!({"sessionId": sid, "configId": "effort", "value": "high"}),
+        ),
+        (
+            "session/set_mode",
+            json!({"sessionId": sid, "modeId": "plan"}),
+        ),
+    ] {
+        let e = rpc_error(&h.client.call(method, params, T).unwrap_err());
+        assert!(
+            e["data"].as_str().unwrap().starts_with("in_turn"),
+            "{method}: {e}"
+        );
+    }
+    h.client.cancel(&sid).unwrap();
+    turn.join().unwrap().unwrap();
+    h.client.shutdown();
+    let log = fake_log(&h.log);
+    let inputs: Vec<&Value> = log
+        .iter()
+        .filter(|e| e["event"] == "input")
+        .map(|e| &e["m"])
+        .collect();
+    let controls: Vec<&str> = inputs
+        .iter()
+        .filter(|m| m["type"] == "control_request")
+        .map(|m| m["request"]["subtype"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        controls,
+        ["initialize", "interrupt"],
+        "only the turn's own traffic"
+    );
+    assert_eq!(inputs.iter().filter(|m| m["type"] == "user").count(), 1);
+}
+
+#[test]
+fn effort_comes_from_the_environment_or_the_session_meta() {
+    let argv_of = |env: Vec<(String, String)>, meta: Option<Value>| {
+        let mut env = env;
+        env.extend(fake_env("claude-2.1.289-commands.jsonl"));
+        env.push(("FAKE_CLAUDE_VERSION".into(), "2.1.289 (Claude Code)".into()));
+        let h = spawn("effort", env, read_policy());
+        h.client.initialize(info(), T).unwrap();
+        h.client
+            .new_session_with_meta(&h.cwd, vec![], meta, T)
+            .unwrap();
+        h.client.shutdown();
+        let log = fake_log(&h.log);
+        log.iter().find(|e| e["event"] == "start").unwrap()["argv"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let after = |argv: &[String], flag: &str| {
+        argv.iter()
+            .position(|a| a == flag)
+            .map(|i| argv[i + 1].clone())
+    };
+    let argv = argv_of(vec![("ELUDITE_CLAUDE_EFFORT".into(), "high".into())], None);
+    assert_eq!(after(&argv, "--effort").as_deref(), Some("high"));
+    // The client's remembered choice, in the Node adapter's key.
+    let meta = json!({"claudeCode": {"options": {"model": "opus", "effort": "max"}}});
+    let argv = argv_of(vec![], Some(meta));
+    assert_eq!(after(&argv, "--effort").as_deref(), Some("max"));
+    assert_eq!(after(&argv, "--model").as_deref(), Some("opus"));
+    // `default` and unknown levels pass nothing.
+    let meta = json!({"claudeCode": {"options": {"model": "default", "effort": "huge"}}});
+    let argv = argv_of(vec![], Some(meta));
+    assert_eq!(after(&argv, "--effort"), None);
+    assert_eq!(after(&argv, "--model"), None);
+    let argv = argv_of(vec![], None);
+    assert_eq!(after(&argv, "--effort"), None);
+}
+
+/// `/effort high` typed as a prompt (the same recorded exchange, reached through `session/prompt`): the person sees
+/// Claude Code's reply as the turn's text, and the effort option follows in a `config_option_update`.
+#[test]
+fn a_typed_local_command_keeps_its_reply_and_moves_the_option() {
+    let mut env = fake_env("claude-2.1.289-options.jsonl");
+    env.push(("FAKE_CLAUDE_VERSION".into(), "2.1.289 (Claude Code)".into()));
+    let h = spawn("typed-effort", env, read_policy());
+    h.client.initialize(info(), T).unwrap();
+    let sid = h.client.new_session(&h.cwd, vec![], T).unwrap().session_id;
+    for mode in ["plan", "default"] {
+        h.client
+            .call(
+                "session/set_mode",
+                json!({"sessionId": sid, "modeId": mode}),
+                T,
+            )
+            .unwrap();
+    }
+    h.client
+        .call(
+            "session/set_config_option",
+            json!({"sessionId": sid, "configId": "model", "value": "opus"}),
+            T,
+        )
+        .unwrap();
+    drain(&h.events);
+    let r = h.client.prompt(&sid, "/effort high").unwrap();
+    assert_eq!(r.stop_reason, StopReason::EndTurn);
+    let ev = drain(&h.events);
+    assert!(
+        message_text(&ev).starts_with("Set effort level to high (this session only)"),
+        "{}",
+        message_text(&ev)
+    );
+    let notified = raw_updates(&ev, "config_option_update");
+    assert_eq!(notified.len(), 1, "{notified:?}");
+    let options = &notified[0].1["configOptions"];
+    assert_eq!(config_option(options, "effort")["currentValue"], "high");
+    assert_eq!(config_option(options, "model")["currentValue"], "opus");
+    h.client.shutdown();
+    assert!(!fake_log(&h.log).iter().any(|e| e["event"] == "mismatch"));
+}
+
+/// The folder Claude Code keeps `cwd`'s sessions in under `projects` (as `process::session_file` finds it).
+fn project_folder(cwd: &Path) -> String {
+    cwd.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// Brief 0061: `session/load` against the recorded `--resume`. A first adapter starts a session that runs `/effort
+/// low`; a second adapter resumes it: `claude` is started with `--resume <id>` and answers its own `initialize`, the
+/// conversation from Claude Code's session file is replayed before the answer, the answer carries the modes and the
+/// options, and the slash commands follow it. Loading it again while it is live is `invalid_params`; a `--resume`
+/// `claude` refuses fails the load with its message.
+#[test]
+fn recorded_resume_loads_the_session_and_replays_its_file() {
+    let mut env = fake_env("claude-2.1.289-resume.jsonl");
+    env.push(("FAKE_CLAUDE_VERSION".into(), "2.1.289 (Claude Code)".into()));
+    let first = spawn("resume-new", env.clone(), read_policy());
+    let init = first.client.initialize(info(), T).unwrap();
+    assert!(init.agent_capabilities.load_session);
+    let session = first
+        .client
+        .new_session(&first.cwd, vec![eludite_server()], T)
+        .unwrap();
+    let sid = session.session_id.clone();
+    let r = first.client.prompt(&sid, "/effort low").unwrap();
+    assert_eq!(r.stop_reason, StopReason::EndTurn);
+    first.client.shutdown();
+    let log = fake_log(&first.log);
+    assert!(!log.iter().any(|e| e["event"] == "mismatch"), "{log:?}");
+
+    // Claude Code's session file for it, where `claude` would have written it.
+    let config = temp_dir("resume-config");
+    let folder = config.join("projects").join(project_folder(&first.cwd));
+    std::fs::create_dir_all(&folder).unwrap();
+    let sample = std::fs::read_to_string(fixture("claude-2.1.289-session-file.jsonl"))
+        .unwrap()
+        .replace("{{SESSION_ID}}", &sid)
+        .replace("{{CWD}}", &first.cwd.to_string_lossy());
+    std::fs::write(folder.join(format!("{sid}.jsonl")), sample).unwrap();
+
+    let mut env2 = env.clone();
+    env2.push((
+        "CLAUDE_CONFIG_DIR".into(),
+        config.to_string_lossy().into_owned(),
+    ));
+    let h = spawn("resume-load", env2, read_policy());
+    h.client.initialize(info(), T).unwrap();
+    let loaded = h
+        .client
+        .load_session(&sid, &first.cwd, vec![eludite_server()], T)
+        .unwrap();
+    // The replay was on the wire before the answer, so it is all here already.
+    let mut before = Vec::new();
+    while let Ok(ev) = h.events.try_recv() {
+        before.push(ev);
+    }
+    let kinds: Vec<String> = updates(&before)
+        .iter()
+        .map(|u| {
+            serde_json::to_value(u).unwrap()["sessionUpdate"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(
+        kinds[..8],
+        [
+            "user_message_chunk",
+            "agent_thought_chunk",
+            "tool_call",
+            "tool_call_update",
+            "tool_call",
+            "tool_call_update",
+            "agent_message_chunk",
+            "user_message_chunk",
+        ]
+    );
+    for ev in &before {
+        if let ClientEvent::Update(n) = ev {
+            assert_eq!(n.session_id, sid);
+        }
+    }
+    let calls = tool_calls(&before);
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].status, Some(ToolCallStatus::Completed));
+    assert_eq!(calls[1].status, Some(ToolCallStatus::Failed));
+    // The modes and options, as `session/new` answers them.
+    assert_eq!(loaded.modes.unwrap().current_mode_id, "default");
+    assert!(!loaded.config_options.unwrap_or_default().is_empty());
+    let after = [before, drain(&h.events)].concat();
+    assert_eq!(
+        updates(&after)
+            .iter()
+            .filter(|u| u.available_commands().is_some())
+            .count(),
+        1
+    );
+    // Loading it again while it is live.
+    let again = h
+        .client
+        .load_session(&sid, &first.cwd, vec![eludite_server()], T)
+        .unwrap_err();
+    let e = rpc_error(&again);
+    assert_eq!(e["code"], -32602, "{e}");
+    assert!(e["data"].as_str().unwrap().contains("already live"), "{e}");
+    h.client.shutdown();
+    let log = fake_log(&h.log);
+    assert!(!log.iter().any(|e| e["event"] == "mismatch"), "{log:?}");
+    let argv: Vec<&str> = log.iter().find(|e| e["event"] == "start").unwrap()["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let at = argv.iter().position(|a| *a == "--resume").unwrap();
+    assert_eq!(argv[at + 1], sid);
+    assert!(!argv.contains(&"--session-id"));
+
+    // A `--resume` `claude` refuses (the recording's third process).
+    let mut env3 = env;
+    env3.push(("FAKE_CLAUDE_RESUME".into(), "refused".into()));
+    let refused = spawn("resume-refused", env3, read_policy());
+    refused.client.initialize(info(), T).unwrap();
+    let unknown = "11111111-2222-4333-8444-555555555555";
+    let err = refused
+        .client
+        .load_session(unknown, &refused.cwd, vec![eludite_server()], T)
+        .unwrap_err();
+    let e = rpc_error(&err);
+    let message = e.to_string();
+    assert!(
+        message.contains(&format!("No conversation found with session ID: {unknown}")),
+        "{e}"
+    );
+    refused.client.shutdown();
+    let _ = std::fs::remove_dir_all(&config);
 }
