@@ -19,7 +19,7 @@ use eludite_editor::{BreakpointGlyph, EditorEvent, ExecutionKind};
 use gpui::{Modifiers, TestAppContext};
 use serde_json::{Value, json};
 
-use super::super::tests::{T, Ws, assert_budget, hosted_runner, setup_debug};
+use super::super::tests::{T, Ws, assert_budget, hang_bound, hosted_runner, setup_debug};
 use super::DebugSetup;
 use super::state::Mode;
 use crate::shell::documents::normalize_path;
@@ -1709,10 +1709,18 @@ fn agent<F>(d: &mut Dbg, f: F) -> Value
 where
     F: FnOnce(&eludite_commands::CommandRegistry) -> Value + Send + 'static,
 {
+    agent_waiting(d, Duration::ZERO, f)
+}
+
+/// [`agent`] for a command that may itself wait up to `wait`: the hang bound comes on top of it.
+fn agent_waiting<F>(d: &mut Dbg, wait: Duration, f: F) -> Value
+where
+    F: FnOnce(&eludite_commands::CommandRegistry) -> Value + Send + 'static,
+{
     let commands = d.w.commands.clone();
     let a = test_agent();
     let handle = std::thread::spawn(move || with_caller(a, || f(&commands)));
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + hang_bound() + wait;
     while !handle.is_finished() {
         assert!(
             Instant::now() < deadline,
@@ -1726,7 +1734,8 @@ where
 
 /// An agent's one command.
 fn agent_call(d: &mut Dbg, command: &'static str, args: Value) -> Value {
-    agent(d, move |c| {
+    let wait = Duration::from_millis(args["wait_ms"].as_u64().unwrap_or(0));
+    agent_waiting(d, wait, move |c| {
         c.invoke(command, args)
             .unwrap_or_else(|e| json!({ "error": e.to_string() }))
     })
@@ -3651,7 +3660,11 @@ fn run_until_costs_little_more_than_continue(cx: &mut TestAppContext) {
         median(&until),
         p95(until.clone()).as_secs_f64() * 1e3
     );
-    assert!(median(&until) - median(&plain) < 20.0);
+    assert_budget(
+        "run_until's median over continue's",
+        Duration::from_secs_f64((median(&until) - median(&plain)).max(0.0) / 1e3),
+        Duration::from_millis(20),
+    );
     assert_eq!(d.state()["breakpoints"].as_array().unwrap().len(), 1);
     d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_mode(Mode::Design);

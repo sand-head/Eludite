@@ -60,6 +60,12 @@ pub(super) fn assert_budget(what: &str, measured: Duration, limit: Duration) {
     }
 }
 
+/// How long a test waits before it calls something hung: hosted runners are slower and shared, and the bound only
+/// catches a hang.
+pub(super) fn hang_bound() -> Duration {
+    if hosted_runner() { 3 * T } else { T }
+}
+
 /// The user settings file of the test shell, relative to its temporary folder (brief 0020).
 pub(super) const USER_SETTINGS: &str = "user-config/settings.json";
 
@@ -255,13 +261,7 @@ impl Ws {
 
     /// Run the UI until `done` holds, letting the host and worker threads run in real time.
     pub(super) fn wait(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
-        // Hosted runners are slower and shared; the bound only catches a hang.
-        let bound = if std::env::var_os("CI").is_some() {
-            3 * T
-        } else {
-            T
-        };
-        let deadline = Instant::now() + bound;
+        let deadline = Instant::now() + hang_bound();
         loop {
             self.vcx.run_until_parked();
             if done(self) {

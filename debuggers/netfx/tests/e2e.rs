@@ -507,7 +507,11 @@ mod windows_only {
         );
         assert_eq!(hits.len(), 2, "two breakpoint hits logged: {lines:?}");
         for h in end_to_end {
-            assert!(h < 200.0, "breakpoint hit to stopped took {h} ms");
+            assert_budget(
+                "breakpoint hit to stopped",
+                Duration::from_secs_f64(h / 1e3),
+                Duration::from_millis(200),
+            );
         }
         let mut fixture = _fixture;
         assert!(
