@@ -1163,7 +1163,11 @@ impl Transcript {
                     title: Some(full.clone()),
                     kind: Some("other".into()),
                     raw_input: Some(input.clone()),
-                    meta: Some(json!({"claudeCode": {"toolName": full}})),
+                    // A call named by id is announced by the agent later, and its title then replaces this one; a
+                    // made-up `toolName` would outlive it (`ToolCall::apply` keeps fields the update leaves out).
+                    meta: tool_call
+                        .is_none()
+                        .then(|| json!({"claudeCode": {"toolName": full}})),
                     ..Default::default()
                 })
             }
@@ -1499,6 +1503,30 @@ pub(crate) mod tests {
             meta: Some(json!({"claudeCode": {"toolName": tool}})),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn an_ask_before_the_agent_announces_its_call_takes_the_agents_title() {
+        let mut t = Transcript::default();
+        let asked = Permission::Asked {
+            key: 1,
+            class: PermissionClass::Execute,
+        };
+        t.ask_mcp(Some("c1"), "terminal-send", &json!({"text": "ls"}), asked);
+        t.apply(&SessionUpdate::ToolCall(ToolCall {
+            tool_call_id: "c1".into(),
+            title: Some("eludite-terminal-send ls".into()),
+            ..Default::default()
+        }));
+        assert!(
+            t.tool("c1")
+                .unwrap()
+                .tool_name()
+                .starts_with("eludite-terminal-send"),
+            "{}",
+            t.tool("c1").unwrap().tool_name()
+        );
+        assert_eq!(t.tools().count(), 1, "one row for the call");
     }
 
     #[test]
