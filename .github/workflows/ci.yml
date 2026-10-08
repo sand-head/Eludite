@@ -392,7 +392,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $msi = (Get-ChildItem "$env:RUNNER_TEMP/package" -Filter '*.msi' | Select-Object -First 1).FullName
+          # Install from a copy alone in its own folder, as a user who downloaded only the MSI would: an external
+          # cabinet left beside the build output must not make this pass.
+          $built = Get-ChildItem "$env:RUNNER_TEMP/package" -Filter '*.msi' | Select-Object -First 1
+          $alone = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'msi-alone')
+          $msi = (Copy-Item $built.FullName -Destination $alone -PassThru).FullName
           $log = Join-Path $env:RUNNER_TEMP 'eludite-install.log'
           $install = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$log`"") -Wait -PassThru
           if ($install.ExitCode -ne 0) { Get-Content $log -Tail 80; throw "MSI install failed: $($install.ExitCode)" }

@@ -4,6 +4,9 @@
   <Package Name="Eludite" Manufacturer="Eludite" Version="$(var.MsiVersion)"
            UpgradeCode="D1FB8EF5-2117-4A7F-AB6C-369D49C7047D" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer Eludite is already installed." />
+    <!-- Embed the cabinet: WiX's default writes an external cab1.cab beside the MSI, which the
+         release does not publish, so the downloaded MSI fails with "Source file not found". -->
+    <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Eludite" />
     </StandardDirectory>
