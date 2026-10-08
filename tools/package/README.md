@@ -97,6 +97,11 @@ CI runs for this major/minor version. The MSI is currently **unsigned**, so Wind
 policy may warn or block it. The embedded browser engine is still Linux-only; .NET 10 and any external development
 tools must be installed separately as for the zip. Do not unzip an archive over an MSI install.
 
+On Windows `eludite.exe` (a release build) is a GUI program: it opens no console window, and the console programs it
+starts (the host, language servers, debug adapters, `cargo`) get none either. Its icon, also the shortcut's and
+Installed Apps', is `icons/eludite.ico`, embedded by `crates/eludite/build.rs`. The icon is the crystal alone on a
+transparent ground (`icons/eludite.svg`); `icons/ico.sh` renders the `.ico` and Linux's PNGs from it.
+
 ## The companions: `companions.sh`
 
 The shell looks beside its own executable for the programs it runs (`crates/eludite/src/shell/session.rs`,

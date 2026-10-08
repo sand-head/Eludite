@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use eludite_lsp::NoConsoleWindow as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -758,6 +759,7 @@ pub const DEV_CERT_MESSAGE: &str = "This project is configured to use SSL. To av
 /// Runs a process: off the UI thread, once per session.
 pub fn dev_cert_found(dotnet: &str) -> bool {
     std::process::Command::new(dotnet)
+        .no_console_window()
         .args(["dev-certs", "https", "--check"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

@@ -55,6 +55,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use eludite_lsp::NoConsoleWindow as _;
 use eludite_lsp::host::{
     self, Generation, LanguageServerState, LanguageServerStatus, ServerInfo, SolutionState,
     SolutionStatus, SolutionTree,
@@ -1427,6 +1428,7 @@ fn start_generic(
 /// The first line of `<path> --version`, or `None` when it does not run.
 fn configured_version(path: &Path) -> Option<String> {
     let out = std::process::Command::new(path)
+        .no_console_window()
         .arg("--version")
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

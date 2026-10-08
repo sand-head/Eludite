@@ -1,0 +1,2 @@
+// The app icon (build.rs). GPUI loads resource 1 as its windows' icon.
+1 ICON "eludite.ico"

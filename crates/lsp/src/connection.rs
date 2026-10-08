@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::NoConsoleWindow as _;
 use eludite_protocol::host::{
     self, BuildFinished, BuildOutput, BuildProgress, ContentModifiedData, Generation,
     LanguageServerStatus, SolutionStatus, WithGeneration, error_codes, methods,
@@ -920,6 +921,7 @@ impl<T: DeserializeOwned> PendingRequest<T> {
 
 fn spawn(command: &HostCommand) -> io::Result<Child> {
     let mut cmd = Command::new(&command.program);
+    cmd.no_console_window();
     cmd.args(&command.args)
         .envs(command.envs.iter().map(|(k, v)| (k, v)))
         .stdin(Stdio::piped())

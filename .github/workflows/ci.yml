@@ -409,6 +409,24 @@ jobs:
             if (-not (Test-Path (Join-Path $env:ProgramData 'Microsoft/Windows/Start Menu/Programs/Eludite.lnk'))) {
               throw 'MSI missing Start menu shortcut'
             }
+            # A GUI program (no console window at start) carrying the app icon as group icon 1, the one GPUI's
+            # windows and the shortcut use.
+            $exe = Join-Path $folder 'eludite.exe'
+            $bytes = [System.IO.File]::ReadAllBytes($exe)
+            $pe = [System.BitConverter]::ToInt32($bytes, 0x3C)
+            $subsystem = [System.BitConverter]::ToUInt16($bytes, $pe + 24 + 68)
+            if ($subsystem -ne 2) { throw "eludite.exe must be a GUI program (subsystem 2), not subsystem $subsystem" }
+            Add-Type -Namespace Win32 -Name Res -MemberDefinition @'
+          [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+          public static extern IntPtr LoadLibraryExW(string file, IntPtr reserved, uint flags);
+          [DllImport("kernel32.dll")]
+          public static extern IntPtr FindResourceW(IntPtr module, IntPtr name, IntPtr type);
+          '@
+            $module = [Win32.Res]::LoadLibraryExW($exe, [IntPtr]::Zero, 2) # LOAD_LIBRARY_AS_DATAFILE
+            if ($module -eq [IntPtr]::Zero) { throw 'Could not load eludite.exe as a data file' }
+            if ([Win32.Res]::FindResourceW($module, [IntPtr]1, [IntPtr]14) -eq [IntPtr]::Zero) { # RT_GROUP_ICON
+              throw 'eludite.exe has no app icon (group icon 1)'
+            }
           } finally {
             $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
             if ($uninstall.ExitCode -ne 0) { throw "MSI uninstall failed: $($uninstall.ExitCode)" }

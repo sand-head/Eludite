@@ -7,6 +7,10 @@
     <!-- Embed the cabinet: WiX's default writes an external cab1.cab beside the MSI, which the
          release does not publish, so the downloaded MSI fails with "Source file not found". -->
     <MediaTemplate EmbedCab="yes" />
+    <!-- The app icon for the shortcut and Apps & features, taken from eludite.exe's own icon resource (build.rs);
+         an Icon's Id keeps its source's extension. -->
+    <Icon Id="eludite.exe" SourceFile="!(bindpath.Layout)\eludite.exe" />
+    <Property Id="ARPPRODUCTICON" Value="eludite.exe" />
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Eludite" />
     </StandardDirectory>
@@ -14,7 +18,7 @@
     <Component Directory="INSTALLFOLDER" Guid="*">
       <File Id="EluditeExe" Source="!(bindpath.Layout)\eludite.exe" KeyPath="yes">
         <Shortcut Id="EluditeShortcut" Name="Eludite" Directory="ProgramMenuFolder"
-                  WorkingDirectory="INSTALLFOLDER" Advertise="yes" />
+                  WorkingDirectory="INSTALLFOLDER" Advertise="yes" Icon="eludite.exe" />
       </File>
     </Component>
     <!-- An MSI owns its installed files. Do not include build.json: the archive self-updater

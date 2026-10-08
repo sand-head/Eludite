@@ -1868,6 +1868,7 @@ dependencies = [
  "eludite-ui",
  "eludite-update",
  "eludite-workspace",
+ "embed-resource",
  "futures",
  "gpui",
  "gpui_platform",

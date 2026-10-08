@@ -54,6 +54,7 @@ use crate::engine::{
     DebugEndpoint, DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog,
     TabHistory, TargetInfo,
 };
+use crate::process::NoConsoleWindow as _;
 
 /// The engine's executable name.
 pub const ENGINE_NAME: &str = "eludite-chromium";
@@ -1239,6 +1240,7 @@ impl EmbeddedChromium {
             socket_pair().map_err(|e| EngineError::Launch(format!("socketpair: {e}")))?;
         let theirs_fd = theirs.as_raw_fd();
         let mut cmd = Command::new(&exe);
+        cmd.no_console_window();
         cmd.arg("--profile")
             .arg(&self.config.profile_dir)
             .arg("--cef-dir")

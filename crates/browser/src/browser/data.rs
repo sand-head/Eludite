@@ -22,6 +22,7 @@ use eludite_protocol::cdp::dom_storage;
 use serde_json::{Value, json};
 
 use super::{Browser, Tab, failed, invalid};
+use crate::process::NoConsoleWindow as _;
 
 /// The environment variable naming a program to open urls with instead of the system's (tests).
 pub const OPENER_ENV: &str = "ELUDITE_OPENER";
@@ -369,6 +370,7 @@ impl Browser {
             .collect::<Vec<_>>()
             .join(" ");
         let mut child = std::process::Command::new(&program)
+            .no_console_window()
             .args(&args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())

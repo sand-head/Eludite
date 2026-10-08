@@ -29,6 +29,7 @@ use serde_json::json;
 
 use super::Shell;
 use super::documents::trace;
+use eludite_lsp::NoConsoleWindow as _;
 
 /// The Cargo part of an open folder.
 #[derive(Debug, Clone)]
@@ -68,6 +69,7 @@ pub struct OpenFolder {
 pub fn read_cargo_metadata(manifest: &Path) -> Result<CargoWorkspace, String> {
     let (program, args) = metadata_command(manifest);
     let out = std::process::Command::new(&program)
+        .no_console_window()
         .args(&args)
         .current_dir(manifest.parent().unwrap_or(Path::new(".")))
         .stdin(std::process::Stdio::null())

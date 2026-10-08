@@ -1,10 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <title>Eludite</title>
-  <!-- The app icon: the mark on the dark ground #0F1514. The mark is a translucent crystal cube, lit from the upper
-       right (light yellow lit, teal between, dark teal in shadow), with an amber core at its exact center. Drawn in a
-       100-unit box, scaled to 160 and centered. -->
-  <rect x="16" y="16" width="224" height="224" rx="40" fill="#0F1514"/>
-  <g transform="translate(48 48) scale(1.6)">
+  <!-- The app icon: the mark alone, no tile behind it. The mark is a translucent crystal cube, lit from the upper
+       right (light yellow lit, teal between, dark teal in shadow), with an amber core at its exact center, on a
+       transparent ground. Drawn in a 100-unit box, scaled by 2.8 and centered. -->
+  <g transform="translate(128 128) scale(2.8) translate(-50 -50)">
     <polygon points="50,28 69,39 50,50 31,39" fill="#E0A52B"/>
     <polygon points="31,39 50,50 50,72 31,61" fill="#B57F18"/>
     <polygon points="50,50 69,39 69,61 50,72" fill="#C98E1E"/>
