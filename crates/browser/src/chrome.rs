@@ -28,6 +28,7 @@ use crate::LogSink;
 use crate::connection::{CdpEvent, Connection, DEFAULT_TIMEOUT};
 use crate::discovery::ChromeSearch;
 use crate::engine::{DebugEndpoint, Engine, EngineConfig, EngineError, LaunchInfo, TargetInfo};
+use crate::process::NoConsoleWindow as _;
 
 /// How long Chrome may take to print its DevTools endpoint.
 pub const LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -171,6 +172,7 @@ impl ExternalChrome {
         let args = command_line(&exe, &self.config, self.no_sandbox);
         let started = Instant::now();
         let mut child = Command::new(&exe)
+            .no_console_window()
             .args(&args[1..])
             .stdin(Stdio::null())
             .stdout(Stdio::null())

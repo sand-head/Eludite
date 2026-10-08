@@ -6,6 +6,7 @@
 //! looked for here; its version is read with [`node_version_output`] (a process: off the UI thread) and checked with
 //! [`check_version`] against what its [`NodeUser`] needs.
 
+use crate::NoConsoleWindow as _;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -201,6 +202,7 @@ pub fn node_version_output(node: &Path) -> Option<String> {
 /// A command's stdout and stderr, stdin closed, killed after 10 seconds.
 pub(crate) fn command_output(program: &Path, args: &[&str]) -> Option<String> {
     let mut child = Command::new(program)
+        .no_console_window()
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

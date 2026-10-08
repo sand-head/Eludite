@@ -16,6 +16,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::AdapterTransport;
+use eludite_lsp::NoConsoleWindow as _;
 
 /// How long a TCP connect may take.
 pub const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -138,6 +139,7 @@ pub fn connect_with_env(
         other => {
             let (program, args) = command_line(other).expect("stdio and ssh have a command line");
             let mut child = Command::new(&program)
+                .no_console_window()
                 .args(&args)
                 .envs(env.iter().map(|(k, v)| (k, v)))
                 .stdin(Stdio::piped())
@@ -267,6 +269,7 @@ pub fn start_tcp_server(
     timeout: Duration,
 ) -> io::Result<TcpServer> {
     let mut child = Command::new(program)
+        .no_console_window()
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

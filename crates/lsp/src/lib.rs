@@ -55,6 +55,7 @@ mod fake_nuget;
 pub mod fake_server;
 pub mod fanout;
 pub mod node;
+pub mod process;
 mod pull;
 pub mod registry;
 mod server;
@@ -69,6 +70,7 @@ pub use eludite_protocol::jsonrpc::{
     self, ErrorObject, Id, Message, Notification, Request, Response,
 };
 pub use eludite_protocol::{host, lsp};
+pub use process::NoConsoleWindow;
 pub use registry::{FormatterPick, FormatterSpec, ServerRegistration, ServerRegistry, Via};
 pub use server::{
     ServerClient, ServerSetup, client_capabilities, configuration, methods_generic, path_to_uri,

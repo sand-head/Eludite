@@ -19,7 +19,7 @@ Zed's GPL-3.0 crates became legally usable once the product was licensed GPL (AD
 
 - Write the shell in Rust on GPUI: Metal on macOS, Vulkan over Wayland/X11 on Linux, DirectX on Windows.
 - Pin GPUI as a git dependency on zed-industries/zed at an exact revision. Bump it deliberately.
-- Take from Zed, after a per-crate license audit: GPUI and the low-level text infrastructure (rope and sum-tree, buffer and anchor model, fuzzy matcher, tree-sitter glue). Vendor them under `vendor/` at a pinned upstream commit with a `WHY.md` per crate listing local changes.
+- Take from Zed, after a per-crate license audit: GPUI and the low-level text infrastructure (rope and sum-tree, buffer and anchor model, fuzzy matcher, tree-sitter glue). Take them by git at the GPUI pin (see the note of 2026-10-08); copy a crate into the repo, with a `WHY.md` listing local changes, only when we must carry a change to it.
 - Do not take any crate that decides what the user sees: `editor`, `workspace`, `ui`, `theme`, `project`, `terminal_view`, the agent panel. Write those fresh in `crates/` against the Visual Studio model (docking, tool windows, menus, status bar).
 - Which crates pass the audit is a Phase 0 output (brief 0001), not decided here.
 
@@ -42,7 +42,7 @@ Positive:
 Negative:
 - GPUI's Windows backend is the youngest. Windows is a first-class target, so this is the top risk (PLAN.md section 13, risk 1).
 - GPUI is tracked by git revision, not a stable release, so upgrades can break us.
-- Vendored crates drift from upstream. We accept that cost per crate and re-sync on a schedule, not ad hoc.
+- Zed's crates move under us with every GPUI bump. We accept that cost and review what each bump brings.
 - We write docking, tool windows and menus ourselves, which is substantial work.
 
 ## Revisit when
@@ -55,3 +55,7 @@ Negative:
 Note, 2026-10-01 (brief 0001, [report](../briefs/0001-report.md) section 3.4): GPUI draws only when the platform asks for a frame, so measured keystroke-to-present includes a wait of up to one refresh interval (16.7 ms at 60 Hz). Read the keystroke trigger above as input-to-frame-submitted *excluding* that wait (measured at 3.4 to 4.9 ms p99 on Linux), or restate the budget against a named reference refresh rate. Until that is decided, a keystroke result over 8 ms does not by itself trigger this ADR.
 
 Note, 2026-10-01 (Phase 0 close on Linux): brief 0001 is GO on Linux Wayland and XWayland (provisional pending an unlocked-session re-run; [report](../briefs/0001-report.md) section 8). The keystroke budget was split into frame cost and end to end (PLAN.md section 9) and every Linux number passes. The vendoring audit approved `sum_tree`, `rope`, `text`, `clock` and `fuzzy`; brief 0009 vendors them. Windows and macOS remain undetermined until the runs happen; the first Windows run is planned on the owner's work laptop.
+
+Note, 2026-10-08 (GPUI bump): the pin moves from `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8` (2026-10-01) to `b47a4ca595d3a3fba116b9e78ef01a46e2e43f3e` (Zed's main on 2026-10-08), at the owner's request. It brings a fix for UTF-8 boundary crashes in `rope` (zed#65273), a Linux fallback-font fix in `gpui_wgpu` (zed#65269), element ids hashed once (zed#64209), display tracking per window (zed#65059), a headless windowing API (zed#64969) and Zed's smaller dependency footprint (zed#65176: `rope` and `text` no longer depend on `util`; about 800 lines leave `Cargo.lock`). No Eludite code changed.
+
+Note, 2026-10-08 (git dependencies, owner's decision): `sum_tree`, `rope`, `text`, `clock` and `fuzzy` are no longer copied into `vendor/`; they are git dependencies at the GPUI pin, like GPUI's own support crates. The copies carried no local changes, so they bought nothing but a re-sync on every bump. With them go `vendor/sync.sh`, the separate vendor workspace and the `[patch]` that pointed GPUI's `sum_tree` at our copy: there is still one `sum_tree` in the build, GPUI's. We grow outward when we need to: the first change we must carry to a Zed crate brings that one crate back into the repo, with its `WHY.md`.

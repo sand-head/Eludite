@@ -38,6 +38,7 @@ use futures::channel::mpsc::UnboundedSender;
 use serde_json::Value;
 
 use super::session::SessionEvent;
+use eludite_lsp::NoConsoleWindow as _;
 
 /// Cargo build ids start here, apart from the host's (which count from 1 in each host process).
 pub const CARGO_BUILD_ID_BASE: u64 = 1 << 32;
@@ -143,6 +144,7 @@ pub(super) fn kill_tree(pid: u32) {
 #[cfg(windows)]
 pub(super) fn kill_tree(pid: u32) {
     let _ = Command::new("taskkill")
+        .no_console_window()
         .args(["/T", "/F", "/PID", &pid.to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -452,6 +454,7 @@ fn run_build(spec: CargoBuildSpec, events: UnboundedSender<SessionEvent>, run: C
             break;
         }
         let mut cmd = Command::new(&spec.program);
+        cmd.no_console_window();
         cmd.args(spec.args(step))
             .current_dir(&spec.root)
             .stdin(Stdio::null())

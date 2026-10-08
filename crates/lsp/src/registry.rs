@@ -24,6 +24,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::NoConsoleWindow as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -907,6 +908,7 @@ pub fn probe_version(
         None => Command::new(path),
     };
     let out = command
+        .no_console_window()
         .envs(envs.iter().map(|(k, v)| (k, v)))
         .arg("--version")
         .stdin(Stdio::null())
@@ -922,6 +924,7 @@ pub fn probe_version(
 
 fn rustup_which(executable: &str) -> Option<PathBuf> {
     let out = Command::new("rustup")
+        .no_console_window()
         .args(["which", executable])
         .stdin(Stdio::null())
         .stderr(Stdio::null())

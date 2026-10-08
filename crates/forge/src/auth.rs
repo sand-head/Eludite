@@ -16,6 +16,7 @@ use crate::hub::{
     BUILT_AZURE_APPLICATION_ID, BUILT_GITHUB_CLIENT_ID, BUILT_GITLAB_APPLICATION_ID, HubConfig,
 };
 use crate::model::{Account, Family, Repository};
+use crate::process::NoConsoleWindow as _;
 use crate::util::{base64, str_of};
 
 /// Add `cred`'s authorization to `client` as `family` takes it.
@@ -380,7 +381,7 @@ pub fn cli_token(family: Family, host: &str, program: Option<&Path>) -> Result<S
     let program = program
         .map(Path::to_path_buf)
         .unwrap_or_else(|| default.into());
-    let out = std::process::Command::new(&program)
+    let out = std::process::Command::new(&program).no_console_window()
         .args(&args)
         .stdin(std::process::Stdio::null())
         .output()

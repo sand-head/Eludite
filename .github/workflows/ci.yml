@@ -290,15 +290,24 @@ jobs:
         run: dotnet test dotnet/Eludite.slnx --configuration Release --no-build
 
   # The build id of this run for the self-updater (brief 0055, tools/package/RELEASE.md): <YYYYMMDD>.<run number>,
-  # computed once so the three archives and the release agree even when the run crosses midnight UTC.
+  # computed once so the three archives and the release agree even when the run crosses midnight UTC. Beside it the
+  # version, <YY>.<M>.<iteration> (tools/package/version.sh), which the package job writes into Cargo.toml.
   build-id:
     name: build id
     runs-on: ubuntu-latest
     outputs:
       id: ${{ steps.id.outputs.id }}
+      version: ${{ steps.id.outputs.version }}
     steps:
+      # version.sh counts this month's commits on the first-parent history, so it needs the history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - id: id
-        run: echo "id=$(date -u +%Y%m%d).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "id=$(date -u +%Y%m%d).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "version=$(tools/package/version.sh)" >> "$GITHUB_OUTPUT"
 
   # The archives to download and run without building (tools/package/): on Linux brief 0039's tarball with the browser
   # engine and CEF, on Windows and macOS the shell-only archive (the engine is Linux-only so far), each with the .NET host,
@@ -363,6 +372,11 @@ jobs:
           path: ~/.cache/eludite/cef
           key: cef-${{ runner.os }}-${{ hashFiles('tools/cef/PIN') }}
 
+      # The archives, build.json, the MSI and the app itself (CARGO_PKG_VERSION) carry this run's version. Set after
+      # the caches are restored: their keys hash Cargo.toml.
+      - name: Set the version
+        run: tools/package/version.sh --set "${{ needs.build-id.outputs.version }}"
+
       # linux.sh fetches CEF itself when the cache missed.
       - name: Package (Linux)
         if: runner.os == 'Linux'
@@ -386,7 +400,7 @@ jobs:
         run: |
           $layout = Get-ChildItem "$env:RUNNER_TEMP/package" -Directory -Filter 'eludite-*-windows-x86_64' | Select-Object -First 1
           if (-not $layout) { throw 'No Windows package layout' }
-          tools/package/windows.ps1 -Layout $layout.FullName -Out "$env:RUNNER_TEMP/package" -BuildNumber ${{ github.run_number }}
+          tools/package/windows.ps1 -Layout $layout.FullName -Out "$env:RUNNER_TEMP/package"
 
       - name: Smoke test MSI install and uninstall (Windows)
         if: runner.os == 'Windows'
@@ -408,6 +422,24 @@ jobs:
             if (Test-Path (Join-Path $folder 'build.json')) { throw 'MSI must not enable the archive self-updater' }
             if (-not (Test-Path (Join-Path $env:ProgramData 'Microsoft/Windows/Start Menu/Programs/Eludite.lnk'))) {
               throw 'MSI missing Start menu shortcut'
+            }
+            # A GUI program (no console window at start) carrying the app icon as group icon 1, the one GPUI's
+            # windows and the shortcut use.
+            $exe = Join-Path $folder 'eludite.exe'
+            $bytes = [System.IO.File]::ReadAllBytes($exe)
+            $pe = [System.BitConverter]::ToInt32($bytes, 0x3C)
+            $subsystem = [System.BitConverter]::ToUInt16($bytes, $pe + 24 + 68)
+            if ($subsystem -ne 2) { throw "eludite.exe must be a GUI program (subsystem 2), not subsystem $subsystem" }
+            Add-Type -Namespace Win32 -Name Res -MemberDefinition @'
+          [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+          public static extern IntPtr LoadLibraryExW(string file, IntPtr reserved, uint flags);
+          [DllImport("kernel32.dll")]
+          public static extern IntPtr FindResourceW(IntPtr module, IntPtr name, IntPtr type);
+          '@
+            $module = [Win32.Res]::LoadLibraryExW($exe, [IntPtr]::Zero, 2) # LOAD_LIBRARY_AS_DATAFILE
+            if ($module -eq [IntPtr]::Zero) { throw 'Could not load eludite.exe as a data file' }
+            if ([Win32.Res]::FindResourceW($module, [IntPtr]1, [IntPtr]14) -eq [IntPtr]::Zero) { # RT_GROUP_ICON
+              throw 'eludite.exe has no app icon (group icon 1)'
             }
           } finally {
             $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
@@ -484,11 +516,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ needs.build-id.outputs.id }}
+          VERSION: ${{ needs.build-id.outputs.version }}
         run: |
           tag="unstable-$BUILD"
-          notes="Unstable build $BUILD of main at ${GITHUB_SHA}: every green build of main, for Eludite's self-updater (tools/package/RELEASE.md). Unpack an archive and run eludite; it updates itself from this channel once you say so."
+          notes="Eludite $VERSION, unstable build $BUILD of main at ${GITHUB_SHA}: every green build of main, for Eludite's self-updater (tools/package/RELEASE.md). Unpack an archive and run eludite; it updates itself from this channel once you say so."
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "Unstable $BUILD" --notes "$notes" dist/eludite-* dist/SHA256SUMS
+            --title "Eludite $VERSION (unstable $BUILD)" --notes "$notes" dist/eludite-* dist/SHA256SUMS
           echo "::notice::published $tag"
 
       - name: Prune old unstable releases

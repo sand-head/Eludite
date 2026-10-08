@@ -48,7 +48,7 @@ Why not the alternatives:
 What we take from Zed and what we do not. GPL licensing (D5) makes Zed's GPL-3.0 crates legally available to us, which v0.1 of this plan had ruled out. We split the decision:
 - **Take, after a per-crate license audit:** GPUI, and the low-level text infrastructure (rope/sum-tree, buffer and anchor model, fuzzy matcher, tree-sitter glue) if their licenses are Apache or GPL-3.0-compatible. These are months of subtle work that have nothing to do with how the product looks.
 - **Do not take:** the `editor`, `workspace`, `ui`, `theme`, `project`, `terminal_view`, agent panel or any crate that decides what a user sees or how panels behave. Those are written fresh against the Visual Studio model (docking, tool windows, menus, status bar) so the result cannot look like Zed by construction.
-- Vendored crates live under `vendor/` with a pinned upstream commit and a `WHY.md` explaining what we changed. Upstream drift is a cost we accept knowingly, per crate.
+- Zed crates we take come in by git at the GPUI pin and move with it (owner's decision, 2026-10-08: grow outward when we need to, not in anticipation). A crate is copied into the repo, with a `WHY.md` naming its upstream commit and what we changed, only once Eludite must carry a change to it.
 - **Vendor over own.** When a non-visual crate does what we need, vendoring beats rewriting; we only own code we must own (owner's decision, 2026-10-01). The brief 0001 audit's "rewrite" verdicts for the tree-sitter and language layers are therefore provisional: the follow-up is to check whether vendoring `language_core` behind a thin theme abstraction is cheaper than porting it, and to rewrite only what is genuinely coupled to Zed's visuals.
 
 ### D2. Process topology
@@ -347,7 +347,6 @@ Eludite/
     ui/                  widgets, themes, keymaps, icons
     browser/             eludite.browser.* commands over CDP, engine-neutral (proposal 0002)
     resx/                the .resx model: entries with byte ranges, splices, rules, cultures, sets (proposal 0005)
-  vendor/                pinned Zed crates with WHY.md each
   dotnet/                .NET solution (Eludite.slnx, hosts)
     src/Eludite.Host/    Roslyn LSP embedding, project system, NuGet, EnC
     src/Eludite.Web/     ASPX parser, designer generator, config schemas
@@ -380,7 +379,7 @@ Build: Cargo for the shell, `dotnet` for hosts, one `cargo xtask` entry point. G
 2. **The .NET Framework debugger.** Nobody has shipped a permissive one. Mitigation: start in Phase 0, scope v1 to launch/attach, breakpoints, stepping, locals, watch, exceptions; defer EnC and mixed-mode; remote transport from the start so Linux users get it too.
 3. **Roslyn LSP churn.** Built for VS Code and changes with it. Mitigation: pinned commits, our extensions in a separate layer, upstream contributions.
 4. **Legacy project edge cases.** Twenty years of `.csproj` variants. Mitigation: the corpus, treated as regression tests.
-5. **Vendored Zed crates drift.** Mitigation: vendor only low-level text crates, pin, and document each change; re-sync on a schedule, not ad hoc.
+5. **Zed's crates change under us.** Mitigation: take only low-level text crates, pin them with GPUI, and review what each GPUI bump brings (an ADR note); copy a crate in only when we must carry a change to it.
 6. **Scope versus one reviewer.** VS and Rider are thousands of engineer-years. Mitigation: phase gates with daily-driver exits, a public "not doing" list, and briefs small enough to review in an hour.
 7. **Agent-generated code quality.** Mitigation: section 11; tests and benchmarks are policy gates, not suggestions.
 8. **Agent protocol churn.** ACP and MCP are young. Mitigation: the command bus is ours; protocols are adapters over it.
@@ -399,7 +398,7 @@ Build: Cargo for the shell, `dotnet` for hosts, one `cargo xtask` entry point. G
 | 5 | Native agent | Pinned. Claude Code via ACP is the first hosted agent, using the owner's organization subscription. |
 | 6 | Name | Niello. No software collisions found in a search; check crates.io, the GitHub org name and a domain before the first release. |
 | 7 | Language scope (v0.3) | .NET-first, not .NET-only. All .NET languages, the web stack and Rust are first-class per section 7; Rust basics land in Phase 1 for dogfooding. Other languages via extensions in Phase 5. |
-| 8 | Vendoring policy | Vendor over own when owning is not required (D1). Brief 0001's vendor list (sum_tree, rope, text, clock, fuzzy) is accepted; its rewrite verdicts are re-examined with that bias. |
+| 8 | Vendoring policy | Vendor over own when owning is not required (D1). Brief 0001's vendor list (sum_tree, rope, text, clock, fuzzy) is accepted, taken by git at the GPUI pin rather than copied (2026-10-08); its rewrite verdicts are re-examined with that bias. |
 | 9 | Themes | A user-installable theme system is in scope for Phase 2 (section 8). Our own format and defaults; Zed's theme plumbing may be vendored but its look is not. |
 | 11 | Workspace window | The Solution Explorer window is named Workspace (id `workspace`) so one window serves .NET solutions, Cargo and npm workspaces and folders; VS semantics kept (section 8). |
 | 12 | Workspace terminology | "Solution" and "project" are .NET words. The user opens a folder as a workspace, or a single file; the whole-directory context is a workspace everywhere in the UI: File > Open Workspace..., Close Workspace, "No workspace is open", workspace settings (owner's decision, 2026-10-02). "Project" is the generic word for a buildable unit inside a workspace, in any language: a .NET project, a Cargo package, an npm package; F5 starts the startup project, chosen among them. A .NET solution file is only a source of information (which .NET projects, their order and folders, the configuration mapping); no menu item, dialog, command or message offered to the user is built around a solution, since it is not cross-language (owner's decisions, 2026-10-04; brief 0054). |

@@ -79,7 +79,7 @@ and `dotnet` jobs and only when every one of them is green, so no archive comes 
 On Windows, first run `tools/package/shell.sh` in Git Bash to make the Windows layout and zip, then in PowerShell:
 
 ```powershell
-pwsh tools/package/windows.ps1 -Layout target/package/eludite-0.1.0-windows-x86_64 -BuildNumber 1
+pwsh tools/package/windows.ps1 -Layout target/package/eludite-0.1.0-windows-x86_64
 ```
 
 Requires the .NET SDK and an internet connection on the packaging machine to install the pinned WiX 5.0.2 build
@@ -91,11 +91,21 @@ install/uninstall and publishes it next to the archives on each green main build
 The MSI installs machine-wide to `Program Files\Eludite`, adds a Start menu shortcut and appears in Installed Apps.
 **It requires administrator approval** (a managed laptop may block installation); use the Windows zip instead if
 installation is restricted. Install a newer MSI to upgrade; uninstall from Installed Apps. MSI builds deliberately
-omit `build.json`: the in-app archive updater must not change files owned by Windows Installer. CI maps its increasing
-run number into the MSI product version (`0.1.<run number>` while Cargo's version is 0.1.x); this supports 65,535
-CI runs for this major/minor version. The MSI is currently **unsigned**, so Windows SmartScreen or your employer's
-policy may warn or block it. The embedded browser engine is still Linux-only; .NET 10 and any external development
-tools must be installed separately as for the zip. Do not unzip an archive over an MSI install.
+omit `build.json`: the in-app archive updater must not change files owned by Windows Installer. The MSI product
+version is the build's version, CI's `<YY>.<M>.<iteration>` (below), which increases with every build of main. The
+MSI is currently **unsigned**, so Windows SmartScreen or your employer's policy may warn or block it. The embedded
+browser engine is still Linux-only; .NET 10 and any external development tools must be installed separately as for
+the zip. Do not unzip an archive over an MSI install.
+
+On Windows `eludite.exe` (a release build) is a GUI program: it opens no console window, and the console programs it
+starts (the host, language servers, debug adapters, `cargo`) get none either. Its icon, also the shortcut's and
+Installed Apps', is `icons/eludite.ico`, embedded by `crates/eludite/build.rs`. The icon is the crystal alone on a
+transparent ground (`icons/eludite.svg`); `icons/ico.sh` renders the `.ico` and Linux's PNGs from it.
+
+CI versions its builds `<YY>.<M>.<iteration>` (`version.sh`): the year and month of the commit, UTC, and the
+commit's place among that month's commits on main's first-parent history, so `26.10.1` is October 2026's first.
+The package job writes it into `Cargo.toml` (`version.sh --set`) before packaging, so the app, the archive names,
+`build.json` and the MSI carry it. A local build keeps `Cargo.toml`'s `0.1.0`.
 
 ## The companions: `companions.sh`
 

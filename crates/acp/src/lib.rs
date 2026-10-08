@@ -27,6 +27,7 @@
 
 mod client;
 pub mod fake_agent;
+mod process;
 pub mod protocol;
 pub mod session;
 pub mod settings;
@@ -34,6 +35,7 @@ pub mod settings;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use crate::process::NoConsoleWindow as _;
 use serde::{Deserialize, Serialize};
 
 pub use client::{AcpClient, AcpError, ClientEvent, EventSink};
@@ -298,6 +300,7 @@ pub fn with_provider_key(mut launch: AgentDescriptor, key: Option<&str>) -> Agen
 /// adapter's 30 s listing timeout: call it off the UI thread.
 pub fn run_provider_models(launch: &AgentDescriptor) -> Result<serde_json::Value, String> {
     let mut cmd = std::process::Command::new(&launch.command);
+    cmd.no_console_window();
     cmd.args(&launch.args)
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());

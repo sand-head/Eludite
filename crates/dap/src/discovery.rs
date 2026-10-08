@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::AdapterTransport;
+use eludite_lsp::NoConsoleWindow as _;
 
 /// The environment variable naming netcoredbg.
 pub const ENV_VAR: &str = "ELUDITE_NETCOREDBG";
@@ -199,6 +200,7 @@ impl MonoInstall {
     /// The version from the first line of `mono --version` (`6.8.0.105`). Runs Mono: call it off the UI thread.
     pub fn version(&self) -> Option<String> {
         let out = Command::new(&self.mono)
+            .no_console_window()
             .arg("--version")
             .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
@@ -513,6 +515,7 @@ impl LldbAdapter {
 /// machine took more than two to start `lldb --version`).
 fn command_output(program: &Path, args: &[&str]) -> Option<String> {
     let mut child = Command::new(program)
+        .no_console_window()
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

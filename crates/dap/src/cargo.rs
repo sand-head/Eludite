@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use eludite_lsp::NoConsoleWindow as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -249,6 +250,7 @@ pub fn rustc_for(cargo: &Path) -> PathBuf {
 /// process: the launch thread only.
 pub fn sysroot(rustc: &Path, cwd: &Path) -> Result<PathBuf, String> {
     let out = Command::new(rustc)
+        .no_console_window()
         .args(["--print", "sysroot"])
         .current_dir(cwd)
         .stdin(Stdio::null())
@@ -453,6 +455,7 @@ impl CargoStart {
         let args = test_build_command(&self.workspace_manifest, &self.package.name, self.release);
         line(&format!("> {} {}", cargo.display(), args.join(" ")));
         let mut child = Command::new(cargo)
+            .no_console_window()
             .args(&args)
             .current_dir(&self.root)
             .stdin(Stdio::null())

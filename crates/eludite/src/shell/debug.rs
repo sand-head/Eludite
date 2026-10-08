@@ -123,6 +123,7 @@ use self::windows::{DebugWindows, StackRow, ThreadLine};
 use super::Shell;
 use super::browser::BrowserBus;
 use super::documents::{normalize_path, trace};
+use eludite_lsp::NoConsoleWindow as _;
 
 /// Status bar slot: the debugger's state (left, after the solution's).
 pub const DEBUG_SLOT: &str = "debug";
@@ -3009,6 +3010,7 @@ fn launch_thread(job: LaunchJob) {
         };
         let mono_env = mono.as_ref().map(|m| m.env.clone()).unwrap_or_default();
         let child = Command::new(&cmd)
+            .no_console_window()
             .args(&args)
             .current_dir(&config.cwd)
             .envs(mono_env)

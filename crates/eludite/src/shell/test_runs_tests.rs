@@ -701,6 +701,16 @@ fn debug_test_starts_a_session_that_breaks_at_the_first_line_and_results_still_f
     let run = out["run"].as_u64().unwrap();
     t.w.fake
         .test_results(&t.mtp, json!([{"id": "u-adds", "outcome": "passed"}]));
+    // The result is in before the session goes on to end: a session that ends with a test unfinished was stopped.
+    t.w.wait("the passed result", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.test_runs().run(run).is_some_and(|r| {
+                r.results
+                    .values()
+                    .any(|x| x.outcome == cmds::Outcome::Passed)
+            })
+        })
+    });
     t.cmd(eludite_commands::debug::CONTINUE, json!({})).unwrap();
     t.w.fake.finish_test_run("completed");
     assert_eq!(t.wait_run_done(run), RunState::Passed);

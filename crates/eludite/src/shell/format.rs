@@ -40,6 +40,7 @@ use super::Shell;
 use super::documents::trace;
 use super::session::RequestError;
 use super::workspace_edit::ApplyOptions;
+use eludite_lsp::NoConsoleWindow as _;
 
 /// How long a formatter process may run.
 pub const FORMATTER_TIMEOUT: Duration = Duration::from_secs(30);
@@ -115,6 +116,7 @@ fn worker_format(
     let key = (node.to_path_buf(), package_json.to_path_buf());
     if !all.contains_key(&key) {
         let mut child = Command::new(node)
+            .no_console_window()
             .args(["--input-type=module", "-e", WORKER_SCRIPT])
             .arg(package_json)
             .arg(package)
@@ -216,6 +218,7 @@ pub fn run_with_stdin(
     timeout: Duration,
 ) -> Result<(bool, String, String), String> {
     let mut child = Command::new(program)
+        .no_console_window()
         .args(args)
         .current_dir(dir)
         .stdin(Stdio::piped())

@@ -21,6 +21,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::process::NoConsoleWindow as _;
 use crate::protocol::{
     CancelNotification, ClientCapabilities, ContentBlock, Implementation, InitializeRequest,
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, McpServer, NewSessionRequest,
@@ -126,6 +127,7 @@ impl AcpClient {
     /// Launch `agent` with `cwd` as its working directory.
     pub fn spawn(agent: &AgentDescriptor, cwd: &Path, events: EventSink) -> io::Result<Self> {
         let mut cmd = Command::new(program(&agent.command));
+        cmd.no_console_window();
         cmd.args(&agent.args)
             .current_dir(cwd)
             .stdin(Stdio::piped())
