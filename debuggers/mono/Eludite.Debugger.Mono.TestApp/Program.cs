@@ -466,7 +466,7 @@ namespace Eludite.Debugger.Mono.TestApp.Loading
             total += Part14.Value();
             Thread.Sleep(15);
             total += Part15.Value();
-            total += new[] { 1 }.Count();
+            total += System.Linq.Enumerable.Count(new[] { 1 });
             Thread.Sleep(15);
             total += Part16.Value();
             Thread.Sleep(15);
