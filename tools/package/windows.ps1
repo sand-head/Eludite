@@ -1,10 +1,10 @@
 # Build a machine-wide MSI from shell.sh's Windows layout. Run on Windows with .NET SDK 10:
-#   pwsh tools/package/windows.ps1 -Layout target/package/eludite-0.1.0-windows-x86_64 -BuildNumber 123
-# The build number (CI's github.run_number) is the monotonically increasing MSI revision.
+#   pwsh tools/package/windows.ps1 -Layout target/package/eludite-26.10.3-windows-x86_64
+# The MSI ProductVersion is the layout's version, CI's <YY>.<M>.<iteration> (tools/package/version.sh), which
+# increases with every build of main.
 param(
     [Parameter(Mandatory = $true)][string]$Layout,
-    [string]$Out = 'target/package',
-    [int]$BuildNumber = 0
+    [string]$Out = 'target/package'
 )
 $ErrorActionPreference = 'Stop'
 $layoutPath = (Resolve-Path $Layout).Path
@@ -14,11 +14,11 @@ if ((Split-Path $layoutPath -Leaf) -notmatch '^eludite-(\d+)\.(\d+)\.(\d+)-windo
 }
 $major = [int]$Matches[1]
 $minor = [int]$Matches[2]
-if ($major -gt 255 -or $minor -gt 255 -or $BuildNumber -lt 0 -or $BuildNumber -gt 65535) {
-    throw 'MSI version fields must be major/minor <= 255 and build number 0..65535.'
+$patch = [int]$Matches[3]
+if ($major -gt 255 -or $minor -gt 255 -or $patch -gt 65535) {
+    throw 'MSI version fields must be major/minor <= 255 and patch <= 65535.'
 }
-# A release's revision must increase even when Cargo.toml stays at 0.1.0.
-$msiVersion = "$major.$minor.$BuildNumber"
+$msiVersion = "$major.$minor.$patch"
 $outPath = [System.IO.Path]::GetFullPath($Out, (Get-Location).Path)
 New-Item -ItemType Directory -Force -Path $outPath | Out-Null
 $toolPath = Join-Path $outPath '.wix-tool'
