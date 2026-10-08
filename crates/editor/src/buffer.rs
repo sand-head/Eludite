@@ -1,4 +1,4 @@
-//! The text buffer: Zed's vendored `text::Buffer` plus what a file on disk
+//! The text buffer: Zed's `text::Buffer` plus what a file on disk
 //! needs (byte-order mark, line endings, size limits).
 
 use std::collections::HashMap;

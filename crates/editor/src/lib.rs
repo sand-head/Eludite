@@ -11,7 +11,7 @@
 //! let view = cx.new(|cx| EditorView::new(Buffer::load(path)?, registry.for_path(path), cx));
 //! ```
 //!
-//! - [`Buffer`]: the text. Wraps Zed's vendored `text::Buffer` (anchors,
+//! - [`Buffer`]: the text. Wraps Zed's `text::Buffer` (anchors,
 //!   transactions, undo and redo) and adds what files need: UTF-8 BOM and
 //!   line endings (CRLF, LF, CR, mixed) preserved byte for byte on save, and
 //!   [`LARGE_FILE_THRESHOLD`] (32 MiB), above which a file opens without
@@ -61,7 +61,7 @@
 //! [`EditorView::open_hover`] / [`EditorView::set_hover`] and
 //! [`EditorView::open_signature_help`] / [`EditorView::set_signature_help`],
 //! quoting the id `open_*` returned, so superseded answers are ignored. The
-//! list is filtered with the vendored `fuzzy` crate as the user types, and
+//! list is filtered with Zed's `fuzzy` crate as the user types, and
 //! [`EditorView::complete_from_syntax`] fills it from the identifiers of the
 //! buffer's tree-sitter tree while no server can answer. Nothing here is
 //! specific to a language or to LSP.
