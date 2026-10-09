@@ -291,6 +291,10 @@ pub struct UpdateUi {
     last_kind: Option<&'static str>,
     /// The person ran a check or a download: the next finished snapshot goes to the status bar's text too.
     feedback_pending: bool,
+    /// The person chose Help > Check for Updates: the answer is a dialog as well, as Visual Studio's is.
+    dialog_pending: bool,
+    /// The finished snapshot the dialog shows, opened by the events task (it has the window).
+    dialog: Option<Status>,
     /// The plan `eludite.update.apply` last wrote (tests read it).
     pub last_plan: Option<PathBuf>,
     pub asked: bool,
@@ -306,6 +310,8 @@ impl UpdateUi {
             quit_on_apply: true,
             last_kind: None,
             feedback_pending: false,
+            dialog_pending: false,
+            dialog: None,
             last_plan: None,
             asked: false,
         }
@@ -378,9 +384,12 @@ impl Shell {
                     batch.push(more);
                 }
                 if this
-                    .update(cx, |shell, cx| {
+                    .update_in(cx, |shell, window, cx| {
                         for status in &batch {
                             shell.update_on_status(status, cx);
+                        }
+                        if let Some(status) = shell.update.dialog.take() {
+                            shell.update_result_dialog(&status, window, cx);
                         }
                     })
                     .is_err()
@@ -606,6 +615,9 @@ impl Shell {
         // The person asked (Help > Check for Updates, the status bar): the answer goes where they are looking.
         if self.update.feedback_pending && !status.busy {
             self.update.feedback_pending = false;
+            if std::mem::take(&mut self.update.dialog_pending) {
+                self.update.dialog = Some(status.clone());
+            }
             let short = match &status.state {
                 State::UpToDate { tag } => Some(format!("Eludite is up to date ({tag})")),
                 State::NoRelease => Some(format!("No {} release yet", status.channel)),
@@ -626,6 +638,150 @@ impl Shell {
         cx.notify();
     }
 
+    /// Help > Check for Updates ran: the status bar's text, and on a build that cannot update itself a dialog that
+    /// says why (the check's answer opens its own dialog when it comes).
+    pub(super) fn update_check_feedback(
+        &mut self,
+        result: &Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> String {
+        if result["enabled"] == false {
+            let reason = result["reason"].as_str().unwrap_or("the updater is off");
+            self.update.dialog_pending = false;
+            let answer = window.prompt(
+                PromptLevel::Info,
+                "This Eludite cannot update itself",
+                Some(&format!(
+                    "It is {reason}. Packaged builds update themselves; download one from \
+                     https://github.com/{REPOSITORY}/releases."
+                )),
+                &["OK"],
+                cx,
+            );
+            cx.spawn(async move |_, _| answer.await.ok()).detach();
+            return "This build cannot check for updates".into();
+        }
+        if result["busy"] == true {
+            "Checking for updates…".into()
+        } else {
+            "Ready".into()
+        }
+    }
+
+    /// The answer to Help > Check for Updates, as a dialog.
+    fn update_result_dialog(
+        &mut self,
+        status: &Status,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let channel = status.channel;
+        let (level, title, detail, download) = match &status.state {
+            State::UpToDate { tag } => (
+                PromptLevel::Info,
+                "Eludite is up to date".to_owned(),
+                format!("{tag} is the newest build of the {channel} channel."),
+                false,
+            ),
+            State::NoRelease => (
+                PromptLevel::Info,
+                "No updates found".to_owned(),
+                format!("The {channel} channel has no release yet."),
+                false,
+            ),
+            State::NoArchive { tag } => (
+                PromptLevel::Info,
+                "No update for this platform".to_owned(),
+                format!("{tag} has no archive for this platform."),
+                false,
+            ),
+            State::Available { update } => (
+                PromptLevel::Info,
+                format!("Eludite {} is available", update.tag),
+                format!(
+                    "{} ({:.0} MB) downloads in the background and installs when you restart Eludite.",
+                    update.archive,
+                    update.size as f64 / 1_048_576.0
+                ),
+                true,
+            ),
+            State::Ready { update, .. } => (
+                PromptLevel::Info,
+                format!("Eludite {} is ready to install", update.tag),
+                "Restart Eludite to install it: click Restart to update in the status bar."
+                    .to_owned(),
+                false,
+            ),
+            State::Failed { error, message, .. } => (
+                PromptLevel::Warning,
+                "Eludite could not check for updates".to_owned(),
+                format!("{message} ({error}). Output > Updates has the details."),
+                false,
+            ),
+            State::Idle | State::Downloading { .. } | State::Unpacking { .. } => return,
+        };
+        let answers: &[&str] = if download {
+            &["Download", "Later"]
+        } else {
+            &["OK"]
+        };
+        let answer = window.prompt(level, &title, Some(&detail), answers, cx);
+        if !download {
+            return;
+        }
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await != Ok(0) {
+                return;
+            }
+            let _ = this.update_in(cx, |shell, window, cx| {
+                shell.run(cmds::DOWNLOAD, json!({}), window, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Help > About Eludite: Visual Studio's About dialog, with this build's channel and commit when it is packaged.
+    pub(super) fn show_about(
+        &mut self,
+        result: &Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> String {
+        let name = result["name"].as_str().unwrap_or("Eludite");
+        let version = result["version"].as_str().unwrap_or_default();
+        let build = self.update.updater.as_ref().and_then(|u| u.status().build);
+        let build = match build {
+            Some(b) => {
+                let commit = b
+                    .commit
+                    .as_deref()
+                    .map(|c| format!(", commit {}", &c[..c.len().min(12)]))
+                    .unwrap_or_default();
+                format!(
+                    "Build {} ({} channel{commit}, {}-{})",
+                    b.tag(),
+                    b.channel,
+                    b.os,
+                    b.arch
+                )
+            }
+            None => "Development build".to_owned(),
+        };
+        let answer = window.prompt(
+            PromptLevel::Info,
+            &format!("{name} {version}"),
+            Some(&format!(
+                "{build}\n\nA native, agent-first IDE. Licensed under GPL-3.0-or-later.\n\
+                 https://github.com/{REPOSITORY}"
+            )),
+            &["OK"],
+            cx,
+        );
+        cx.spawn(async move |_, _| answer.await.ok()).detach();
+        format!("{name} {version}")
+    }
+
     /// Visual Studio's confirmations for `eludite.update.*` from the UI: `apply` asks before quitting. The other
     /// commands go to the bus as they are.
     pub(super) fn run_update(
@@ -642,6 +798,7 @@ impl Shell {
                 .updater
                 .as_ref()
                 .is_some_and(|u| u.status().enabled);
+            self.update.dialog_pending = command == cmds::CHECK && self.update.feedback_pending;
             return false;
         }
         if command != cmds::APPLY {

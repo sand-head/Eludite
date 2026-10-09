@@ -175,6 +175,12 @@ fn a_development_build_cannot_update_and_never_asks_the_network(cx: &mut TestApp
     assert_eq!(s["enabled"], false);
     assert_eq!(s["busy"], false);
     assert_eq!(w.update_slot(), "");
+    // It says so where the person is looking: a dialog, and the status bar's text.
+    let (msg, detail) = w.vcx.pending_prompt().expect("a dialog says why");
+    assert_eq!(msg, "This Eludite cannot update itself");
+    assert!(detail.contains("development build"), "{detail}");
+    w.vcx.simulate_prompt_answer("OK");
+    assert_eq!(w.state_slot(), "This build cannot check for updates");
     // An agent's apply is refused with a reason, not a crash.
     let err = w.invoke_while_running(APPLY, json!({})).unwrap_err();
     assert!(err.contains("no update is staged"), "{err}");
@@ -279,6 +285,16 @@ fn check_for_updates_on_the_newest_build_says_it_is_up_to_date(cx: &mut TestAppC
     p.w.wait("the status text", |w| {
         w.state_slot() == format!("Eludite is up to date ({NEW})")
     });
+    let (msg, detail) =
+        p.w.vcx
+            .pending_prompt()
+            .expect("the answer is a dialog too");
+    assert_eq!(msg, "Eludite is up to date");
+    assert_eq!(
+        detail,
+        format!("{NEW} is the newest build of the unstable channel.")
+    );
+    p.w.vcx.simulate_prompt_answer("OK");
     assert_eq!(p.w.update_slot(), "");
     assert_eq!(p.server.paths().len(), 1);
     // `off` never checks again on its own: the timer stays quiet.
@@ -288,4 +304,21 @@ fn check_for_updates_on_the_newest_build_says_it_is_up_to_date(cx: &mut TestAppC
     p.w.vcx.run_until_parked();
     assert_eq!(p.server.paths().len(), 1);
     assert!(Path::new(&p.install_dir).join("build.json").is_file());
+}
+
+#[gpui::test]
+fn check_for_updates_offers_the_newer_build_and_downloads_it_on_request(cx: &mut TestAppContext) {
+    let mut p = packaged(cx, OLD, false);
+    p.w.write_user_settings(json!({"updates.mode": "off"}));
+    p.w.wait("the mode", |w| w.update_status()["mode"] == "off");
+    p.w.run_from_ui(CHECK, json!({}));
+    p.w.wait("the dialog", |w| w.vcx.has_pending_prompt());
+    let (msg, _) = p.w.vcx.pending_prompt().unwrap();
+    assert_eq!(msg, format!("Eludite {NEW} is available"));
+    assert!(!p.install_dir.join(".eludite-update").join(NEW).exists());
+    p.w.vcx.simulate_prompt_answer("Download");
+    p.w.wait("the staged build", |w| kind(&w.update_status()) == "ready");
+    assert_eq!(p.w.update_slot(), format!("Restart to update ({NEW})"));
+    // A download from the dialog answers in the status bar, not with a second dialog.
+    assert!(!p.w.vcx.has_pending_prompt());
 }

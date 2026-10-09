@@ -184,6 +184,10 @@ fn menu_items_dispatch_commands(cx: &mut TestAppContext) {
         s.status().get(slots::STATE).map(str::to_owned)
     });
     assert_eq!(status, Some(format!("Eludite {}", builtins::VERSION)));
+    // And opens Visual Studio's About dialog (the first click's is still open: dialogs queue in tests).
+    let (msg, detail) = h.vcx.pending_prompt().expect("the About dialog");
+    assert_eq!(msg, format!("Eludite {}", builtins::VERSION));
+    assert!(detail.starts_with("Development build"), "{detail}");
     assert_eq!(
         h.audit(),
         [
