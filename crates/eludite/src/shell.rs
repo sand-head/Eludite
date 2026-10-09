@@ -1376,11 +1376,8 @@ impl Shell {
         }
         let result = self.invoke(command, args, window, cx);
         let text = match (&result, command) {
-            (Ok(v), builtins::ABOUT) => format!(
-                "{} {}",
-                v["name"].as_str().unwrap_or("Eludite"),
-                v["version"].as_str().unwrap_or_default()
-            ),
+            (Ok(v), builtins::ABOUT) => self.show_about(v, window, cx),
+            (Ok(v), eludite_commands::update::CHECK) => self.update_check_feedback(v, window, cx),
             (Ok(_), _) => "Ready".to_owned(),
             (Err(e), _) => {
                 eprintln!("eludite: {command}: {e}");
