@@ -37,7 +37,7 @@ fn temp_dir() -> PathBuf {
 }
 
 fn next<T>(rx: &Receiver<Event>, pick: impl Fn(Event) -> Option<T>) -> T {
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     loop {
         let event = rx
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))

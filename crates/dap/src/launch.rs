@@ -1637,7 +1637,11 @@ mod tests {
         let closed = format!("http://127.0.0.1:{}/", closed_port());
         let t = Instant::now();
         assert_eq!(probe(&closed, Duration::from_millis(300)), None);
-        assert!(t.elapsed() < Duration::from_secs(2));
+        crate::assert_budget(
+            "a probe of a closed port",
+            t.elapsed(),
+            Duration::from_secs(2),
+        );
         assert_eq!(probe("ftp://x/", Duration::from_millis(10)), None);
 
         // The listening line, fed in pieces from another thread, ends the wait at once.
@@ -1707,7 +1711,8 @@ mod tests {
             ),
             Readiness::Cancelled
         );
-        assert!(t.elapsed() < Duration::from_secs(2));
+        // Canceled, not timed out: far under the 10 s wait.
+        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
         // A program that never ends a line keeps a bounded tail.
         let w = ServerWatch::new();
         w.feed(&"x".repeat(200 * 1024));

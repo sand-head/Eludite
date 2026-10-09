@@ -32,6 +32,8 @@ fake = []
 replay = []
 
 [dev-dependencies]
+# Timing budgets, hang bounds and required tools shared by every test (crates/test-support).
+eludite-test-support.workspace = true
 eludite-dap = { path = ".", features = ["fake", "replay"] }
 tempfile.workspace = true
 

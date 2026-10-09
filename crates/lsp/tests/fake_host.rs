@@ -140,7 +140,7 @@ fn start() -> (HostClient, Receiver<Event>) {
 }
 
 fn next_event(rx: &Receiver<Event>, what: &str, pred: impl Fn(&Event) -> bool) -> Event {
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         match rx.recv_timeout(left) {

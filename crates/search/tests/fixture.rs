@@ -503,7 +503,11 @@ fn cancellation_stops_the_walk_within_one_file() {
         "{looked} files looked up after the cancel at 20"
     );
     assert!(found.summary.files_searched <= 28);
-    assert!(started.elapsed() < Duration::from_secs(2));
+    eludite_test_support::assert_budget(
+        "a canceled search",
+        started.elapsed(),
+        Duration::from_secs(2),
+    );
     // A token canceled before the start searches nothing.
     let pre = CancelToken::new();
     pre.cancel();

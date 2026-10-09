@@ -14,6 +14,8 @@ pulldown-cmark.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# Timing budgets, hang bounds and required tools shared by every test (crates/test-support).
+eludite-test-support.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
 
 [lints]

@@ -128,7 +128,7 @@ fn record_fake(dir: &Path, root: &Path) -> (Vec<ClientEvent>, Vec<Value>, Record
     );
     let (events, answers) = drive(conn, root);
     // The client's threads end with the session: the file is written then.
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while handle.ended().is_none() || !path.is_file() {
         assert!(Instant::now() < deadline, "the recording was not written");
         std::thread::sleep(Duration::from_millis(5));
@@ -527,7 +527,7 @@ fn a_mark_holds_what_followed_it_until_the_test_passes_it() {
     assert_eq!(handle.unsent(), ["mark click"]);
     assert!(handle.mark("click"));
     assert!(!handle.mark("click"), "a mark is passed once");
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while output(&rec).is_none() {
         assert!(Instant::now() < deadline, "the output never came");
         std::thread::sleep(Duration::from_millis(5));
@@ -612,7 +612,7 @@ fn a_group_keeps_the_order_across_connections() {
     child_client
         .request_wait("disconnect", json!({"terminateDebuggee": false}), T)
         .unwrap();
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !terminated(&rec) {
         assert!(Instant::now() < deadline, "the parent never heard");
         std::thread::sleep(Duration::from_millis(5));

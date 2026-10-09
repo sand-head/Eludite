@@ -34,6 +34,8 @@ tungstenite = { version = "0.30", default-features = false, features = ["handsha
 libc = "0.2"
 
 [dev-dependencies]
+# Timing budgets, hang bounds and required tools shared by every test (crates/test-support).
+eludite-test-support.workspace = true
 tempfile.workspace = true
 
 [lints]

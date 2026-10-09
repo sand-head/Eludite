@@ -48,7 +48,7 @@ fn start(fake: &FakeServer, max_restarts: u32) -> (ServerClient, Receiver<Event>
 }
 
 fn next(rx: &Receiver<Event>, what: &str, pred: impl Fn(&Event) -> bool) -> Event {
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     loop {
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(e) if pred(&e) => return e,

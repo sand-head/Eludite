@@ -911,7 +911,6 @@ fn images_ride_the_next_user_message_and_the_tool_list_follows_list_changed() {
     assert_eq!(r.mcp.lists(), 1);
     r.mcp
         .add_tool(fake_mcp::tool("eludite.web.new_thing", "read"));
-    std::thread::sleep(Duration::from_millis(300));
     r.server.push(text_reply("ok", 1, 1));
     r.a.prompt(&r.session, "again");
     assert_eq!(r.mcp.lists(), 2);

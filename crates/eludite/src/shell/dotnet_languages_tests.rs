@@ -211,7 +211,7 @@ impl Fs {
     }
 
     fn wait(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         loop {
             self.vcx.run_until_parked();
             if done(self) {

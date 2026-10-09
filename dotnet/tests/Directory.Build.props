@@ -10,5 +10,8 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
+    <Using Include="Eludite.Testing" />
+    <!-- Timing budgets and hang bounds shared by every test project (Shared/Budget.cs). -->
+    <Compile Include="$(MSBuildThisFileDirectory)Shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

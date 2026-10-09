@@ -31,7 +31,7 @@ fn start(fake: &FakeHost, max_restarts: u32) -> (HostClient, Receiver<Event>) {
 }
 
 fn next(rx: &Receiver<Event>, pred: impl Fn(&Event) -> bool) -> Event {
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     loop {
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(e) if pred(&e) => return e,
@@ -105,6 +105,7 @@ fn tree_status_and_recorded_notifications() {
 fn stalled_host_does_not_block_notify_or_request() {
     let fake = FakeHost::new();
     let (client, _rx) = start(&fake, 0);
+    let stalled_at = Instant::now();
     fake.stall_for(Duration::from_millis(600));
     // Writes go into the pipe; nothing waits for the stalled host.
     let t = Instant::now();
@@ -122,7 +123,8 @@ fn stalled_host_does_not_block_notify_or_request() {
     );
     let pong = pending.wait_timeout(T).unwrap();
     assert!(pong.pong);
-    assert!(t.elapsed() >= Duration::from_millis(500));
+    // The answer waited out the stall (measured from its start, not from after the writes).
+    assert!(stalled_at.elapsed() >= Duration::from_millis(600));
     client.shutdown(T).unwrap();
 }
 
@@ -195,7 +197,7 @@ fn typed_signature_help_scripted_replies_and_cancel() {
             context: None,
         })
         .unwrap();
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while fake.inflight() == 0 {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(1));

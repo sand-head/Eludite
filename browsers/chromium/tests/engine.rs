@@ -41,9 +41,10 @@ fn spawn_engine() -> Option<(Engine, Duration)> {
 /// The engine with extra command-line switches and `initialize` members.
 fn spawn_engine_with(extra: &[String], init_extra: Value) -> Option<(Engine, Duration)> {
     if !cfg!(feature = "cef") {
-        eprintln!(
-            "skipped: eludite-chromium was built without the cef feature (tools/cef/fetch.sh, then CEF_PATH=... \
-             cargo test -p eludite-chromium --features cef)"
+        eludite_test_support::skip(
+            "cef",
+            "eludite-chromium was built without the cef feature (tools/cef/fetch.sh, then CEF_PATH=... \
+             cargo test -p eludite-chromium --features cef)",
         );
         return None;
     }
@@ -179,18 +180,18 @@ impl Engine {
         }
     }
 
-    /// The next message matching `pred` (within 20 s); regions are mapped as they arrive.
+    /// The next message matching `pred` (within a 20 s hang bound); regions are mapped as they arrive.
     fn wait(&mut self, what: &str, mut pred: impl FnMut(&Value) -> bool) -> Value {
         if let Some(i) = self.seen.iter().position(&mut pred) {
             return self.seen.remove(i);
         }
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(20));
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             let m = self
                 .rx
                 .recv_timeout(left)
-                .unwrap_or_else(|_| panic!("no {what} within 20 s"));
+                .unwrap_or_else(|_| panic!("no {what} before the hang bound"));
             if m["method"] == "tab/resized" {
                 let fd = m["fd"].as_i64().unwrap() as i32;
                 // SAFETY: the reader thread received this descriptor and gave up ownership.
@@ -219,7 +220,7 @@ impl Engine {
 
     /// Wait for a frame of `tab` whose pixels at the points are the colors.
     fn wait_for_pixels(&mut self, tab: &str, points: &[(u32, u32, [u8; 4])]) -> Value {
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(20));
         loop {
             let f = self.wait("a frame", |m| {
                 m["method"] == "tab/frame" && m["params"]["tab"] == tab
@@ -403,7 +404,10 @@ fn a_closed_stdin_shuts_the_engine_down() {
             assert!(s.success(), "{s:?}");
             break;
         }
-        assert!(t.elapsed() < Duration::from_secs(10), "still running");
+        assert!(
+            t.elapsed() < eludite_test_support::hang_bound(Duration::from_secs(10)),
+            "still running"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -636,7 +640,7 @@ impl Engine {
             "window.__eluditeMoved = false; \
              addEventListener('mousemove', () => window.__eluditeMoved = true, {capture: true, once: true}); 0",
         );
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(20));
         for i in 0.. {
             self.notify(
                 "tab/input",
@@ -775,7 +779,7 @@ fn select_popups_cursors_and_the_context_menu() {
             );
         }
     }
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(10));
     while e.evaluate(&tab, "document.getElementById('s').value") != "two" {
         assert!(
             Instant::now() < deadline,
@@ -1044,7 +1048,7 @@ fn ime_composition_commits_text_and_state_carries_history_and_favicon() {
     assert!(fav["params"]["favicon"].as_str().unwrap().len() > 30);
     e.click(&tab, 100, 15, "left");
     e.notify("tab/input", json!({"tab": tab, "event": {"type": "imeSetComposition", "text": "かな", "selectionStart": 2, "selectionEnd": 2}}));
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(10));
     while e.evaluate(&tab, "document.getElementById('i').value") != "かな" {
         assert!(Instant::now() < deadline, "the composition did not show");
         std::thread::sleep(Duration::from_millis(50));
@@ -1053,7 +1057,7 @@ fn ime_composition_commits_text_and_state_carries_history_and_favicon() {
         "tab/input",
         json!({"tab": tab, "event": {"type": "imeCommitText", "text": "仮名"}}),
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(10));
     while e.evaluate(&tab, "document.getElementById('i').value") != "仮名" {
         assert!(
             Instant::now() < deadline,

@@ -21,7 +21,7 @@ const T: Duration = Duration::from_secs(240);
 const PROGRAM_FS: &str = "module Program\n\nlet add (a: int) (b: int) = a + b\n\nlet total: int = \"two\"\n\n[<EntryPoint>]\nlet main _ =\n    printfn \"%d\" (add 1 2)\n    0\n";
 
 fn next<V>(rx: &Receiver<Event>, what: &str, pick: impl Fn(Event) -> Option<V>) -> V {
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     loop {
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(e) => {
@@ -183,7 +183,7 @@ fn real_fsautocomplete_diagnoses_and_hovers() {
     );
     // Hover on `add` at its definition (line 2, after `let `).
     let hovering = Instant::now();
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     let text = loop {
         let reply = client
             .request::<lsp::HoverRequest>(lsp::TextDocumentPositionParams {

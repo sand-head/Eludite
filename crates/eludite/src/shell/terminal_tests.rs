@@ -103,7 +103,7 @@ impl Tw {
     /// Run the UI until terminal `id`'s screen satisfies `f`.
     fn wait_screen(&mut self, id: &str, what: &str, f: impl Fn(&str) -> bool) {
         let t = self.terminal(id);
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         loop {
             self.w.vcx.run_until_parked();
             let text = t.screen().text();
@@ -121,7 +121,7 @@ impl Tw {
     /// Run the UI until the view of `id` has drawn text satisfying `f`.
     fn wait_drawn(&mut self, id: &str, what: &str, f: impl Fn(&str) -> bool) {
         let view = self.view(id);
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         loop {
             self.w.vcx.run_until_parked();
             let text = view.read_with(&self.w.vcx, |v, _| v.visible_text());

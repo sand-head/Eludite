@@ -20,7 +20,7 @@ use super::documents::normalize_path;
 use super::explorer::{context_item_selector, row_selector};
 use super::resx::editor::{self, Column, ResxEditor, cell_selector};
 use super::resx::tab_id;
-use super::tests::{Ws, setup_with};
+use super::tests::{Ws, assert_budget, setup_with};
 
 fn agent() -> Caller {
     Caller::Agent {
@@ -254,9 +254,11 @@ fn a_resx_opens_from_workspace_as_its_set_edits_save_byte_for_byte_and_asks_on_c
     let timings =
         r.w.shell
             .read_with(&r.w.vcx, |s, _| s.resx_timings().clone());
-    let open_ms = (timings.shown.unwrap() - timings.opened.unwrap()).as_secs_f64() * 1e3;
-    eprintln!("timing: .resx editor open to rows shown {open_ms:.1} ms (3 files)");
-    assert!(open_ms < 100.0, "{open_ms} ms");
+    assert_budget(
+        ".resx editor open to rows shown (3 files)",
+        timings.shown.unwrap() - timings.opened.unwrap(),
+        Duration::from_millis(100),
+    );
     // The cells: a missing French Save, a placeholder warning on the French Hello, an invariant Brand.
     let rows = editor.read_with(&r.w.vcx, |e, _| {
         e.visible_rows()

@@ -302,7 +302,7 @@ public sealed class ProjectPropertiesTests : IDisposable
         var cached = sw.Elapsed;
         Assert.Same(first, again);
         Assert.Equal(1, service.Evaluations);
-        Assert.True(cached < TimeSpan.FromMilliseconds(150), $"cached {cached.TotalMilliseconds} ms");
+        Budget.Assert("cached properties", cached, TimeSpan.FromMilliseconds(150));
         TestContext.Current.TestOutputHelper?.WriteLine($"[budget] properties: cold {cold.TotalMilliseconds:F1} ms, cached {cached.TotalMilliseconds:F2} ms");
         Assert.Equal(("Debug", "AnyCPU", 3L), (first.Configuration, first.Platform, first.Generation));
         Assert.Equal(PropertyCatalog.Entries.Count, first.Properties.Count);

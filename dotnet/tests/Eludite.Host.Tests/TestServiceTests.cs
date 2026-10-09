@@ -338,10 +338,13 @@ public sealed class TestServiceTests
         private readonly Task<int> _server;
         private readonly List<JsonElement> _updates = [];
 
+        // Binlogs in a folder of this host's own, never the real host's <temp>/eludite-host/builds.
+        private readonly string _logs = Path.Combine(Path.GetTempPath(), "eludite-test-service-" + Guid.NewGuid().ToString("N")[..12]);
+
         public WireHost(ITestRunner? runner = null)
         {
             var (clientStream, serverStream) = FullDuplexStream.CreatePair();
-            Target = new HostRpcTarget(new FakeSdkDiscoverer(), TextWriter.Null, build: new BuildService(() => Target!.LanguageServer.CurrentSolution(), TextWriter.Null),
+            Target = new HostRpcTarget(new FakeSdkDiscoverer(), TextWriter.Null, build: new BuildService(() => Target!.LanguageServer.CurrentSolution(), TextWriter.Null, logDirectory: _logs),
                 tests: new TestService(() => Target!.LanguageServer.CurrentSolution(), TextWriter.Null, runner is null ? null : _ => runner));
             _server = HostServer.RunAsync(serverStream, serverStream, Target);
             Client = TestRpc.Create(clientStream);
@@ -399,9 +402,16 @@ public sealed class TestServiceTests
 
         public async ValueTask DisposeAsync()
         {
-            await Target.Tests.Idle.WaitAsync(TimeSpan.FromSeconds(30));
-            Client.Dispose();
-            await _server.WaitAsync(TimeSpan.FromSeconds(10));
+            try
+            {
+                await Target.Tests.Idle.WaitAsync(Budget.Hang(TimeSpan.FromSeconds(30)));
+            }
+            finally
+            {
+                Client.Dispose();
+                await _server.WaitAsync(Budget.Hang(TimeSpan.FromSeconds(10)));
+                TestDirectory.Delete(_logs);
+            }
         }
     }
 }

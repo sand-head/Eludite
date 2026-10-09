@@ -111,7 +111,7 @@ impl Ws {
     /// Run an agent's commands on another thread while the UI runs.
     pub(super) fn agent<R: Send + 'static>(&mut self, f: impl FnOnce() -> R + Send + 'static) -> R {
         let agent = std::thread::spawn(f);
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         while !agent.is_finished() {
             assert!(Instant::now() < deadline, "the agent timed out");
             self.vcx.run_until_parked();

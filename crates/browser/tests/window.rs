@@ -242,7 +242,12 @@ fn record_makes_a_gif_with_one_frame_per_tick_from_the_engines_frames() {
     )
     .unwrap_err();
     assert!(again.contains("stop it first"), "{again}");
-    std::thread::sleep(Duration::from_millis(1200));
+    // The recorder renames its `.gif.part` into place when it ends by itself at max_seconds.
+    eludite_test_support::wait_until(
+        "the recording to reach max_seconds",
+        Duration::from_secs(10),
+        || path.exists(),
+    );
     let done = call(&mut b, cmds::RECORD, json!({"action": "stop"})).unwrap();
     assert_eq!(done["frames"], 20, "{done}");
     assert_eq!(done["duration_ms"], 1000.0);
@@ -282,11 +287,12 @@ fn input_reports_the_dialog_it_opened_and_dialog_answers_it() {
     let out = call(
         &mut b,
         cmds::INPUT,
-        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 3000}),
+        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 10_000}),
     )
     .unwrap();
+    // Far under the 10 s wait (the most `wait_ms` allows) it would otherwise sit out.
     assert!(
-        t0.elapsed() < Duration::from_secs(2),
+        t0.elapsed() < Duration::from_secs(5),
         "no wait on a paused page: {:?}",
         t0.elapsed()
     );
@@ -328,11 +334,12 @@ fn input_reports_a_stop_in_the_debugger_instead_of_waiting_on_the_paused_page() 
     let out = call(
         &mut b,
         cmds::INPUT,
-        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 3000}),
+        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 10_000}),
     )
     .unwrap();
+    // Far under the 10 s wait (the most `wait_ms` allows) it would otherwise sit out.
     assert!(
-        t0.elapsed() < Duration::from_secs(2),
+        t0.elapsed() < Duration::from_secs(5),
         "no wait on a page stopped in the debugger: {:?}",
         t0.elapsed()
     );
@@ -392,7 +399,9 @@ fn devtools_stop_and_the_persons_hand() {
     .unwrap();
     hand.join().unwrap();
     let took = t0.elapsed();
-    assert!(took < Duration::from_millis(1500), "{took:?}");
+    // Interrupted, not timed out: far under the 10 s wait.
+    assert!(took < Duration::from_secs(5), "{took:?}");
+    eludite_test_support::assert_budget("an interrupted wait", took, Duration::from_millis(1500));
     assert_eq!(w["interrupted_by"], "user", "{w}");
     assert_eq!(w["timeout"], false);
     assert!(w.get("satisfied").is_none());

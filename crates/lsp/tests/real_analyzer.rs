@@ -15,7 +15,7 @@ use eludite_lsp::{
 const T: Duration = Duration::from_secs(120);
 
 fn next<V>(rx: &Receiver<Event>, what: &str, pick: impl Fn(Event) -> Option<V>) -> V {
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     loop {
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(e) => {
@@ -110,7 +110,7 @@ fn real_rust_analyzer_diagnoses_and_completes() {
     assert_eq!(arity.severity, Some(1), "{arity:?}");
     assert_eq!(arity.code, Some(serde_json::json!("E0107")), "{arity:?}");
     // Completion after `s.le` lists String's methods once the workspace is loaded; retry while it loads.
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     loop {
         let reply = client
             .request::<lsp::Completion>(lsp::CompletionParams {
@@ -213,7 +213,7 @@ fn real_rust_analyzer_offers_run_debug_and_implementations_lenses() {
         })
         .unwrap();
     // The lenses come once the crate is loaded; ask until the test's runnable is there.
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     let lenses = loop {
         // While it loads, rust-analyzer answers ContentModified (Stale here).
         let lenses = match client

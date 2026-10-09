@@ -14,11 +14,17 @@ env:
   CARGO_INCREMENTAL: "0"
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  # A failing test's backtrace in the log, so a CI failure can be diagnosed without re-running it.
+  RUST_BACKTRACE: "1"
+  # The tests' timing policy (crates/test-support, dotnet/tests/Shared/Budget.cs): on CI (`CI` is set by the runner)
+  # timing budgets are reported, never asserted, and hang bounds are three times longer. Only behavior fails a build.
 
 jobs:
   rust:
     name: rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # About 20 minutes warm and under an hour cold: a hung test fails the job instead of holding the runner for six hours.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -198,12 +204,21 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
+      # ELUDITE_REQUIRE (crates/test-support's `skip`): the external tools this job installs. A test that would skip
+      # because one is missing fails instead, so a broken fetch cannot turn real-adapter and real-browser tests into
+      # silent passes.
       - name: Test (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 75
+        env:
+          ELUDITE_REQUIRE: netcoredbg,chrome,cef,js-debug,lldb-dap
         run: xvfb-run -a cargo test --workspace --no-fail-fast ${{ env.CEF_FEATURES }}
 
       - name: Test
         if: runner.os != 'Linux'
+        timeout-minutes: 75
+        env:
+          ELUDITE_REQUIRE: netcoredbg
         run: cargo test --workspace --no-fail-fast
 
       # Brief 0039's Linux package and its smoke test run in the package job below, which uploads the archives.
@@ -256,6 +271,11 @@ jobs:
   dotnet:
     name: dotnet (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # About 5 minutes: a hung test fails the job instead of holding the runner for six hours.
+    timeout-minutes: 45
+    env:
+      # No MSBuild node outlives a build to hold files the next step (or a test's own build) needs, notably on Windows.
+      MSBUILDDISABLENODEREUSE: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -286,8 +306,22 @@ jobs:
         shell: pwsh
         run: corpus/tests/build.ps1 -NoCargo
 
+      # Microsoft.Testing.Platform with xUnit v3: a TRX report per test module for the artifact below, a note for every
+      # test running past two minutes (the hang's name lands in the log), and a whole-run bound that ends a hang well
+      # before the job's.
       - name: Test
-        run: dotnet test dotnet/Eludite.slnx --configuration Release --no-build
+        run: >-
+          dotnet test dotnet/Eludite.slnx --configuration Release --no-build
+          --results-directory "${{ runner.temp }}/TestResults"
+          --report-xunit-trx --long-running 120 --timeout 30m
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-test-results-${{ matrix.os }}
+          path: ${{ runner.temp }}/TestResults
+          if-no-files-found: warn
 
   # The build id of this run for the self-updater (brief 0055, tools/package/RELEASE.md): <YYYYMMDD>.<run number>,
   # computed once so the three archives and the release agree even when the run crosses midnight UTC. Beside it the
@@ -319,6 +353,7 @@ jobs:
   package:
     name: package (${{ matrix.os }})
     needs: [rust, dotnet, build-id]
+    timeout-minutes: 90
     env:
       CHANNEL_ARGS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && format('--channel unstable --build {0}', needs.build-id.outputs.id) || '' }}
     runs-on: ${{ matrix.os }}

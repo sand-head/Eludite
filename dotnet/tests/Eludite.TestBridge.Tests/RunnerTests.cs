@@ -228,7 +228,7 @@ public sealed class RunnerTests
         var watch = Stopwatch.StartNew();
         await cancel.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task.WaitAsync(TimeSpan.FromSeconds(15), Ct));
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(6), $"canceled in {watch.Elapsed}");
+        Budget.Assert("cancel of a running test", watch.Elapsed, TimeSpan.FromSeconds(6));
         Assert.DoesNotContain(run.Final.Values, r => r.Outcome == TestOutcomes.Passed);
     }
 
@@ -308,7 +308,7 @@ public sealed class RunnerTests
         }
 
         TestContext.Current.SendDiagnosticMessage($"discovery of {Corpus.ManyTests} tests, warm: {string.Join(", ", times.Select(t => $"{t:0} ms"))}");
-        Assert.True(times.Min() < 3000, $"discovery took {times.Min():0} ms");
+        Budget.Assert($"warm discovery of {Corpus.ManyTests} tests", times.Min(), 3000);
     }
 
     [Fact]

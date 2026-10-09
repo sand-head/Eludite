@@ -104,10 +104,9 @@ public sealed class BuildServiceTests
 
         await host.StartAsync(new { target = "build" });
         await host.WaitForOutputAsync(marker);
-        await Task.Delay(300, Ct);
         if (OperatingSystem.IsLinux())
         {
-            Assert.NotEmpty(ProcessesWith(marker));
+            await Poll.UntilAsync(() => ProcessesWith(marker).Count > 0, "the build's process", cancellationToken: Ct);
         }
 
         var sw = Stopwatch.StartNew();
@@ -118,9 +117,8 @@ public sealed class BuildServiceTests
         sw.Stop();
 
         Assert.Equal("canceled", finished.GetProperty("result").GetString());
-        // Two seconds; the hosted Windows runners take longer to end the process tree (2.2 s seen), so five there.
-        var budget = TimeSpan.FromSeconds(OperatingSystem.IsWindows() ? 5 : 2);
-        Assert.True(sw.Elapsed < budget, $"canceled after {sw.ElapsedMilliseconds} ms");
+        // Two seconds; Windows takes longer to end a process tree, so five there.
+        Budget.Assert("cancel of a running build", sw.Elapsed, TimeSpan.FromSeconds(OperatingSystem.IsWindows() ? 5 : 2));
         Assert.Equal(JsonValueKind.Undefined, finished.TryGetProperty("exitCode", out var code) ? code.ValueKind : JsonValueKind.Undefined);
         Assert.Contains("Build canceled.", host.Text, StringComparison.Ordinal);
         if (OperatingSystem.IsLinux())
@@ -340,18 +338,7 @@ public sealed class BuildServiceTests
         });
         await pipe.WriteLineAsync("first", Ct);
         // The first chunk is held by the sender; 5000 lines queue behind it.
-        while (true)
-        {
-            lock (chunks)
-            {
-                if (chunks.Count == 1)
-                {
-                    break;
-                }
-            }
-
-            await Task.Delay(1, Ct);
-        }
+        await Poll.UntilAsync(() => { lock (chunks) { return chunks.Count == 1; } }, "the first chunk", cancellationToken: Ct);
 
         for (var i = 0; i < 5000; i++)
         {
@@ -387,18 +374,7 @@ public sealed class BuildServiceTests
             return Task.CompletedTask;
         });
         await pipe.WriteLineAsync("hello", Ct);
-        while (true)
-        {
-            lock (times)
-            {
-                if (times.Count == 1)
-                {
-                    break;
-                }
-            }
-
-            await Task.Delay(1, Ct);
-        }
+        await Poll.UntilAsync(() => { lock (times) { return times.Count == 1; } }, "the first flush", cancellationToken: Ct);
 
         Budget.Assert("the first flush", times[0].At, TimeSpan.FromMilliseconds(500));
         var line = new string('x', 999);
@@ -641,13 +617,16 @@ public sealed class BuildServiceTests
         private readonly List<JsonElement> _progress = [];
         private readonly Channel<JsonElement> _finished = Channel.CreateUnbounded<JsonElement>();
 
+        // Each host's binlogs in a folder of its own: build ids restart at 1 per host, and the service prunes its folder.
+        private readonly TempDir _logs = new();
+
         public WireHost()
         {
             var (clientStream, serverStream) = FullDuplexStream.CreatePair();
             Target = new HostRpcTarget(new FakeSdkDiscoverer(), TextWriter.Null, build: new BuildService(
                 () => Target!.LanguageServer.CurrentSolution(),
                 TextWriter.Null,
-                logDirectory: System.IO.Path.Combine(System.IO.Path.GetTempPath(), "eludite-build-tests")));
+                logDirectory: _logs.Path));
             _server = HostServer.RunAsync(serverStream, serverStream, Target);
             Client = TestRpc.Create(clientStream);
             TestRpc.On(Client, "eludite/build/output", p => { lock (_output) { _output.Add(p.Clone()); } });
@@ -716,9 +695,16 @@ public sealed class BuildServiceTests
 
         public async ValueTask DisposeAsync()
         {
-            await Target.Build.Running.WaitAsync(TimeSpan.FromSeconds(30));
-            Client.Dispose();
-            await _server.WaitAsync(TimeSpan.FromSeconds(10));
+            try
+            {
+                await Target.Build.Running.WaitAsync(Budget.Hang(TimeSpan.FromSeconds(30)));
+            }
+            finally
+            {
+                Client.Dispose();
+                await _server.WaitAsync(Budget.Hang(TimeSpan.FromSeconds(10)));
+                _logs.Dispose();
+            }
         }
     }
 }

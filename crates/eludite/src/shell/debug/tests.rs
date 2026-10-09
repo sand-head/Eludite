@@ -827,8 +827,10 @@ fn an_adapter_crash_ends_the_session_and_a_stalled_one_never_blocks_the_ui(
     d.open("src/App/Program.cs", 6);
     d.w.vcx.simulate_keystrokes("f9");
     d.start_and_break();
-    // The adapter hangs for 2 s: stepping, the bus and the windows answer meanwhile.
-    d.fake().stall(Duration::from_secs(2));
+    // The adapter hangs (2 s, longer on CI so the loop below always ends inside it): stepping, the bus and the windows
+    // answer meanwhile, and the session is still running when they have.
+    d.fake()
+        .stall(Duration::from_secs(2) * eludite_test_support::timeout_scale());
     let t = Instant::now();
     d.w.vcx.simulate_keystrokes("f10");
     for _ in 0..20 {
@@ -836,10 +838,10 @@ fn an_adapter_crash_ends_the_session_and_a_stalled_one_never_blocks_the_ui(
         d.cmd(cmds::WATCH, json!({"add": "x"})).unwrap();
         d.w.vcx.run_until_parked();
     }
-    assert!(
-        t.elapsed() < Duration::from_millis(1500),
-        "{:?}",
-        t.elapsed()
+    super::super::tests::assert_budget(
+        "a step and 20 state reads while the adapter stalls",
+        t.elapsed(),
+        Duration::from_millis(1500),
     );
     assert_eq!(d.mode(), Mode::Running);
     d.wait_break(2);
@@ -959,7 +961,7 @@ fn an_agent_drives_a_session_from_the_bus_and_reads_the_same_state(cx: &mut Test
     let run_agent = |d: &mut Dbg, f: Box<dyn FnOnce() -> Value + Send>| -> Value {
         let a = agent.clone();
         let handle = std::thread::spawn(move || with_caller(a, f));
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         while !handle.is_finished() {
             assert!(
                 Instant::now() < deadline,
@@ -5425,7 +5427,7 @@ fn attach_and_restart_against_eludite_dbg_mono(cx: &mut TestAppContext) {
         "{}",
         debug_status(&d)
     );
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     let status = loop {
         if let Some(s) = app.try_wait().unwrap() {
             break s;
@@ -6084,7 +6086,7 @@ fn a_compound_of_two_reaches_running_within_one_and_a_half_single_launches(
                 s.invoke(cmds::START, args, window, cx)
             })
             .unwrap();
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         loop {
             d.w.vcx.run_until_parked();
             let s = d.sessions();
@@ -6410,7 +6412,7 @@ fn netcoredbg_and_eludite_dbg_mono_sessions_at_once(cx: &mut TestAppContext) {
     let found = match eludite_dap::discovery::AdapterSearch::from_env().find_netcoredbg() {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("netcoredbg", e);
             return;
         }
     };
@@ -6579,7 +6581,7 @@ fn allow_agents_and_interruptions_are_per_session(cx: &mut TestAppContext) {
     );
     // Session 2 stops on its own: the wait is satisfied, not interrupted.
     d.fake_of(2).trigger();
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !waiting.is_finished() {
         assert!(Instant::now() < deadline, "the wait did not answer");
         d.w.vcx.run_until_parked();
@@ -6608,7 +6610,7 @@ fn allow_agents_and_interruptions_are_per_session(cx: &mut TestAppContext) {
             .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
     });
     d.w.vcx.simulate_keystrokes("f10");
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !waiting.is_finished() {
         assert!(Instant::now() < deadline, "the wait did not answer");
         d.w.vcx.run_until_parked();
@@ -7076,7 +7078,7 @@ fn browser_call(d: &mut Dbg, command: &'static str, args: Value) -> Value {
             .invoke(command, args)
             .unwrap_or_else(|e| json!({ "error": e.to_string() }))
     });
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !handle.is_finished() {
         assert!(Instant::now() < deadline, "{command} did not finish");
         d.w.vcx.run_until_parked();
@@ -7747,7 +7749,7 @@ fn ctrl_f5_on_the_corpus_web_project_opens_the_page_in_the_embedded_engine(
     cx: &mut TestAppContext,
 ) {
     if let Err(e) = embedded_engine() {
-        eprintln!("skipped: {e}");
+        eludite_test_support::skip("cef", e);
         return;
     }
     let mut d = setup(cx);
@@ -7762,11 +7764,11 @@ fn ctrl_f5_on_the_corpus_web_project_opens_the_page_in_the_embedded_engine(
 fn f5_on_the_corpus_web_project_under_netcoredbg_opens_the_page(cx: &mut TestAppContext) {
     let search = eludite_dap::discovery::AdapterSearch::from_env();
     if let Err(e) = search.find_netcoredbg() {
-        eprintln!("skipped: {e}");
+        eludite_test_support::skip("netcoredbg", e);
         return;
     }
     if let Err(e) = embedded_engine() {
-        eprintln!("skipped: {e}");
+        eludite_test_support::skip("cef", e);
         return;
     }
     let store = tempfile::tempdir().unwrap().keep();
@@ -8168,7 +8170,7 @@ fn an_agent_debugs_the_click_handler_in_three_commands(cx: &mut TestAppContext) 
     );
     let go = agent_call(&mut d, cmds::CONTINUE, json!({"session": child}));
     assert!(go.get("error").is_none(), "{go}");
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while paused(&d) {
         assert!(
             Instant::now() < deadline,
@@ -8676,7 +8678,7 @@ fn ctrl_f5_on_the_corpus_web_project_then_js_debug_stops_in_app_ts(cx: &mut Test
     let js = match (embedded_engine(), real_js_debug()) {
         (Ok(()), Ok(js)) => js,
         (Err(e), _) | (_, Err(e)) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("js-debug", e);
             return;
         }
     };
@@ -8714,13 +8716,13 @@ fn ctrl_f5_on_the_corpus_web_project_then_js_debug_stops_in_app_ts(cx: &mut Test
 fn f5_on_the_corpus_web_project_under_netcoredbg_debugs_its_page_too(cx: &mut TestAppContext) {
     let search = eludite_dap::discovery::AdapterSearch::from_env();
     if let Err(e) = search.find_netcoredbg() {
-        eprintln!("skipped: {e}");
+        eludite_test_support::skip("netcoredbg", e);
         return;
     }
     let js = match (embedded_engine(), real_js_debug()) {
         (Ok(()), Ok(js)) => js,
         (Err(e), _) | (_, Err(e)) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("js-debug", e);
             return;
         }
     };
@@ -8767,7 +8769,7 @@ fn the_vite_counter_stops_through_the_dev_servers_source_maps(cx: &mut TestAppCo
     let js = match (embedded_engine(), real_js_debug()) {
         (Ok(()), Ok(js)) => js,
         (Err(e), _) | (_, Err(e)) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("js-debug", e);
             return;
         }
     };

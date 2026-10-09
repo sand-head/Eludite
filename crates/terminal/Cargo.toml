@@ -26,6 +26,8 @@ serde.workspace = true
 libc = "0.2"
 
 [dev-dependencies]
+# Timing budgets, hang bounds and required tools shared by every test (crates/test-support).
+eludite-test-support.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 

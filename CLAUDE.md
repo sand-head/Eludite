@@ -43,6 +43,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/forge` | `eludite-forge` (brief 0046): one `Forge` trait with a capabilities table over GitHub (REST and GraphQL), GitLab, Azure DevOps, Forgejo and Gitea, and Tangled (AT Protocol lexicons); detection from the remote url and `forge.hosts` (version probes for unknown hosts), the HTTP client on `ureq` and `rustls` with conditional requests, rate limits, timeouts and cancellation, the stale-while-refreshing cache under the workspace's `.eludite/forge/` (never a token), the credential store through `keyring` with a consented 0600 file fallback, the device flows, and the replay transport and loopback fixture server its tests and the shell's run on; the shell's Pull Requests and Issues windows, the pull request document and `eludite.forge.*` sit on it | 4.8 |
 | `crates/update` | `eludite-update` (brief 0055, ADR-0011): self-update from GitHub releases by channel (`unstable` first): `build.json` beside the executable, the release list with conditional requests, the archive streamed and verified against `SHA256SUMS`, staged in `.eludite-update/` inside the install folder, unpacked (`tar` and `flate2`, a small zip reader), swapped in on restart by a copy of the new executable (`eludite --apply-update`) with the old build kept in `.eludite-previous/` until the next start; the shell's Help > Check for Updates, the status bar's update slot, the Output window's Updates source, the first-start question and `eludite.update.*` sit on it; the release contract is `tools/package/RELEASE.md` | 10 (Phase 2) |
 | `crates/extensions` | wasmtime extension host | 3 (D6) |
+| `crates/test-support` | `eludite-test-support` (ADR-0014), a dev-dependency of every crate's tests: `assert_budget`, `assert_memory_budget` and `assert_at_least` (asserted on a quiet developer machine, reported on CI and under load), `hang_bound` and `wait_until` (bounds that only catch a hang, three times longer on CI), and `skip` (a missing tool's skip, which fails when `ELUDITE_REQUIRE` names the tool); .NET's counterpart is `dotnet/tests/Shared/` (`Budget`, `Poll`) | 2 |
 | `grammars/razor` | `tree-sitter-razor`: the owner's Razor tree-sitter grammar in-repo (MIT, extending tree-sitter-c-sharp), its parser generated at build time from the checked-in `src/grammar.json` by `tree-sitter-generate` at the CLI's pinned version (`PIN`) and cached by content under `~/.cache/eludite/grammars/` (ADR-0012; `grammar.json` written only by `grammars/razor/generate.sh`), its corpus replayed by `cargo test` with no CLI (brief 0056) | 4.9, 7 |
 | `protocol/` | MIT schemas and generated bindings (crate `eludite-protocol`); `protocol/forge/` holds the pinned forge API descriptions and Tangled's lexicons, reference only, nothing generated (brief 0046) | 3 (D3), 11 |
 | `protocol/cdp/` | The pinned Chrome DevTools Protocol JSON and `eludite-cdp-generator` (MIT), which writes `protocol/rust/src/cdp/` | 4.9, 11 |
@@ -77,7 +78,7 @@ These come from PLAN.md section 2. Violating one is a defect even if tests pass.
 
 ## Performance budgets
 
-The budget tests assert these on a developer machine; under CI (`CI` set) they print their numbers instead, because the hosted runners are not a reference machine. A shell-touching PR that regresses any benchmark by more than 5 percent does not merge.
+The budget tests assert these on a developer machine; under CI (`CI` set) and on a loaded machine they print their numbers instead, because the hosted runners are not a reference machine (ADR-0014). A shell-touching PR that regresses any benchmark by more than 5 percent does not merge.
 
 | Metric | Budget |
 |---|---|
@@ -124,6 +125,12 @@ C#:
 - `<Nullable>enable</Nullable>`, warnings as errors.
 - Central Package Management (`Directory.Packages.props`); no versions in project files.
 - Target the SDK pinned in `global.json`.
+
+Tests (ADR-0014): a test fails on behavior only, never on how fast a shared CI runner is.
+- Time, memory and rates go through `eludite-test-support` (`assert_budget`, `assert_memory_budget`, `assert_at_least`) or `Budget.Assert` in C#; never a bare `assert!(elapsed < ...)` or `Assert.True(sw.Elapsed < ...)`.
+- A wait that only catches a hang uses `hang_bound` / `wait_until` (`Budget.Hang` / `Poll.UntilAsync`). An "it did not wait" check asserts far under the wait it avoids, not just under it.
+- Never sleep and then assert that something happened: wait for it, or for a barrier that proves it. Fakes signal an event only after everything it implies is sent.
+- A test skipping for a missing tool calls `eludite_test_support::skip(tool, why)`; CI names its installed tools in `ELUDITE_REQUIRE`, so such a skip fails there. In C#, `Assert.SkipWhen`.
 
 Per-crate `CLAUDE.md` files exist only where rules are non-obvious (editor core, debugger, ASPX generator). They add to this file, never override it.
 

@@ -563,7 +563,8 @@ fn the_agent_strip_shows_while_an_agent_drives_and_stop_or_a_click_interrupts_it
     let t0 = Instant::now();
     w.click("web-browser-agent-stop");
     let out = call.join().unwrap().unwrap();
-    assert!(t0.elapsed() < Duration::from_secs(3), "{:?}", t0.elapsed());
+    // Stopped, not timed out: far under the 20 s wait.
+    assert!(t0.elapsed() < Duration::from_secs(10), "{:?}", t0.elapsed());
     assert_eq!(out["interrupted_by"], "user", "{out}");
     w.wait("the strip gone", |w| {
         w.browser_window(|b| b.driving().is_empty())

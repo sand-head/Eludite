@@ -161,7 +161,7 @@ impl Rs {
     }
 
     fn wait(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         loop {
             self.vcx.run_until_parked();
             if done(self) {
@@ -762,7 +762,12 @@ fn cancel_kills_cargo(cx: &mut TestAppContext) {
     let out = w.run_cmd(build_commands::CANCEL, json!({}));
     assert_eq!(out["canceled"], true, "{out} with {:?}", w.build_lines());
     w.wait("the build to end", |w| !w.building());
-    assert!(canceled.elapsed() < Duration::from_secs(5));
+    // Killed, not run out: far under the fake cargo's 30 s sleep.
+    assert!(
+        canceled.elapsed() < Duration::from_secs(15),
+        "{:?}",
+        canceled.elapsed()
+    );
     assert_eq!(w.build_status(), "Build canceled");
     assert!(w.build_lines().iter().any(|l| l == "Build canceled."));
 }

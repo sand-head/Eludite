@@ -98,7 +98,7 @@ fn fetch_and_push_over_ssh_with_a_key_file() {
             .spawn()
             .expect("sshd"),
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(10));
     while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
         assert!(
             Instant::now() < deadline,
