@@ -287,12 +287,12 @@ fn input_reports_the_dialog_it_opened_and_dialog_answers_it() {
     let out = call(
         &mut b,
         cmds::INPUT,
-        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 30_000}),
+        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 10_000}),
     )
     .unwrap();
-    // Far under the 30 s wait it would otherwise sit out.
+    // Far under the 10 s wait (the most `wait_ms` allows) it would otherwise sit out.
     assert!(
-        t0.elapsed() < Duration::from_secs(15),
+        t0.elapsed() < Duration::from_secs(5),
         "no wait on a paused page: {:?}",
         t0.elapsed()
     );
@@ -334,12 +334,12 @@ fn input_reports_a_stop_in_the_debugger_instead_of_waiting_on_the_paused_page() 
     let out = call(
         &mut b,
         cmds::INPUT,
-        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 30_000}),
+        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 10_000}),
     )
     .unwrap();
-    // Far under the 30 s wait it would otherwise sit out.
+    // Far under the 10 s wait (the most `wait_ms` allows) it would otherwise sit out.
     assert!(
-        t0.elapsed() < Duration::from_secs(15),
+        t0.elapsed() < Duration::from_secs(5),
         "no wait on a page stopped in the debugger: {:?}",
         t0.elapsed()
     );
