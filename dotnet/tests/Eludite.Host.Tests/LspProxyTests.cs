@@ -555,7 +555,7 @@ public sealed class LspProxyTests : IAsyncDisposable
         sw.Stop();
 
         Assert.Equal("Compute", result.GetProperty("items")[0].GetProperty("label").GetString());
-        Assert.True(sw.ElapsedMilliseconds < 1000, $"completion waited {sw.ElapsedMilliseconds} ms behind the warming pull");
+        Budget.Assert("completion behind the warming pull", sw.Elapsed, TimeSpan.FromSeconds(1));
         _fake.DiagnosticGate.TrySetResult();
         await NextAsync(_diagnostics);
     }

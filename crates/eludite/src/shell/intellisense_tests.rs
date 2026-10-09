@@ -449,7 +449,7 @@ fn quick_info_appears_after_the_delay_and_dismisses(cx: &mut gpui::TestAppContex
             json!({"path": path.to_string_lossy(), "line": 1, "column": 8}),
         )
     });
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !agent.is_finished() {
         assert!(Instant::now() < deadline);
         w.vcx.run_until_parked();
@@ -555,7 +555,7 @@ fn agents_complete_and_commit_on_the_bus(cx: &mut gpui::TestAppContext) {
             .unwrap();
         (listed, committed)
     });
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !agent.is_finished() {
         assert!(Instant::now() < deadline);
         w.vcx.run_until_parked();

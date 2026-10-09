@@ -38,23 +38,8 @@ pub use language::{BUILTINS, Language, LanguageConfig, LanguageError, LanguageRe
 pub use theme::SyntaxTheme;
 pub use worker::SyntaxThread;
 
-/// `measured` under `limit`, asserted on a developer machine only: under CI (`CI` set) the hosted runners are shared
-/// VMs, not a reference machine, so the number is printed instead.
 #[cfg(test)]
-fn assert_budget(what: &str, measured: std::time::Duration, limit: std::time::Duration) {
-    if std::env::var_os("CI").is_some() {
-        eprintln!(
-            "timing: {what} {:.2} ms not asserted against {:.0} ms: a CI run, not a reference machine",
-            measured.as_secs_f64() * 1e3,
-            limit.as_secs_f64() * 1e3
-        );
-    } else {
-        assert!(
-            measured < limit,
-            "{what}: {measured:?} is not under {limit:?}"
-        );
-    }
-}
+use eludite_test_support::assert_budget;
 
 /// What a span of source text is, independent of color.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

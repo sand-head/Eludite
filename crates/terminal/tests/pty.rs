@@ -328,8 +328,9 @@ fn osc_133_marks_give_each_commands_exit_code_under_bash() {
 fn without_integration_the_prompt_heuristic_waits_for_silence() {
     let s = sh();
     s.prompt(0);
-    let m = s.run("printf 'one\\n'; sleep 0.4; printf 'two\\n'");
+    // The clock starts before the command does, so the command's 0.4 s is always inside it.
     let started = Instant::now();
+    let m = s.run("printf 'one\\n'; sleep 0.4; printf 'two\\n'");
     let r = s.prompt(m);
     assert!(!r.integration);
     assert!(
@@ -387,7 +388,7 @@ fn ctrl_c_interrupts_the_foreground_child() {
     let s = sh();
     s.prompt(0);
     s.run("sleep 30");
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !s.t.busy() {
         assert!(Instant::now() < deadline, "sleep never ran");
         std::thread::sleep(Duration::from_millis(5));
@@ -396,7 +397,12 @@ fn ctrl_c_interrupts_the_foreground_child() {
     let m = s.t.mark();
     s.t.write(vec![3]);
     s.prompt(m);
-    assert!(started.elapsed() < Duration::from_secs(5));
+    // Interrupted, not run out: far under the 30 s sleep.
+    assert!(
+        started.elapsed() < Duration::from_secs(15),
+        "{:?}",
+        started.elapsed()
+    );
     assert!(!s.t.busy());
     let m = s.run("echo status=$?");
     s.wait_for("status=130", m);
@@ -434,7 +440,7 @@ fn the_bell_is_an_event() {
         &[],
     );
     s.wait_for("ring", 0);
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !s.events.lock().unwrap().contains(&Event::Bell) {
         assert!(Instant::now() < deadline, "no bell");
         std::thread::sleep(Duration::from_millis(5));
@@ -481,7 +487,7 @@ fn the_persons_input_interrupts_a_wait_and_kill_ends_a_busy_terminal() {
             &|| false,
         )
     });
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while s.t.waiting() == 0 {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(2));
@@ -490,7 +496,7 @@ fn the_persons_input_interrupts_a_wait_and_kill_ends_a_busy_terminal() {
     let r = waiter.join().unwrap();
     assert_eq!(r.matched, Matched::Interrupted);
     // The wait may end before bash hands the terminal to `sleep`.
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !s.t.busy() {
         assert!(Instant::now() < deadline, "sleep never took the foreground");
         std::thread::sleep(Duration::from_millis(2));
@@ -508,7 +514,7 @@ fn clear_keeps_the_prompt_line_and_marks() {
     s.prompt(m);
     let before = s.t.mark();
     s.t.clear();
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while s.t.scrollback(1000).contains("\n20") {
         assert!(Instant::now() < deadline, "not cleared");
         std::thread::sleep(Duration::from_millis(5));

@@ -130,7 +130,10 @@ fn chrome() -> Option<PathBuf> {
     match ChromeSearch::from_env().find() {
         Ok(p) => Some(p),
         Err(why) => {
-            println!("SKIPPED: no Chrome for the browser tests ({why})");
+            eludite_test_support::skip(
+                "chrome",
+                format!("no Chrome for the browser tests ({why})"),
+            );
             None
         }
     }
@@ -259,11 +262,11 @@ fn the_commands_against_a_headless_chrome() {
     // This process's memory with the browser running and idle (Chrome's own processes are separate).
     std::thread::sleep(Duration::from_millis(500));
     if let (Some(before), Some(after)) = (rss_before, resident_kb()) {
-        let grew = after.saturating_sub(before) as f64 / 1024.;
-        println!(
-            "resident memory with the browser running and idle: +{grew:.1} MB (budget +20 MB)"
+        eludite_test_support::assert_memory_budget(
+            "resident memory growth with the browser running and idle",
+            after.saturating_sub(before) * 1024,
+            20 * 1024 * 1024,
         );
-        assert!(grew < 20., "+{grew:.1} MB");
     }
 
     // navigate to each fixture with load and network_idle.
@@ -781,7 +784,7 @@ fn kill_and_relaunch(run: &mut Run, profile: &Path) {
     );
     let tabs = run.ok(cmds::TABS, json!({}));
     assert_eq!(tabs["running"], false, "{tabs}");
-    let until = Instant::now() + Duration::from_secs(5);
+    let until = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(5));
     while !run
         .log
         .lock()
@@ -1254,7 +1257,11 @@ fn acting_on_the_page_in_a_headless_chrome() {
     println!(
         "input click round trip (wait_ms 100), 20 clicks: p50 {p50:.1} ms, p95 {q95:.1} ms, max {max:.1} ms (budget p95 < 150 ms)"
     );
-    assert!(q95 < 150., "input click p95 {q95:.1} ms");
+    eludite_test_support::assert_budget(
+        "input click p95",
+        Duration::from_secs_f64(q95 / 1e3),
+        Duration::from_millis(150),
+    );
     let ten = json!([
         {"ref": refs[0], "value": "A"}, {"ref": refs[1], "value": "B"}, {"ref": refs[2], "value": true},
         {"ref": refs[3], "value": false}, {"ref": refs[4], "value": true}, {"ref": refs[5], "value": "free"},
@@ -1278,7 +1285,11 @@ fn acting_on_the_page_in_a_headless_chrome() {
     println!(
         "form_input with 10 fields, 20 calls: p50 {p50:.1} ms, p95 {q95:.1} ms, max {max:.1} ms (budget p95 < 200 ms)"
     );
-    assert!(q95 < 200., "form_input p95 {q95:.1} ms");
+    eludite_test_support::assert_budget(
+        "form_input p95",
+        Duration::from_secs_f64(q95 / 1e3),
+        Duration::from_millis(200),
+    );
 
     // key Enter submits the search form: the page navigates, and refs from before are stale.
     let q = find_ref(&mut run, "searchbox", "Search");
@@ -1300,7 +1311,8 @@ fn acting_on_the_page_in_a_headless_chrome() {
     );
     assert!(out["page_generation"].as_u64().unwrap() > gen_before);
     assert!(
-        out["elapsed_ms"].as_f64().unwrap() < 4000.,
+        // Ended at the load, not at the 5 s wait.
+        out["elapsed_ms"].as_f64().unwrap() < 5000.,
         "ended at the load: {out}"
     );
     assert_eq!(
@@ -1448,7 +1460,11 @@ fn acting_on_the_page_in_a_headless_chrome() {
     println!(
         "network_body of a 1 MB body, 20 reads: p50 {p50:.1} ms, p95 {q95:.1} ms, max {max:.1} ms (budget p95 < 200 ms)"
     );
-    assert!(q95 < 200., "network_body p95 {q95:.1} ms");
+    eludite_test_support::assert_budget(
+        "network_body p95",
+        Duration::from_secs_f64(q95 / 1e3),
+        Duration::from_millis(200),
+    );
 
     run.browser.shutdown();
 }

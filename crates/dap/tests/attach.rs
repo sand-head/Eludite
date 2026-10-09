@@ -77,7 +77,7 @@ fn the_listing_has_this_process_and_its_children_with_their_runtimes() {
     );
     let me = std::process::id();
     // Wait until the shell script has started its `sleep` child.
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     let (all, took) = loop {
         let t = Instant::now();
         let all = processes::list().unwrap();

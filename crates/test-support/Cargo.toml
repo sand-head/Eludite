@@ -1,0 +1,12 @@
+[package]
+name = "eludite-test-support"
+description = "Eludite's test helpers: timing budgets asserted on a developer machine and reported on CI, hang bounds scaled for CI, condition waits and required external tools."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

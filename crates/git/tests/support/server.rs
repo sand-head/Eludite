@@ -178,7 +178,7 @@ impl GitHttp {
             });
         }
         // Listening once a connection is taken (s_server drops this probe as a failed handshake).
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(10));
         while TcpStream::connect(("127.0.0.1", port)).is_err() {
             assert!(Instant::now() < deadline, "openssl s_server did not listen");
             std::thread::sleep(Duration::from_millis(20));

@@ -15,24 +15,12 @@ use eludite_dap::{ClientEvent, Connection, EventSink};
 
 pub const PROGRAM: &str = "/src/App/Program.cs";
 pub const CALC: &str = "/src/App/Calc.cs";
-pub const T: Duration = Duration::from_secs(10);
+/// A hang bound for the real adapters (netcoredbg, Mono, js-debug) as much as the fake: generous, since it only catches a
+/// hang, and a cold adapter on a shared CI runner is slow.
+pub const T: Duration = Duration::from_secs(30);
 
-/// `measured` under `limit`, asserted on a developer machine only: under CI (`CI` set) the hosted runners are shared
-/// VMs, not a reference machine, so the number is printed instead.
-pub fn assert_budget(what: &str, measured: Duration, limit: Duration) {
-    if std::env::var_os("CI").is_some() {
-        eprintln!(
-            "timing: {what} {:.2} ms not asserted against {:.0} ms: a CI run, not a reference machine",
-            measured.as_secs_f64() * 1e3,
-            limit.as_secs_f64() * 1e3
-        );
-    } else {
-        assert!(
-            measured < limit,
-            "{what}: {measured:?} is not under {limit:?}"
-        );
-    }
-}
+#[allow(unused_imports)] // Not every test binary that includes this module times something.
+pub use eludite_test_support::assert_budget;
 
 /// `Main` calls `Calc.Add(1, 2)` and keeps the result.
 pub fn program() -> FakeProgram {
@@ -118,7 +106,7 @@ impl Recorder {
         what: &str,
         pred: impl Fn(&ClientEvent) -> bool,
     ) -> ClientEvent {
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         loop {
             let found: Vec<ClientEvent> = self.events().into_iter().filter(|e| pred(e)).collect();
             if found.len() >= n {

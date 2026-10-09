@@ -178,7 +178,7 @@ fn browser_session(
 }
 
 fn wait_children(children: &Children, n: usize) {
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while children.lock().unwrap().len() < n {
         assert!(Instant::now() < deadline, "no child session");
         std::thread::sleep(Duration::from_millis(2));
@@ -441,7 +441,7 @@ fn chrome(exe: &Path, profile: &Path, url: &str) -> (std::process::Child, u16, S
         .unwrap()
         .parse()
         .unwrap();
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     let target = loop {
         let list = json_list(port);
         let page = list
@@ -468,7 +468,7 @@ fn the_real_js_debug_stops_in_app_ts_on_a_click() {
     let real = match real() {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("js-debug", e);
             return;
         }
     };

@@ -12,6 +12,8 @@ publish.workspace = true
 git2.workspace = true
 
 [dev-dependencies]
+# Timing budgets, hang bounds and required tools shared by every test (crates/test-support).
+eludite-test-support.workspace = true
 tempfile.workspace = true
 
 [lints]

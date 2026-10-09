@@ -12,6 +12,9 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
+    <Using Include="Eludite.Testing" />
+    <!-- Timing budgets and hang bounds shared with dotnet/tests (Budget.cs). -->
+    <Compile Include="../../../dotnet/tests/Shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

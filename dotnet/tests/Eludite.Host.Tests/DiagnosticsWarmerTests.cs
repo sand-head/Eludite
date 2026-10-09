@@ -35,15 +35,7 @@ public sealed class DiagnosticsWarmerTests : IDisposable
         }
     }
 
-    private static async Task Eventually(Func<bool> condition)
-    {
-        for (var i = 0; i < 500 && !condition(); i++)
-        {
-            await Task.Delay(5, TestContext.Current.CancellationToken);
-        }
-
-        Assert.True(condition());
-    }
+    private static Task Eventually(Func<bool> condition) => Poll.UntilAsync(condition, "the warmer");
 
     [Fact]
     public async Task Opened_PullsAtOnce()

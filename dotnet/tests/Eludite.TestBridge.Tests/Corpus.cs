@@ -86,7 +86,34 @@ internal static class Corpus
 
         slnx.Append("</Solution>\n");
         await File.WriteAllTextAsync(Path.Combine(root, "Corpus.slnx"), slnx.ToString());
-        var psi = new ProcessStartInfo(Dotnet(), ["build", Path.Combine(root, "Corpus.slnx"), "--configuration", "Debug", "--nologo", "-v", "q"])
+        // A build that outlives this bound is hung (a stuck restore, a wedged MSBuild node), not slow: it is killed and
+        // reported rather than left to hang every test that needs the corpus. One NuGet network failure (NU1301, the
+        // feed unreachable) is retried once: that is nuget.org, not the code under test.
+        var bound = Budget.Hang(TimeSpan.FromMinutes(10));
+        for (var attempt = 1; ; attempt++)
+        {
+            var (code, output) = await DotnetAsync(root, bound, ["build", Path.Combine(root, "Corpus.slnx"), "--configuration", "Debug", "--nologo", "-v", "q"]);
+            if (code == 0)
+            {
+                break;
+            }
+
+            if (attempt == 1 && output.Contains("NU1301", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine($"building the corpus hit a NuGet network failure, retrying once:\n{output}");
+                continue;
+            }
+
+            throw new InvalidOperationException($"building the corpus failed ({code}):\n{output}");
+        }
+
+        return root;
+    }
+
+    /// <summary>Runs <c>dotnet</c> in <paramref name="root"/>; the exit code and its output. Killed with its process tree after <paramref name="bound"/>.</summary>
+    private static async Task<(int Code, string Output)> DotnetAsync(string root, TimeSpan bound, string[] args)
+    {
+        var psi = new ProcessStartInfo(Dotnet(), args)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -97,13 +124,19 @@ internal static class Corpus
         using var process = Process.Start(psi)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        if (process.ExitCode != 0)
+        using var timeout = new CancellationTokenSource(bound);
+        try
         {
-            throw new InvalidOperationException($"building the corpus failed ({process.ExitCode}):\n{await stdout}\n{await stderr}");
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw new TimeoutException($"dotnet {string.Join(' ', args)} did not finish within {bound.TotalMinutes:F0} min:\n{await stdout}\n{await stderr}");
         }
 
-        return root;
+        return (process.ExitCode, $"{await stdout}\n{await stderr}");
     }
 
     private static void Copy(string from, string to)

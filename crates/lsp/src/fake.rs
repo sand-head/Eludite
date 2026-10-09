@@ -589,7 +589,7 @@ impl FakeHost {
         self.lock().tests.running.as_ref().map(|r| r.id)
     }
 
-    /// How many discoveries the fake answered.
+    /// How many discoveries the fake answered, each counted once all its discovered tests were sent.
     pub fn test_discoveries(&self) -> u64 {
         self.lock().tests.discoveries
     }
@@ -755,7 +755,6 @@ impl FakeHost {
                 let id = {
                     let mut s = self.lock();
                     s.tests.next_id += 1;
-                    s.tests.discoveries += 1;
                     let id = s.tests.next_id;
                     s.tests.running = Some(FakeTestRun {
                         id,
@@ -791,6 +790,9 @@ impl FakeHost {
                         true,
                     );
                 }
+                // Counted once every container's tests are out: a test that waits for this count and then finishes
+                // the run never ends it between two containers' updates.
+                self.lock().tests.discoveries += 1;
                 if !self.lock().tests.hold {
                     self.finish_test_run("completed");
                 }

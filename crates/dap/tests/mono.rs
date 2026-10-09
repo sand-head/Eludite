@@ -823,7 +823,7 @@ fn eludite_dbg_mono_attaches_to_a_waiting_test_app_and_detaches() {
         .spawn()
         .unwrap();
     // The process listing sees it as a Mono program with an agent to attach to.
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     let listed = loop {
         let all = processes::list().unwrap();
         if let Some(p) = all.iter().find(|p| p.pid == app.id()) {
@@ -894,7 +894,7 @@ fn eludite_dbg_mono_attaches_to_a_waiting_test_app_and_detaches() {
         .request_wait("disconnect", json!({"terminateDebuggee": false}), T)
         .unwrap();
     client.kill();
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     let status = loop {
         if let Some(s) = app.try_wait().unwrap() {
             break s;

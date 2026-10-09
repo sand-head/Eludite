@@ -36,6 +36,9 @@ struct State {
     delays: HashMap<String, u64>,
     writers: Vec<Arc<Mutex<TcpStream>>>,
     lists: usize,
+    /// The ids of the client's answers to this server's own requests (the `ping` of [`FakeMcp::add_tool`]).
+    answered: Vec<Value>,
+    next_ping: u64,
 }
 
 pub struct FakeMcp {
@@ -175,12 +178,34 @@ impl FakeMcp {
             s.tools.push(t);
             s.writers.clone()
         };
+        // Then a ping on the same stream: the client reads its stream in order, so its answer proves it has taken the
+        // notification in, with no sleep to guess how long that takes.
+        let mut pings = Vec::new();
         for w in writers {
+            let id = {
+                let mut s = self.state.lock().unwrap();
+                s.next_ping += 1;
+                json!(format!("fake-ping-{}", s.next_ping))
+            };
             let mut w = w.lock().unwrap();
             let _ = w.write_all(
                 b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n",
             );
+            let ping = json!({"jsonrpc": "2.0", "id": id, "method": "ping"});
+            let _ = w.write_all(format!("{ping}\n").as_bytes());
             let _ = w.flush();
+            pings.push(id);
+        }
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !pings
+            .iter()
+            .all(|id| self.state.lock().unwrap().answered.contains(id))
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the client never answered the ping after list_changed"
+            );
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 }
@@ -266,6 +291,13 @@ fn serve(conn: TcpStream, state: &Arc<Mutex<State>>) -> std::io::Result<()> {
         let Ok(msg) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        // An answer to this server's own request.
+        if msg.get("method").is_none()
+            && let Some(id) = msg.get("id")
+        {
+            state.lock().unwrap().answered.push(id.clone());
+            continue;
+        }
         let (state, writer) = (state.clone(), writer.clone());
         let run = move || {
             if let Some(reply) = answer(&msg, &state) {

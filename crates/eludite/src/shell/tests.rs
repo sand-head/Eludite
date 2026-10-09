@@ -31,39 +31,21 @@ use super::{SOLUTION_SLOT, Shell};
 
 pub(super) const T: Duration = Duration::from_secs(10);
 
-/// A CI run (`CI` set): GitHub's hosted runners are shared VMs, as fast as free compute makes them, not a reference
-/// machine, so timing budgets and rates are printed there, never asserted.
+/// A CI run: timing budgets and rates are reported there, never asserted (`eludite_test_support::ci`).
 pub(super) fn hosted_runner() -> bool {
-    std::env::var_os("CI").is_some()
+    eludite_test_support::ci()
 }
 
-/// `measured` under `limit`, asserted on a developer machine only. Under CI the number is printed instead
-/// ([`hosted_runner`]), and likewise on an overloaded machine (the 1-minute load average above the core count: other
-/// agents build beside these tests, and scheduling inflates the shell's own share of a frame).
+/// `measured` under `limit`: asserted on a quiet developer machine, reported on CI and under load
+/// (`eludite_test_support::assert_budget`).
+#[track_caller]
 pub(super) fn assert_budget(what: &str, measured: Duration, limit: Duration) {
-    let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
-    let load = std::fs::read_to_string("/proc/loadavg")
-        .ok()
-        .and_then(|t| t.split_whitespace().next()?.parse::<f64>().ok());
-    let (ms, limit_ms) = (measured.as_secs_f64() * 1e3, limit.as_secs_f64() * 1e3);
-    match load {
-        _ if hosted_runner() => eprintln!(
-            "timing: {what} {ms:.2} ms not asserted against {limit_ms:.0} ms: a CI run, not a reference machine"
-        ),
-        Some(l) if l > cores => eprintln!(
-            "timing: {what} {ms:.2} ms not asserted against {limit_ms:.0} ms: load average {l:.1} on {cores:.0} cores"
-        ),
-        _ => assert!(
-            measured < limit,
-            "{what}: {measured:?} is not under {limit:?}"
-        ),
-    }
+    eludite_test_support::assert_budget(what, measured, limit);
 }
 
-/// How long a test waits before it calls something hung: hosted runners are slower and shared, and the bound only
-/// catches a hang.
+/// How long a test waits before it calls something hung: [`T`], scaled on CI. The bound only catches a hang.
 pub(super) fn hang_bound() -> Duration {
-    if hosted_runner() { 3 * T } else { T }
+    eludite_test_support::hang_bound(T)
 }
 
 /// The user settings file of the test shell, relative to its temporary folder (brief 0020).
@@ -667,7 +649,10 @@ fn ui_stays_responsive_while_the_host_stalls_for_5_s(cx: &mut TestAppContext) {
         })
         .expect("didOpen");
 
-    let stall = Duration::from_secs(5);
+    // Long enough that the edits below finish inside it on any machine: the host's silence is the proof they did not
+    // wait for it (a timing assert would be the flaky version of that proof).
+    let stall = Duration::from_secs(5) * eludite_test_support::timeout_scale();
+    let stalled_at = Instant::now();
     w.fake.stall_for(stall);
     let t0 = Instant::now();
     let mut worst = Duration::ZERO;
@@ -686,31 +671,27 @@ fn ui_stays_responsive_while_the_host_stalls_for_5_s(cx: &mut TestAppContext) {
     }
     let busy = t0.elapsed();
     assert!(w.text(&view).starts_with(&"a".repeat(20)));
-    assert!(
-        busy < Duration::from_secs(2),
-        "20 edits took {busy:?} while the host stalled"
-    );
+    assert_budget("20 edits during the stall", busy, Duration::from_secs(2));
     assert_budget(
         "the worst edit during the stall",
         worst,
         Duration::from_millis(500),
     );
     assert!(
-        t0.elapsed() < stall - Duration::from_millis(500),
-        "still inside the stall"
-    );
-    assert!(
         w.fake.received_params("textDocument/didChange").is_empty(),
-        "the host really was stalled"
+        "the edits finished while the host was still stalled"
     );
     // The edits arrive once the host recovers.
     let last = w
         .fake
-        .wait_for("textDocument/didChange", stall + T, |p| {
+        .wait_for("textDocument/didChange", stall + hang_bound(), |p| {
             p["textDocument"]["version"].as_i64() >= Some(21)
         })
         .expect("the last didChange after the stall");
-    assert!(last.at >= t0 + stall - Duration::from_millis(100));
+    assert!(
+        last.at >= stalled_at + stall,
+        "a didChange got through the stall"
+    );
     eprintln!("20 edits during a 5 s host stall: total {busy:?}, worst {worst:?}");
 }
 
@@ -733,7 +714,7 @@ fn agents_open_save_and_find_from_another_thread(cx: &mut TestAppContext) {
         let missing = commands.invoke(workspace::EDITOR_SAVE, json!({"path": "/nope.cs"}));
         (open, find, missing)
     });
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     while !agent.is_finished() {
         assert!(
             Instant::now() < deadline,
@@ -847,7 +828,7 @@ fn missing_host_is_reported_not_fatal(cx: &mut TestAppContext) {
             json!({"path": sln.to_string_lossy()}),
         )
         .unwrap();
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     loop {
         vcx.run_until_parked();
         let status = shell.read_with(&vcx, |s, _| {
@@ -873,7 +854,7 @@ fn close_workspace_closes_the_solution_and_clears_the_window(cx: &mut TestAppCon
                 .invoke(workspace::WORKSPACE_CLOSE, json!({}))
                 .unwrap()
         });
-        let deadline = std::time::Instant::now() + T;
+        let deadline = std::time::Instant::now() + eludite_test_support::hang_bound(T);
         while !agent.is_finished() {
             assert!(std::time::Instant::now() < deadline, "the agent timed out");
             w.vcx.run_until_parked();

@@ -184,7 +184,7 @@ fn setup() -> Option<Program> {
     {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("lldb-dap", e);
             return None;
         }
     };
@@ -843,7 +843,7 @@ fn lldb_dap_attaches_to_a_running_process_by_pid_and_detaches() {
         ..LldbSearch::from_env()
     })
     .find(Platform::current()) else {
-        eprintln!("skipped: no lldb-dap");
+        eludite_test_support::skip("lldb-dap", "no lldb-dap");
         return;
     };
     let mut child = std::process::Command::new("sleep")
@@ -908,7 +908,7 @@ fn lldb_dap_attaches_to_a_running_process_by_pid_and_detaches() {
     );
     // lldb-dap stops the process to attach and resumes it after `configurationDone`; a pause that arrives before the
     // resume is lost, so pause until a stop is reported.
-    let deadline = Instant::now() + T;
+    let deadline = Instant::now() + eludite_test_support::hang_bound(T);
     let s = loop {
         let _ = client.request_wait("pause", json!({"threadId": 0}), T);
         let wait = Instant::now() + Duration::from_millis(1500);

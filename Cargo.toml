@@ -19,6 +19,7 @@ members = [
     "crates/forge",
     "crates/update",
     "crates/extensions",
+    "crates/test-support",
     "protocol/rust",
     "protocol/cdp/generator",
     "extension-sdk",
@@ -54,6 +55,7 @@ eludite-resx = { path = "crates/resx" }
 eludite-forge = { path = "crates/forge" }
 eludite-update = { path = "crates/update" }
 eludite-terminal = { path = "crates/terminal" }
+eludite-test-support = { path = "crates/test-support" }
 eludite-ui = { path = "crates/ui" }
 eludite-workspace = { path = "crates/workspace" }
 # The Razor tree-sitter grammar, the owner's library in-repo (MIT; brief 0056).

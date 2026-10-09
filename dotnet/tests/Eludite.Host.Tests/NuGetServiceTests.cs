@@ -530,7 +530,7 @@ public sealed class NuGetServiceTests
             var watch = Stopwatch.StartNew();
             await cancel.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"the cancel took {watch.ElapsedMilliseconds} ms");
+            Budget.Assert("the cancel of a stalled search", watch.Elapsed, TimeSpan.FromSeconds(5));
             // The host is still serving.
             var sources = await host.CallAsync("eludite/nuget/sources", new { generation = host.Generation });
             Assert.Single(sources.GetProperty("sources").EnumerateArray());
@@ -673,7 +673,7 @@ public sealed class NuGetServiceTests
 
             times.Sort();
             TestContext.Current.SendDiagnosticMessage($"installed, 20 projects: median {times[2]} ms ({string.Join(", ", times)})");
-            Assert.True(times[2] < 300 * Slack(), $"installed took {times[2]} ms");
+            Budget.Assert("installed, 20 projects, median", times[2], 300 * Slack());
         }
         finally
         {

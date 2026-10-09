@@ -140,7 +140,7 @@ fn the_commands_against_the_embedded_engine() {
     }
     let search = ChromiumSearch::defaults();
     if let Err(why) = search.find_engine().and_then(|e| search.find_cef(&e)) {
-        println!("SKIPPED: {why}");
+        eludite_test_support::skip("cef", why);
         return;
     }
     let profile = tempfile::tempdir().unwrap();
@@ -188,7 +188,7 @@ fn the_commands_against_the_embedded_engine() {
     let opened = match run.call(cmds::TAB_OPEN, json!({"url": form})) {
         Ok(v) => v,
         Err(e) if e.to_string().contains("built without CEF") => {
-            println!("SKIPPED: {e}");
+            eludite_test_support::skip("cef", e);
             return;
         }
         Err(e) => panic!("tab_open: {e}\nlog: {:#?}", log.lock().unwrap()),
@@ -371,7 +371,7 @@ fn the_commands_against_the_embedded_engine() {
         .args(["-9", &pid.to_string()])
         .status()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(10));
     while !log
         .lock()
         .unwrap()
@@ -406,7 +406,7 @@ fn window_run() -> Option<(Run, Handle, tempfile::TempDir)> {
     }
     let search = ChromiumSearch::defaults();
     if let Err(why) = search.find_engine().and_then(|e| search.find_cef(&e)) {
-        println!("SKIPPED: {why}");
+        eludite_test_support::skip("cef", why);
         return None;
     }
     let profile = tempfile::tempdir().unwrap();
@@ -495,7 +495,7 @@ fn the_window_keys_dialogs_devtools_record_and_click_to_frame() {
         }
     }
     let n = eludite_browser::keys::SHELL_KEYS.len();
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(20));
     let seen = loop {
         let v = run.ok(cmds::EVALUATE, json!({"expression": "window.seen"}))["result"].clone();
         if v.as_array().is_some_and(|a| a.len() >= n) || Instant::now() > deadline {
@@ -526,7 +526,11 @@ fn the_window_keys_dialogs_devtools_record_and_click_to_frame() {
         cmds::INPUT,
         json!({"action": "click", "x": 50, "y": 50, "wait_ms": 2000}),
     );
-    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+    eludite_test_support::assert_budget(
+        "a click that opens a confirm dialog",
+        t0.elapsed(),
+        Duration::from_secs(2),
+    );
     assert_eq!(
         out["dialog"],
         json!({"kind": "confirm", "message": "Delete it?"}),
@@ -559,7 +563,7 @@ fn the_window_keys_dialogs_devtools_record_and_click_to_frame() {
     // The page animates before the recording starts (a loaded machine paints late).
     let ring = ctl.frames(&target).unwrap();
     let seq0 = eludite_browser::FrameSource::sequence(ring.as_ref());
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(10));
     while eludite_browser::FrameSource::sequence(ring.as_ref()) < seq0 + 2 {
         assert!(Instant::now() < deadline, "the animation never painted");
         std::thread::sleep(Duration::from_millis(10));
@@ -619,7 +623,7 @@ fn the_window_keys_dialogs_devtools_record_and_click_to_frame() {
                 }
             }
             assert!(
-                t0.elapsed() < Duration::from_secs(5),
+                t0.elapsed() < eludite_test_support::hang_bound(Duration::from_secs(5)),
                 "no frame with the click's change"
             );
             std::thread::sleep(Duration::from_micros(500));
@@ -639,15 +643,8 @@ fn the_window_keys_dialogs_devtools_record_and_click_to_frame() {
     run.browser.shutdown();
 }
 
-/// A loaded machine (the one-minute load average over 4), or a CI run (`CI` set: the hosted runners are shared VMs, not
-/// a reference machine): timing budgets and rates are reported, not asserted.
+/// A CI run or a loaded machine: timing budgets and rates are reported, not asserted
+/// (`eludite_test_support::budgets_enforced`).
 fn busy() -> bool {
-    std::env::var_os("CI").is_some()
-        || std::fs::read_to_string("/proc/loadavg")
-            .unwrap_or_default()
-            .split_whitespace()
-            .next()
-            .and_then(|l| l.parse::<f64>().ok())
-            .unwrap_or(0.)
-            > 4.
+    !eludite_test_support::budgets_enforced()
 }

@@ -91,7 +91,7 @@ public sealed partial class MonoAdapterTests
         }
 
         _out.WriteLine(string.Create(CultureInfo.InvariantCulture, $"timing: launch to the first stopped ({what}, {(c.First ? "the first adapter of this test run" : "warm")}): {ms:F0} ms; from the adapter's spawn: {c.SinceSpawn.Elapsed.TotalMilliseconds:F0} ms"));
-        Assert.True(ms < 20_000, "launch to the first stop took " + ms + " ms");
+        Budget.Assert("launch to the first stop", ms, 20_000);
     }
 
     private static JObject Top(DapTestClient c, long thread) =>
@@ -274,7 +274,7 @@ public sealed partial class MonoAdapterTests
         }
 
         _out.WriteLine(string.Create(CultureInfo.InvariantCulture, $"timing: next round trip over {steps.Count} steps: p50 {Percentile(steps, 0.5):F1} ms, p95 {Percentile(steps, 0.95):F1} ms, max {steps.Max():F1} ms"));
-        Assert.True(Percentile(steps, 0.95) < 1000, "next p95 " + Percentile(steps, 0.95));
+        Budget.Assert("next p95", Percentile(steps, 0.95), 1000);
         Assert.StartsWith("Eludite.Debugger.Mono.TestApp.Program.Main(", (string)Top(c, thread)["name"]!, StringComparison.Ordinal);
 
         // A frame with 200 locals: stackTrace, scopes and variables (the budget: under 100 ms), and the adapter's memory.
@@ -552,7 +552,7 @@ public sealed partial class MonoAdapterTests
         {
             if (!app.HasExited)
             {
-                app.Kill();
+                app.Kill(entireProcessTree: true);
             }
         }
     }
@@ -613,19 +613,20 @@ public sealed partial class MonoAdapterTests
             var clock = Stopwatch.StartNew();
             var atAnswer = Cpu(c.Process);
             var last = atAnswer;
-            while (!c.Process.HasExited && clock.Elapsed < TimeSpan.FromSeconds(2))
+            var bound = Budget.Hang(TimeSpan.FromSeconds(2));
+            while (!c.Process.HasExited && clock.Elapsed < bound)
             {
                 last = Cpu(c.Process) ?? last;
                 Thread.Sleep(10);
             }
 
-            var exited = c.WaitForExit(TimeSpan.FromMilliseconds(Math.Max(0, 2000 - clock.ElapsedMilliseconds)));
+            var exited = c.WaitForExit(bound - clock.Elapsed is { Ticks: > 0 } left ? left : TimeSpan.Zero);
             var took = clock.Elapsed;
             var spent = atAnswer is { } a && last is { } l ? l - a : TimeSpan.Zero;
-            _out.WriteLine(string.Create(CultureInfo.InvariantCulture, $"timing: detach to the adapter's exit: {took.TotalMilliseconds:F0} ms; its CPU time meanwhile: {spent.TotalMilliseconds:F0} ms"));
-            Assert.True(exited, "the adapter did not exit within 2 s of the detach\n" + c.Stderr);
+            Assert.True(exited, $"the adapter did not exit within {bound.TotalSeconds:F0} s of the detach\n" + c.Stderr);
             Assert.Equal(0, c.Process.ExitCode);
-            Assert.True(spent < TimeSpan.FromMilliseconds(100), "the adapter spent " + spent.TotalMilliseconds + " ms of CPU time after the detach");
+            Budget.Assert("detach to the adapter's exit", took, TimeSpan.FromSeconds(2));
+            Budget.Assert("the adapter's CPU time after the detach", spent, TimeSpan.FromMilliseconds(100));
             Assert.Empty(c.Events("exited"));
 
             // The program left at its breakpoint runs on: it prints and sleeps, still alive after the adapter is gone.
@@ -638,7 +639,7 @@ public sealed partial class MonoAdapterTests
         {
             if (!app.HasExited)
             {
-                app.Kill();
+                app.Kill(entireProcessTree: true);
             }
         }
     }

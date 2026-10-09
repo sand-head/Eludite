@@ -26,7 +26,7 @@ fn netcoredbg_debugs_eludite_host() {
     let found = match AdapterSearch::from_env().find_netcoredbg() {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("netcoredbg", e);
             return;
         }
     };
@@ -185,7 +185,7 @@ fn netcoredbg_pauses_pages_and_explains_exceptions() {
     let found = match AdapterSearch::from_env().find_netcoredbg() {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("netcoredbg", e);
             return;
         }
     };
@@ -398,7 +398,7 @@ fn netcoredbg_runs_under_control() {
     let found = match AdapterSearch::from_env().find_netcoredbg() {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("netcoredbg", e);
             return;
         }
     };
@@ -615,7 +615,7 @@ fn netcoredbg_attaches_to_a_dotnet_process_and_detaches() {
     let found = match AdapterSearch::from_env().find_netcoredbg() {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("skipped: {e}");
+            eludite_test_support::skip("netcoredbg", e);
             return;
         }
     };

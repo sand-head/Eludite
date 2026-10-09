@@ -907,7 +907,11 @@ fn cargo_tests_are_built_listed_and_run_with_libtest_parsed(cx: &mut TestAppCont
     let cancel_at = Instant::now();
     t.cmd(cmds::CANCEL, json!({})).unwrap();
     assert_eq!(t.wait_run_done(run), RunState::Canceled);
-    assert!(cancel_at.elapsed() < Duration::from_secs(5));
+    super::tests::assert_budget(
+        "cancel to the run's end",
+        cancel_at.elapsed(),
+        Duration::from_secs(5),
+    );
 }
 
 // The real lldb-dap is pinned and exercised on Linux (brief 0029); macOS's and Windows's answer their stop with a
@@ -919,7 +923,7 @@ fn debug_test_of_a_rust_test_breaks_at_its_first_line_under_lldb_dap(cx: &mut Te
         .find(eludite_dap::launch::Platform::current())
         .is_err()
     {
-        eprintln!("skipped: lldb-dap is not installed");
+        eludite_test_support::skip("lldb-dap", "lldb-dap is not installed");
         return;
     }
     // The real adapter: no fake connector.

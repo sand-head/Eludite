@@ -27,6 +27,8 @@ name = "fake_host"
 harness = false
 
 [dev-dependencies]
+# Timing budgets, hang bounds and required tools shared by every test (crates/test-support).
+eludite-test-support.workspace = true
 tempfile.workspace = true
 # The in_process tests use the fake host from this crate's own `fake` feature.
 eludite-lsp = { path = ".", features = ["fake"] }

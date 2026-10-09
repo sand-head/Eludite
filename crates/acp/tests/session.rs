@@ -69,7 +69,7 @@ fn start(agent: AgentDescriptor, cwd: &std::path::Path, policy: PermissionPolicy
 impl Run {
     /// Collect events until `done` matches one; every event must be of generation `g`, from a session thread.
     fn until(&mut self, g: u64, what: &str, done: impl Fn(&SessionEvent) -> bool) -> SessionEvent {
-        let deadline = Instant::now() + T;
+        let deadline = Instant::now() + eludite_test_support::hang_bound(T);
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             let (generation, e, thread) = self

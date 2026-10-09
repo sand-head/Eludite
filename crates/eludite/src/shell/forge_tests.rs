@@ -1445,11 +1445,10 @@ fn budgets_of_the_cached_list_the_large_document_and_memory(cx: &mut TestAppCont
             window.refresh();
             let _ = window.draw(cx);
         });
-        let grew = rss().unwrap().saturating_sub(before);
-        eprintln!(
-            "memory: both windows over a 500-pull-request cache: {:.1} MB more",
-            grew as f64 / 1e6
+        eludite_test_support::assert_memory_budget(
+            "memory growth of both windows over a 500-pull-request cache",
+            rss().unwrap().saturating_sub(before),
+            40_000_000,
         );
-        assert!(grew < 40_000_000, "{grew} bytes more");
     }
 }

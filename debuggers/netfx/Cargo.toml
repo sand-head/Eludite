@@ -39,3 +39,7 @@ windows-core = "0.62"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# Timing budgets, hang bounds and required tools shared by every test (crates/test-support).
+eludite-test-support.workspace = true

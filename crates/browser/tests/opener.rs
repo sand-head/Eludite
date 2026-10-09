@@ -72,6 +72,10 @@ impl Engine for OneTab {
     }
 }
 
+/// How long the fake opener lingers after recording: far longer than an `open_external` that does not wait for it takes
+/// on any machine, so the two outcomes cannot be confused.
+const LINGER_S: u64 = 10;
+
 /// Writes an opener script that records its argument, then lingers: open_external must not wait for it.
 #[cfg(unix)]
 fn fake_opener(dir: &std::path::Path, record: &std::path::Path) -> std::path::PathBuf {
@@ -79,7 +83,7 @@ fn fake_opener(dir: &std::path::Path, record: &std::path::Path) -> std::path::Pa
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\nsleep 2\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\nsleep {LINGER_S}\n",
             record.display()
         ),
     )
@@ -99,8 +103,9 @@ fn fake_opener(dir: &std::path::Path, record: &std::path::Path) -> std::path::Pa
     std::fs::write(
         &script,
         format!(
-            "@echo off\r\n:append\r\n2>nul (>>\"{}\" echo %~1) || (ping -n 1 127.0.0.1 >nul & goto append)\r\nping -n 3 127.0.0.1 >nul\r\n",
-            record.display()
+            "@echo off\r\n:append\r\n2>nul (>>\"{}\" echo %~1) || (ping -n 1 127.0.0.1 >nul & goto append)\r\nping -n {} 127.0.0.1 >nul\r\n",
+            record.display(),
+            LINGER_S + 1
         ),
     )
     .unwrap();
@@ -126,8 +131,9 @@ fn open_external_runs_the_opener_and_never_waits() {
     let t = Instant::now();
     let out = open(&mut b, json!({"url": "https://example.com/a?b=1"})).unwrap();
     assert!(
-        t.elapsed() < Duration::from_millis(1000),
-        "it did not wait for the opener"
+        t.elapsed() < Duration::from_secs(LINGER_S / 2),
+        "it waited for the opener: {:?}",
+        t.elapsed()
     );
     let BrowserOutput::OpenExternal(o) = out else {
         panic!("{out:?}")
@@ -144,7 +150,7 @@ fn open_external_runs_the_opener_and_never_waits() {
         panic!()
     };
     assert_eq!(o.url, PAGE);
-    let until = Instant::now() + Duration::from_secs(5);
+    let until = Instant::now() + eludite_test_support::hang_bound(Duration::from_secs(10));
     loop {
         let text = std::fs::read_to_string(&record)
             .unwrap_or_default()

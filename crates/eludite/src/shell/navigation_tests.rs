@@ -783,7 +783,7 @@ fn agents_go_to_definition_and_find_references_on_the_bus(cx: &mut gpui::TestApp
             .unwrap();
         (refs, def, back)
     });
-    let deadline = std::time::Instant::now() + T;
+    let deadline = std::time::Instant::now() + eludite_test_support::hang_bound(T);
     while !agent.is_finished() {
         assert!(std::time::Instant::now() < deadline, "the agent timed out");
         w.vcx.run_until_parked();
