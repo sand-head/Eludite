@@ -100,7 +100,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/solution/open` | request | [solution-open.json](host/solution-open.json) | `{ path }` | `{ generation }` |
 | `eludite/solution/close` | request | [solution-close.json](host/solution-close.json) | none | `{ generation }` |
 | `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], dependencies?, error? }] }` |
-| `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
+| `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform?, verbosity? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
 | `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
 | `eludite/build/status` | request | [build-status.json](host/build-status.json) | none | `{ running: { buildId, generation, path, target, configuration, platform, toolchain, binlog, commandLine, elapsedMs, progress?, output: { firstSeq, nextSeq, text, truncated } } \| null, last?: { buildId, generation, target, path, result, elapsedMs, summary } }` |
 | `eludite/test/discover` | request | [test-discover.json](host/test-discover.json) | `{ projects?, configuration?, runSettings?, vstestConsolePath? }` | `{ runId, generation, containers: [{ id, name, project, targetFramework, protocol, runtime?, program?, error? }] }` |
@@ -221,7 +221,7 @@ generation changes before the tree is ready; -32800 when canceled.
   `TargetFrameworkRootPath` from the reference-assembly packages; Build Tools' `MSBuild.exe` on Windows (located, never
   shipped: invariant 9). Without either, legacy solutions build with `dotnet build`, and the finished diagnostics say
   so (`ELUDITE0111`). Restore runs as part of the build (`-restore`). Every run gets `-nologo -v:m -nr:false
-  -clp:ForceNoAlign` and `-tl:off` (the SDK's terminal logger is never used), `-bl:<file>` for the binary log, and
+  -clp:ForceNoAlign` (`-v:` follows `verbosity`: `q`, `m`, `n`, `d` or `diag`; minimal when omitted, brief 0075) and `-tl:off` (the SDK's terminal logger is never used), `-bl:<file>` for the binary log, and
   `-p:Configuration=` / `-p:Platform=` when given. Node reuse is off so that cancel can kill every node.
 - **Reply at once.** The reply carries the `buildId`, the generation, the toolchain, the binary log path and the
   command line. The build runs in the background; nothing else waits for it.
@@ -242,7 +242,7 @@ generation changes before the tree is ready; -32800 when canceled.
   `error` / `warning` lines. Advisory only.
 - **Finished: `eludite/build/finished`**, exactly once per accepted start, after the last output chunk: `result`
   (`succeeded`, `failed`, `canceled`), the exit code, the time, per-project results with their time, and the
-  diagnostics with file, line, column, code, message and project. They come from the binary log, read with MSBuild's
+  diagnostics with file, line, column, code, message, project and help link (`helpLink`, MSBuild's HelpLink, brief 0075). They come from the binary log, read with MSBuild's
   own reader (`Microsoft.Build.Logging.BinaryLogReplayEventSource`, MIT, the SDK's MSBuild loaded by
   `Microsoft.Build.Locator`), so they are exactly MSBuild's; a log that cannot be read (MSBuild did not start, or the
   build was killed) falls back to the canonical lines of the console output. A multi-targeted project reports one

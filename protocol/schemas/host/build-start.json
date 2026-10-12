@@ -43,6 +43,16 @@
           "description": "The solution platform as the solution file lists it, for example Any CPU or x64. Omitted: the solution's default.",
           "type": "string",
           "minLength": 1
+        },
+        "verbosity": {
+          "description": "MSBuild's console verbosity (-v:), from the shell's `build.verbosity` setting (brief 0075). Omitted: minimal. The binary log always records everything regardless.",
+          "enum": [
+            "quiet",
+            "minimal",
+            "normal",
+            "detailed",
+            "diagnostic"
+          ]
         }
       }
     },

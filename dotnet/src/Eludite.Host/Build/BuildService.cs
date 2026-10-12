@@ -70,6 +70,12 @@ public sealed class BuildService : IAsyncDisposable
             throw HostErrors.BadParams("target must be build, rebuild or clean");
         }
 
+        // brief 0075: verbosity is optional; an unknown name is refused like an unknown target.
+        if (!BuildVerbosity.IsValid(parameters.Verbosity))
+        {
+            throw HostErrors.BadParams("verbosity must be quiet, minimal, normal, detailed or diagnostic");
+        }
+
         var (generation, solution, generationChanged) = _currentSolution();
         if (solution is null)
         {
@@ -112,7 +118,7 @@ public sealed class BuildService : IAsyncDisposable
 
             var id = ++_nextId;
             var binlog = BinlogPath(id);
-            var plan = BuildPlan.Create(parameters.Target!, path, configuration, platform, binlog, hasLegacy, _toolchains.Value);
+            var plan = BuildPlan.Create(parameters.Target!, path, configuration, platform, binlog, hasLegacy, _toolchains.Value, parameters.Verbosity);
             var started = new BuildStartResult(id, generation, path, parameters.Target!, configuration, plan.Toolchain, plan.CommandLine)
             {
                 Platform = platform,

@@ -40,10 +40,11 @@ public sealed record BuildPlan(BuildToolchain Toolchain, string FileName, IReadO
     /// projects: Build Tools' MSBuild on Windows, else Mono's, else <c>dotnet build</c> with an
     /// <see cref="WindowsOnlyTargets.NoLegacyMsBuild"/> note.
     /// </summary>
-    public static BuildPlan Create(string target, string path, string configuration, string? platform, string? binlog, bool hasLegacy, BuildToolchains toolchains)
+    public static BuildPlan Create(string target, string path, string configuration, string? platform, string? binlog, bool hasLegacy, BuildToolchains toolchains, string? verbosity = null)
     {
         ArgumentNullException.ThrowIfNull(toolchains);
-        var common = new List<string> { "-nologo", "-v:m", "-nr:false", "-clp:ForceNoAlign", $"-p:Configuration={configuration}" };
+        // brief 0075: -v: from the shell's build.verbosity; minimal when omitted.
+        var common = new List<string> { "-nologo", $"-v:{BuildVerbosity.Switch(verbosity)}", "-nr:false", "-clp:ForceNoAlign", $"-p:Configuration={configuration}" };
         if (platform is not null)
         {
             common.Add($"-p:Platform={platform}");

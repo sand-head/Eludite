@@ -815,6 +815,10 @@ impl Shell {
                         project: target,
                         configuration: Some(configuration),
                         platform,
+                        // Brief 0075: `build.verbosity` becomes MSBuild's `-v:`.
+                        verbosity: eludite_lsp::host::BuildVerbosity::from_setting(
+                            &self.settings.lock().string("build.verbosity"),
+                        ),
                     },
                 )
             }

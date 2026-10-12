@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "x-eludite-sections": [
     "Environment > Keyboard",
+    "Environment > Task List",
     "Projects and Solutions > Build and Run",
     "Debugging > General",
     "Text Editor > Rust",
@@ -70,6 +71,35 @@
         "Never check on my own"
       ]
     },
+    "taskList.tokens": {
+      "description": "The Task List's comment tokens (brief 0075; Visual Studio's Environment > Task List): a comment whose text starts with one of these names, followed by a non-word character, is listed with the token's priority. Matched case-sensitively. Empty (the default): TODO, HACK, UNDONE and FIXME, each of normal priority, as Visual Studio lists TODO, HACK and UNDONE. Edited in the file (the Options dialog shows the count).",
+      "type": "array",
+      "default": [],
+      "maxItems": 50,
+      "x-eludite-section": "Environment > Task List",
+      "x-eludite-label": "Tokens",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S+$"
+          },
+          "priority": {
+            "enum": [
+              "high",
+              "normal",
+              "low"
+            ]
+          }
+        }
+      }
+    },
     "build.beforeRun": {
       "description": "F5 (Start Debugging) and Ctrl+F5 (Start Without Debugging) build the startup project first and launch only when the build succeeds (Visual Studio's \"On Run, when projects are out of date: Always build\"). MSBuild's incremental build makes an up-to-date project cost a check, not a compile. false: launch the last build as it is.",
       "type": "boolean",
@@ -107,6 +137,26 @@
       "x-eludite-section": "Projects and Solutions > Build and Run",
       "x-eludite-label": "cargo executable",
       "x-eludite-env": "ELUDITE_CARGO"
+    },
+    "build.verbosity": {
+      "description": "MSBuild project build output verbosity (brief 0075): how much of an MSBuild build the Output window's Build source shows, passed to MSBuild as -v:. The binary log records everything whatever this says. Cargo builds ignore it.",
+      "enum": [
+        "quiet",
+        "minimal",
+        "normal",
+        "detailed",
+        "diagnostic"
+      ],
+      "default": "minimal",
+      "x-eludite-section": "Projects and Solutions > Build and Run",
+      "x-eludite-label": "MSBuild project build output verbosity",
+      "x-eludite-enum-labels": [
+        "Quiet",
+        "Minimal",
+        "Normal",
+        "Detailed",
+        "Diagnostic"
+      ]
     },
     "debugger.netcoredbgPath": {
       "description": "The netcoredbg executable that debugs .NET programs. Empty: beside the eludite executable, then PATH (tools/netcoredbg/fetch.sh prints one).",

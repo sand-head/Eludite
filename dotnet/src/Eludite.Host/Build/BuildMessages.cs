@@ -15,6 +15,29 @@ public static class BuildTargets
     public static bool IsValid(string? target) => target is Build or Rebuild or Clean;
 }
 
+/// <summary>MSBuild's console verbosity (<c>-v:</c>) for <c>eludite/build/start</c> (brief 0075). Null: minimal.</summary>
+public static class BuildVerbosity
+{
+    public const string Quiet = "quiet";
+    public const string Minimal = "minimal";
+    public const string Normal = "normal";
+    public const string Detailed = "detailed";
+    public const string Diagnostic = "diagnostic";
+
+    /// <summary>True for null (omitted) or one of the five names.</summary>
+    public static bool IsValid(string? verbosity) => verbosity is null or Quiet or Minimal or Normal or Detailed or Diagnostic;
+
+    /// <summary>The <c>-v:</c> value: <c>q</c>, <c>m</c>, <c>n</c>, <c>d</c> or <c>diag</c>; <c>m</c> for null or an unknown name.</summary>
+    public static string Switch(string? verbosity) => verbosity switch
+    {
+        Quiet => "q",
+        Normal => "n",
+        Detailed => "d",
+        Diagnostic => "diag",
+        _ => "m",
+    };
+}
+
 /// <summary><c>succeeded</c>, <c>failed</c> or <c>canceled</c>.</summary>
 public static class BuildResults
 {
@@ -31,6 +54,9 @@ public sealed record BuildStartParams(string? Target)
     public string? Configuration { get; init; }
 
     public string? Platform { get; init; }
+
+    /// <summary>One of <see cref="BuildVerbosity"/>'s names, or null for minimal (brief 0075).</summary>
+    public string? Verbosity { get; init; }
 }
 
 /// <summary>Which MSBuild runs the build. <see cref="Kind"/> is <c>dotnet</c>, <c>mono</c> or <c>buildTools</c>.</summary>
@@ -82,6 +108,9 @@ public sealed record BuildDiagnostic(string Severity, string Code, string Messag
 
     /// <summary>Absolute path of the project file that reported it.</summary>
     public string? Project { get; init; }
+
+    /// <summary>The help URL the compiler or task reported (MSBuild's HelpLink), for the Error List's Code link (brief 0075).</summary>
+    public string? HelpLink { get; init; }
 }
 
 public sealed record BuildSummary(int ProjectsSucceeded, int ProjectsFailed, int Errors, int Warnings);

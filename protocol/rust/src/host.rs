@@ -699,6 +699,34 @@ pub struct BuildStartParams {
     pub configuration: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform: Option<String>,
+    /// Brief 0075: MSBuild's console verbosity (`-v:`), from `build.verbosity`. `None`: minimal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verbosity: Option<BuildVerbosity>,
+}
+
+/// Brief 0075: MSBuild's console verbosity levels (`-v:q`, `m`, `n`, `d`, `diag`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuildVerbosity {
+    Quiet,
+    Minimal,
+    Normal,
+    Detailed,
+    Diagnostic,
+}
+
+impl BuildVerbosity {
+    /// The setting's value (`quiet` .. `diagnostic`); anything else is `None`.
+    pub fn from_setting(s: &str) -> Option<Self> {
+        Some(match s {
+            "quiet" => Self::Quiet,
+            "minimal" => Self::Minimal,
+            "normal" => Self::Normal,
+            "detailed" => Self::Detailed,
+            "diagnostic" => Self::Diagnostic,
+            _ => return None,
+        })
+    }
 }
 
 /// Which MSBuild runs the build.
@@ -849,6 +877,9 @@ pub struct BuildDiagnostic {
     /// The project file that reported it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// Brief 0075: the help URL MSBuild reported (`HelpLink`), for the Error List's Code link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help_link: Option<String>,
 }
 
 /// `eludite/build/finished` params: one per accepted build, after its last output chunk.
@@ -2902,6 +2933,7 @@ mod tests {
                 project: Some("/s/App/App.csproj".into()),
                 configuration: Some("Release".into()),
                 platform: None,
+                verbosity: None,
             },
             json!({"target": "rebuild", "project": "/s/App/App.csproj", "configuration": "Release"}),
         );
@@ -2989,6 +3021,7 @@ mod tests {
                     end_line: None,
                     end_column: None,
                     project: Some("/s/App/App.csproj".into()),
+                    help_link: None,
                 }],
                 diagnostics_truncated: false,
                 binlog: Some("/tmp/b.binlog".into()),

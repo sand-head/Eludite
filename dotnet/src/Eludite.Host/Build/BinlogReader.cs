@@ -95,6 +95,7 @@ public static class BinlogReader
                             EndLine = Positive(err.EndLineNumber),
                             EndColumn = Positive(err.EndColumnNumber),
                             Project = err.ProjectFile,
+                            HelpLink = string.IsNullOrEmpty(err.HelpLink) ? null : err.HelpLink, // brief 0075
                         },
                         TargetOf(err.BuildEventContext)));
                     break;
@@ -108,6 +109,7 @@ public static class BinlogReader
                             EndLine = Positive(w.EndLineNumber),
                             EndColumn = Positive(w.EndColumnNumber),
                             Project = w.ProjectFile,
+                            HelpLink = string.IsNullOrEmpty(w.HelpLink) ? null : w.HelpLink, // brief 0075
                         },
                         TargetOf(w.BuildEventContext)));
                     break;

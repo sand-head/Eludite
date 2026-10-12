@@ -704,6 +704,7 @@ fn build_messages_conform_to_their_schemas() {
             project: None,
             configuration: None,
             platform: None,
+            verbosity: None,
         },
     );
     conforms(
@@ -715,6 +716,7 @@ fn build_messages_conform_to_their_schemas() {
             project: Some("/s/A/A.csproj".into()),
             configuration: Some("Release".into()),
             platform: Some("Any CPU".into()),
+            verbosity: Some(BuildVerbosity::Diagnostic),
         },
     );
     rejects("build-start.json", "params", json!({}));
@@ -834,6 +836,7 @@ fn build_messages_conform_to_their_schemas() {
         end_line: None,
         end_column: None,
         project: Some("/s/A/A.csproj".into()),
+        help_link: None,
     };
     conforms("build-finished.json", "diagnostic", &diagnostic);
     let project = BuildProjectResult {

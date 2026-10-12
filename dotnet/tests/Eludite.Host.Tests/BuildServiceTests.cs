@@ -64,6 +64,10 @@ public sealed class BuildServiceTests
     {
         using var dir = new TempDir();
         var slnx = SdkFixture(dir.Path, "class Program\n{\n    static void Main()\n    {\n        int unused;\n        System.Console.WriteLine(missing);\n    }\n}\n");
+        // Brief 0075: a task warning with a help link (csc's diagnostics come back as console text and carry none). The
+        // SDK 10.0.302 binary logger does not persist HelpLink (the live event has it, the replay does not), so the
+        // link is checked only when the log carries it; the wire shape is BuildVerbosityTests'.
+        Write(dir.Path, "App/Directory.Build.targets", "<Project>\n  <Target Name=\"EluditeHelpLink\" BeforeTargets=\"CoreCompile\">\n    <Warning Code=\"ELU0075\" Text=\"linked\" HelpLink=\"https://example.com/ELU0075\" />\n  </Target>\n</Project>\n");
         await using var host = await WireHost.OpenAsync(slnx);
 
         await host.StartAsync(new { target = "build", configuration = "Release" });
@@ -80,6 +84,12 @@ public sealed class BuildServiceTests
         Assert.Equal(34, error.GetProperty("column").GetInt32());
         Assert.Equal(Path.Combine(dir.Path, "App", "App.csproj"), error.GetProperty("project").GetString());
         var warning = Assert.Single(diagnostics, d => d.GetProperty("code").GetString() == "CS0168");
+        Assert.False(warning.TryGetProperty("helpLink", out _));
+        var linked = Assert.Single(diagnostics, d => d.GetProperty("code").GetString() == "ELU0075");
+        if (linked.TryGetProperty("helpLink", out var helpLink))
+        {
+            Assert.Equal("https://example.com/ELU0075", helpLink.GetString());
+        }
         Assert.Equal("warning", warning.GetProperty("severity").GetString());
         Assert.Equal("error", diagnostics[0].GetProperty("severity").GetString());
 
@@ -256,6 +266,9 @@ public sealed class BuildServiceTests
         var slnx = SdkFixture(dir.Path, "class Program { static void Main() { } }");
         await host.Client.InvokeWithParameterObjectAsync<JsonElement>("eludite/solution/open", new { path = slnx }, Ct);
         (code, _) = await TestRpc.ErrorOfAsync(() => host.StartAsync(new { target = "publish" }));
+        Assert.Equal(HostErrors.InvalidParams, code);
+        // Brief 0075: an unknown verbosity is refused like an unknown target.
+        (code, _) = await TestRpc.ErrorOfAsync(() => host.StartAsync(new { target = "build", verbosity = "verbose" }));
         Assert.Equal(HostErrors.InvalidParams, code);
         (code, _) = await TestRpc.ErrorOfAsync(() => host.StartAsync(new { target = "build", project = "/elsewhere/Other.csproj" }));
         Assert.Equal(HostErrors.InvalidParams, code);

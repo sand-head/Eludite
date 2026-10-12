@@ -232,6 +232,13 @@
             "string",
             "null"
           ]
+        },
+        "helpLink": {
+          "description": "The diagnostic's help URL as the compiler or task reported it (MSBuild's HelpLink), for the Error List's Code link (brief 0075). Omitted when there is none.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

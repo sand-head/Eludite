@@ -236,6 +236,7 @@ pub fn diagnostic(m: &Value, root: &Path, manifest: Option<&Path>) -> Option<Bui
         end_line: num("line_end"),
         end_column: num("column_end"),
         project: manifest.map(|p| p.to_string_lossy().into_owned()),
+        help_link: None,
     })
 }
 
