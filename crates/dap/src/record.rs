@@ -41,8 +41,9 @@ use serde_json::{Value, json};
 
 use crate::Connection;
 
-/// The rows a recorded `variables` answer keeps.
-pub const MAX_RECORDED_VARIABLES: usize = 50;
+/// The rows a recorded `variables` answer keeps: all of an `int[1000]`, which netcoredbg answers whole (it has no
+/// variable paging; the shell pages it, brief 0065).
+pub const MAX_RECORDED_VARIABLES: usize = 1000;
 /// The largest recording the corpus takes (brief 0033's budget).
 pub const MAX_RECORDING_BYTES: usize = 2 * 1024 * 1024;
 /// Process ids below this are not replaced in text (too likely to be some other number).
@@ -1045,6 +1046,7 @@ fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
     let mut text: BTreeMap<String, String> = BTreeMap::new();
     let mut ending = false;
     let mut client_ended = false;
+    let mut threads: Vec<i64> = Vec::new();
     for m in &r.messages {
         let msg = &m.message;
         let is_event = msg["type"] == "event";
@@ -1081,9 +1083,9 @@ fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
             Dir::Adapter if is_event => "adapter events",
             Dir::Adapter => "adapter responses",
         };
-        out.entry(group.to_owned())
-            .or_default()
-            .push(comparable(msg));
+        let mut v = comparable(msg);
+        rename_threads(&mut v, &mut threads);
+        out.entry(group.to_owned()).or_default().push(v);
     }
     if let Some(end) = out.get_mut("adapter at the end") {
         end.sort_by_cached_key(Value::to_string);
@@ -1095,6 +1097,47 @@ fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
         );
     }
     out
+}
+
+/// Thread ids as `${THREAD_n}`, numbered by first appearance across the recording (`threadId` anywhere, a `threads`
+/// answer's `id`s): netcoredbg numbers threads by the system's thread ids, which change from run to run (brief 0065),
+/// so a re-recording compares the threads' roles, not their numbers. Ids already scrubbed (`${PID}`) stay.
+fn rename_threads(v: &mut Value, seen: &mut Vec<i64>) {
+    let mut name = |n: i64| {
+        let i = match seen.iter().position(|t| *t == n) {
+            Some(i) => i,
+            None => {
+                seen.push(n);
+                seen.len() - 1
+            }
+        };
+        Value::String(format!("${{THREAD_{}}}", i + 1))
+    };
+    if v["type"] == "response"
+        && v["command"] == "threads"
+        && let Some(rows) = v.pointer_mut("/body/threads").and_then(Value::as_array_mut)
+    {
+        for row in rows {
+            if let Some(n) = row["id"].as_i64() {
+                row["id"] = name(n);
+            }
+        }
+    }
+    fn walk(v: &mut Value, name: &mut dyn FnMut(i64) -> Value) {
+        match v {
+            Value::Object(o) => {
+                for (k, x) in o.iter_mut() {
+                    match x.as_i64() {
+                        Some(n) if k == "threadId" => *x = name(n),
+                        _ => walk(x, name),
+                    }
+                }
+            }
+            Value::Array(a) => a.iter_mut().for_each(|x| walk(x, name)),
+            _ => {}
+        }
+    }
+    walk(v, &mut name);
 }
 
 /// The first difference between two JSON values, as `path: expected X, got Y`.
@@ -1360,13 +1403,54 @@ mod tests {
     }
 
     #[test]
-    fn a_large_variables_answer_keeps_fifty_rows_and_says_so() {
-        let rows: Vec<Value> = (0..201)
+    fn a_re_recording_compares_thread_roles_not_numbers() {
+        let rec = |main: i64, worker: i64, stopped: i64| {
+            Recording {
+            adapter: "netcoredbg".into(),
+            version: "1".into(),
+            messages: [
+                (Dir::Adapter, json!({"type": "event", "event": "thread", "body": {"reason": "started", "threadId": main}})),
+                (Dir::Adapter, json!({"type": "event", "event": "thread", "body": {"reason": "started", "threadId": worker}})),
+                (Dir::Adapter, json!({"type": "event", "event": "stopped", "body": {"reason": "breakpoint", "threadId": stopped}})),
+                (Dir::Client, json!({"type": "request", "command": "threads", "seq": 2})),
+                (Dir::Adapter, json!({"type": "response", "command": "threads", "request_seq": 2, "success": true,
+                    "body": {"threads": [{"id": main, "name": "Main Thread"}, {"id": worker, "name": ".NET TP Worker"}]}})),
+            ]
+            .into_iter()
+            .map(|(dir, message)| RecordedMessage {
+                t_ms: 0,
+                dir,
+                message,
+                order: None,
+            })
+            .collect(),
+            recorded_at: String::new(),
+            platform: String::new(),
+            description: String::new(),
+            ended: None,
+        }
+        };
+        // Other numbers, the same roles: equal.
+        compare(&rec(450, 5033, 450), &rec(588, 5652, 588)).unwrap();
+        // The worker stopped instead of the main thread: a real difference.
+        let e = compare(&rec(450, 5033, 450), &rec(588, 5652, 5652)).unwrap_err();
+        assert!(
+            e.contains("event stopped") && e.contains("${THREAD_1}"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_large_variables_answer_keeps_a_thousand_rows_and_says_so() {
+        let rows: Vec<Value> = (0..1201)
             .map(|i| json!({"name": format!("l{i}"), "value": "0", "variablesReference": 0}))
             .collect();
         let mut m = json!({"type": "response", "command": "variables", "seq": 3, "request_seq": 2, "success": true, "body": {"variables": rows}});
         truncate_variables(&mut m);
-        assert_eq!(m["body"]["variables"].as_array().unwrap().len(), 50);
+        assert_eq!(
+            m["body"]["variables"].as_array().unwrap().len(),
+            MAX_RECORDED_VARIABLES
+        );
         assert_eq!(m["truncated_by_recorder"], true);
         let mut small = json!({"type": "response", "command": "variables", "body": {"variables": [{"name": "a"}]}});
         truncate_variables(&mut small);

@@ -12,16 +12,16 @@ the real adapters said, not against the fake adapter's idealized behavior.
 |---|---|---|---|
 | `eludite-dbg-mono` under Mono 6.8 (.NET Framework, brief 0022) | `mono/` | brief 0022's TestApp (`debuggers/mono/Eludite.Debugger.Mono.TestApp`) | Linux |
 | lldb-dap 18.1.3 (Rust, brief 0029) | `lldb/` | a small Cargo program the test writes (`RS_MAIN` in the conformance tests) | Linux |
-| netcoredbg (.NET) | `netcoredbg/` | the TestApp's source built for net10.0 | not yet: CI's Linux job records it (artifact `dap-corpus-netcoredbg`) for checking in |
+| netcoredbg 3.2.0-1092 (.NET 5 and later, brief 0065) | `netcoredbg/` | the TestApp's source built for net10.0 | Linux |
 | vscode-js-debug 1.140.0 under Node.js 22 (JavaScript in the Web Browser window, brief 0038) | `js-debug/` | the corpus web project's page (`corpus/web/minimal-api/wwwroot`: `app.ts` with its map, the "Add" button) served by the test, with a "Fail" button whose inline handler throws, in the embedded engine | Linux (Xvfb) |
 
 ## Scenarios
 
 | Scenario | mono | lldb | netcoredbg | Covers |
 |---|---|---|---|---|
-| `launch-break-step` | yes | yes | to record | F9, F5 to a breakpoint, F10, F11, Shift+F11, F5 to the exit; a `%4` hit count on lldb-dap (shell-emulated); the agent's `stack` on Mono |
-| `tracepoints-and-exceptions` | yes | | to record | a `>=24` hit count and a conditional tracepoint (the adapter's on Mono, the shell's on netcoredbg), break when `System.InvalidOperationException` is thrown, the agent's `exception_info` and `output` |
-| `run-until-and-trace` | yes | | to record | the agent's `start`, `wait`, `stack` paging, `run_until`, `variables` paging (a page of the locals, of `string[25]`, of `int[1000]`), `set_variable`, `trace` to the exit |
+| `launch-break-step` | yes | yes | yes | F9, F5 to a breakpoint, F10, F11, Shift+F11, F5 to the exit; a `%4` hit count on lldb-dap (shell-emulated); the agent's `stack` on Mono |
+| `tracepoints-and-exceptions` | yes | | yes | a `>=24` hit count and a conditional tracepoint (the adapter's on Mono, the shell's on netcoredbg), break when `System.InvalidOperationException` is thrown, the agent's `exception_info` and `output` |
+| `run-until-and-trace` | yes | | yes | the agent's `start`, `wait`, `stack` paging, `run_until`, `variables` paging (a page of the locals, of `string[25]`, of `int[1000]`), `set_variable`, `trace` to the exit |
 | `attach-detach` | yes | yes | | attach to a waiting process (Mono's debugger agent; lldb-dap by pid), a breakpoint hit after attach, F10 on Mono, the agent's `stack` on lldb-dap, `stop` detaches |
 | `pause-and-set-variable` | | yes | | the agent's `set_variable` (lldb-dap's `setVariable` answer), F10, F9 off, F5, the agent's `pause` of a spinning program (lldb-dap's `SIGSTOP` stop read as a pause), Shift+F5 |
 | `function-breakpoints-and-panic` | | yes | | a function breakpoint, a tracepoint (lldb-dap's log point), the Rust panics row (`rust_panic`), the agent's `continue` to the panic and `stack` (standard library frames as external code), `stop` |
@@ -51,11 +51,15 @@ the real adapters said, not against the fake adapter's idealized behavior.
 Before a recording or a golden file is written, what belongs to the recording machine is replaced:
 
 - absolute paths under the repository become `${ROOT}`, under the scenario's temporary folder `${TMP}`, the Mono
-  executable `${MONO}`, the Rust toolchain's sysroot `${SYSROOT}`; the rest of such a path is written with `/`;
+  executable `${MONO}`, the Rust toolchain's sysroot `${SYSROOT}`, the .NET installation `${DOTNET}` and netcoredbg's
+  folder `${NETCOREDBG}` (brief 0065); the rest of such a path is written with `/`;
 - the process ids the session names (the `process` event's `systemProcessId`, `attach`'s `pid` or `processId`, the
-  adapter's own, an attached program's) become `${PID}`, as a number anywhere and as a word in text from 1000 up;
+  adapter's own, an attached program's) become `${PID}`, as a number anywhere and as a word in text from 1000 up (in
+  golden files at any size: netcoredbg numbers the main thread with the process id, which the Threads rows show);
+- netcoredbg's module ids of the scenario's own program (its MVID, new with every build) become `${MODULE}`;
 - timestamps in text (`2026-10-03T12:34:56.789Z`, `2026-10-03 12:34:56`) become `${TIME}`;
-- a `variables` answer keeps its first 50 rows and says `"truncated_by_recorder": true` (no current scenario needs it);
+- a `variables` answer keeps its first 1000 rows and says `"truncated_by_recorder": true` (no current scenario needs it:
+  netcoredbg answers `int[1000]` whole, which the shell pages);
 - js-debug's run-specific values, as tokens: the page's origin `${ORIGIN}` (`127.0.0.1:PORT`; `${ORIGIN_NAME}` with
   the modifier letter colon js-debug names scripts with), the engine's DevTools port `${DEVTOOLS_PORT}` (as a number)
   and `${DEVTOOLS}`, the tab's target id `${TARGET}`, the ids `startDebugging` names `${PENDING_TARGET}` (then
@@ -105,7 +109,8 @@ The comparison ignores timing: `t_ms`, `recorded_at`, `seq`, `request_seq` and `
 `continued` events, js-debug's `loadedSource` events (a script's load comes in no fixed order with a stop), how the debuggee's output is cut into `output` events (compared as one text per category), the order of the
 adapter's messages after the session's end (`exited`, `terminated` and the `disconnect` answer come in either order
 from lldb-dap 18) and its `output` there (lldb-dap 18 aborts as it exits and prints a crash report with this run's
-addresses). Everything else must be identical, including the adapter's `version`, so an adapter upgrade fails CI's
+addresses), and the numbers of threads (netcoredbg's are the system's thread ids: each `threadId`, and each `id` of a
+`threads` answer, is compared as `${THREAD_n}` by its first appearance). Everything else must be identical, including the adapter's `version`, so an adapter upgrade fails CI's
 Linux job until the corpus is re-recorded and the diff reviewed.
 
 `REGOLDEN=1` rewrites the golden files from a replay of the checked-in recordings, for a deliberate change to the

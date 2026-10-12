@@ -1492,6 +1492,9 @@ pub struct DebugModel {
     /// Stop on a browser session waits for its children to end before it detaches the session itself
     /// (vscode-js-debug answers the parent's `disconnect` once its children are gone; brief 0038).
     pub detach_after_children: bool,
+    /// The threads the adapter's `thread` events named as started and not yet exited, oldest first: what Break All
+    /// pauses while nothing has stopped yet (netcoredbg refuses `pause` with `threadId: 0`; brief 0065).
+    pub live_threads: Vec<i64>,
 }
 
 /// A server session's browser attach (brief 0038).
@@ -1534,6 +1537,7 @@ impl Default for DebugModel {
             outputs: Default::default(),
             exit_code: None,
             capabilities: None,
+            live_threads: Vec::new(),
             agents_allowed: true,
             agents_default: true,
             agents_next: None,
@@ -1732,6 +1736,7 @@ impl DebugModel {
         self.mode = mode;
         self.session = None;
         self.threads.clear();
+        self.live_threads.clear();
         self.thread = None;
         self.message = None;
         self.last_driver = Some(driver.to_owned());
@@ -1771,11 +1776,21 @@ impl DebugModel {
         }
         self.mode = Mode::Design;
         self.threads.clear();
+        self.live_threads.clear();
         self.thread = None;
         self.clear_break();
         // What failed stays in the end-of-session summary (brief 0036); the bindings go.
         self.ended_failed = self.breakpoints.failed();
         self.breakpoints.unbind();
+    }
+
+    /// A `thread` event: `started` adds the thread to [`Self::live_threads`], `exited` removes it.
+    pub fn thread_event(&mut self, reason: &str, id: i64) {
+        match reason {
+            "started" if !self.live_threads.contains(&id) => self.live_threads.push(id),
+            "exited" => self.live_threads.retain(|t| *t != id),
+            _ => {}
+        }
     }
 
     pub fn push_console(&mut self, line: impl Into<String>) {

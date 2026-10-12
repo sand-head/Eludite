@@ -1046,6 +1046,19 @@ impl Machine {
                 };
                 self.respond(seq, command, r);
             }
+            // A thread the program does not have (0 among them) is refused as netcoredbg refuses it (brief 0065).
+            "pause"
+                if args["threadId"].as_i64().is_some_and(|t| {
+                    t != self.thread_id()
+                        && !self.program.other_threads.iter().any(|(id, _)| *id == t)
+                }) =>
+            {
+                self.respond(
+                    seq,
+                    command,
+                    Err("Failed command 'pause' : 0x80070057".into()),
+                )
+            }
             "pause" => match (self.running_at, self.pc) {
                 (Some(k), _) => {
                     self.respond(seq, command, Ok(json!({})));

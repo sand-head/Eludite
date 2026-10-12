@@ -14,9 +14,11 @@ copies.
                                the Mono installed on the machine. Not used on Windows.
     eludite-claude-acp@EXE@    The Agent Client Protocol adapter for Claude Code: Eludite runs it to talk to your installed
                                `claude` command with its existing login (MIT; licenses/eludite-claude-acp/).
+    netcoredbg/                Debugs .NET 5 and later (C#, Visual Basic, F#): Samsung's netcoredbg, the release the
+                               repository's tools/netcoredbg/fetch.sh pins (MIT; licenses/netcoredbg/). ELUDITE_NETCOREDBG
+                               would point Eludite at another copy.
 
 Located on the machine, never shipped here (the repository's tools/ scripts fetch the pinned versions and print where):
-netcoredbg, for debugging .NET 5 and later (tools/netcoredbg/fetch.sh, or copy its netcoredbg/ folder beside eludite),
 rust-analyzer (tools/rust-analyzer/fetch.sh, or rustup's), lldb-dap for debugging Rust (your distribution's or LLVM's),
 vscode-js-debug for debugging JavaScript (tools/js-debug/fetch.sh) and the web language servers
 (tools/web-servers/fetch.sh).

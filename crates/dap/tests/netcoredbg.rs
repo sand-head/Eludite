@@ -235,11 +235,21 @@ fn netcoredbg_pauses_pages_and_explains_exceptions() {
         ClientEvent::Event(Event::Process(p)) => p.system_process_id.unwrap(),
         _ => unreachable!(),
     };
+    // The main thread's `thread` event: netcoredbg refuses `pause` without a thread it knows (`threadId: 0` answers
+    // E_INVALIDARG, brief 0065), so Break All names one, as the shell does.
+    let main = match rec.wait_nth(
+        1,
+        "thread started",
+        |e| matches!(e, ClientEvent::Event(Event::Thread(t)) if t.reason == "started"),
+    ) {
+        ClientEvent::Event(Event::Thread(t)) => t.thread_id,
+        _ => unreachable!(),
+    };
     // Let the host reach its read of stdin, then Break All.
     std::thread::sleep(Duration::from_millis(1500));
     let clock = Instant::now();
     client
-        .request_wait("pause", json!({"threadId": 0}), T)
+        .request_wait("pause", json!({"threadId": main}), T)
         .unwrap();
     let s = rec.stopped(1);
     eprintln!(

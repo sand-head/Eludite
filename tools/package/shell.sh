@@ -13,6 +13,7 @@
 #   eludite-host/              the .NET host (framework-dependent; runs on the installed .NET 10 runtime)
 #   eludite-dbg-mono/          the Mono soft-debugger DAP server (runs under Mono)
 #   eludite-claude-acp[.exe]   the Claude Code ACP adapter
+#   netcoredbg/                the .NET (Core) 5+ debug adapter (MIT; licenses/netcoredbg/, brief 0065)
 #   README, LICENSE, THIRD-PARTY-CRATES.txt, licenses/
 #
 # --no-build packages the `eludite` that target/<profile>/ already holds (the companions are always built; their builds

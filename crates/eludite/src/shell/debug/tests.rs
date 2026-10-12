@@ -2545,6 +2545,32 @@ fn output_by_cursor_exception_info_and_wait(cx: &mut TestAppContext) {
     d.wait_mode(Mode::Design);
 }
 
+/// Break All before anything stopped (brief 0065): the shell has no stopped thread yet, so `pause` names the oldest
+/// thread the adapter's `thread` events started; netcoredbg (and the fake, likewise) refuses `threadId: 0`.
+#[gpui::test]
+fn break_all_before_any_stop_names_a_started_thread(cx: &mut TestAppContext) {
+    // Main line 5 runs until paused: the program never stops on its own.
+    let mut d = setup_with(cx, |p| p.steps[0].runs_until_paused = true);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    d.fake().trigger();
+    d.w.wait("the main thread started", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.debugger().model.live_threads.len() == 2)
+    });
+    let p = agent_call(&mut d, cmds::PAUSE, json!({}));
+    assert_eq!(p["stopped"]["reason"], "pause", "{p}");
+    assert_eq!(p["stopped"]["location"]["line"], 5);
+    assert_eq!(d.fake().last("pause"), Some(json!({"threadId": 1})));
+    let s = agent_call(&mut d, cmds::STOP, json!({}));
+    assert_eq!(s["mode"], "design", "{s}");
+    assert!(
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().model.live_threads.is_empty())
+    );
+}
+
 #[gpui::test]
 fn break_all_from_the_menu_and_an_agent_and_who_drives(cx: &mut TestAppContext) {
     let mut d = deep_break(cx, |p| p.exit_at_end = Some(3));

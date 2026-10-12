@@ -16,8 +16,12 @@
 #                               brief 0060), release build, with its MIT license and notice in
 #                               DIR/licenses/eludite-openai-acp/. The shell finds it beside itself for agents.json's
 #                               `providers`.
+#   DIR/netcoredbg/             netcoredbg, the .NET (Core) 5+ debug adapter (MIT, Samsung; brief 0065): the pinned release
+#                               tools/netcoredbg/fetch.sh fetches (into its cache when absent), copied whole, with its
+#                               license in DIR/licenses/netcoredbg/. The shell finds it beside itself before
+#                               ELUDITE_NETCOREDBG and PATH (crates/dap/src/discovery.rs).
 #
-# Pinned external tools stay located at run time, never packaged (CLAUDE.md, tools/): netcoredbg, rust-analyzer, lldb-dap,
+# The other pinned external tools stay located at run time, never packaged (CLAUDE.md, tools/): rust-analyzer, lldb-dap,
 # the Roslyn language server, vscode-js-debug, the web language servers and Chrome. Build output goes to stderr; nothing
 # is printed on stdout. linux.sh --with-companions and shell.sh call this.
 set -euo pipefail
@@ -27,7 +31,7 @@ into=
 while [ $# -gt 0 ]; do
   case "$1" in
     --into) into=${2:?--into needs a folder}; shift 2 ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "companions.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -68,3 +72,13 @@ openai="$openai_target/release/eludite-openai-acp$exe"
 install -m 755 "$openai" "$into/eludite-openai-acp$exe"
 mkdir -p "$into/licenses/eludite-openai-acp"
 install -m 644 "$repo/agents/openai-acp/LICENSE" "$repo/agents/openai-acp/NOTICE" "$into/licenses/eludite-openai-acp/"
+
+# netcoredbg (brief 0065): MIT, redistributable; the release folder as fetch.sh unpacks it (the adapter, libdbgshim and
+# the managed parts it loads beside itself), so F5 on a .NET 5+ project needs nothing else installed.
+echo "companions.sh: netcoredbg (tools/netcoredbg/fetch.sh) into netcoredbg/" >&2
+netcoredbg=$("$repo/tools/netcoredbg/fetch.sh")
+[ -f "$netcoredbg" ] || { echo "companions.sh: tools/netcoredbg/fetch.sh printed no adapter ($netcoredbg)" >&2; exit 1; }
+rm -rf "${into:?}/netcoredbg"
+cp -R "$(dirname "$netcoredbg")" "$into/netcoredbg"
+mkdir -p "$into/licenses/netcoredbg"
+install -m 644 "$repo/tools/netcoredbg/LICENSE" "$into/licenses/netcoredbg/"

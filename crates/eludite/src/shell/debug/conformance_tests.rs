@@ -84,6 +84,70 @@ fn pending_targets(r: &Recording) -> Vec<String> {
     out
 }
 
+/// The `n`th module id of the scenario's own program (1-based): `${MODULE}`, `${MODULE_2}`, ...
+fn module_placeholder(n: usize) -> String {
+    if n == 1 {
+        "${MODULE}".into()
+    } else {
+        format!("${{MODULE_{n}}}")
+    }
+}
+
+/// The ids of the `module` events whose assembly lies in the scenario's folder (already scrubbed to `${TMP}`), in
+/// the order they came.
+fn run_modules(r: &Recording) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for m in &r.messages {
+        let module = &m.message["body"]["module"];
+        if m.dir == record::Dir::Adapter
+            && m.message["event"] == "module"
+            && module["path"]
+                .as_str()
+                .is_some_and(|p| p.starts_with("${TMP}"))
+            && let Some(id) = module["id"].as_str()
+            && !id.starts_with("${")
+            && !out.iter().any(|o| o == id)
+        {
+            out.push(id.to_owned());
+        }
+    }
+    out
+}
+
+/// netcoredbg's version as the recording names it: `netcoredbg 3.2.0-1 (9744e1f, Release)` from `--version`'s first
+/// line (`NET Core debugger 3.2.0-1 (9744e1f, Release)`), so an adapter upgrade fails the re-record check.
+fn netcoredbg_version(path: &Path) -> String {
+    let out = std::process::Command::new(path).arg("--version").output();
+    let text = out
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let first = text.lines().next().unwrap_or_default().trim();
+    format!(
+        "netcoredbg {}",
+        first.strip_prefix("NET Core debugger ").unwrap_or(first)
+    )
+}
+
+/// The .NET installation `dotnet` runs programs on (the folder holding `shared/Microsoft.NETCore.App`), from
+/// `dotnet --list-runtimes`; a stand-in folder for a replay.
+fn dotnet_root(recording: bool, tmp: &Path) -> PathBuf {
+    if !recording {
+        return tmp.join("dotnet");
+    }
+    let out = std::process::Command::new("dotnet")
+        .arg("--list-runtimes")
+        .output()
+        .expect("dotnet --list-runtimes");
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines()
+        .filter(|l| l.starts_with("Microsoft.NETCore.App "))
+        .find_map(|l| {
+            let dir = l.split_once('[')?.1.strip_suffix(']')?;
+            Some(Path::new(dir).parent()?.parent()?.to_path_buf())
+        })
+        .expect("a Microsoft.NETCore.App runtime in dotnet --list-runtimes")
+}
+
 /// Where the replay's fake engine says its tab is (`browser_tests::PageEngine`).
 const REPLAY_ORIGIN: &str = "127.0.0.1:5180";
 
@@ -1416,6 +1480,14 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
         } => Some(mono.clone()),
         _ => None,
     };
+    // netcoredbg's folder when recording: the recording's description names the adapter under `${NETCOREDBG}`.
+    let real_netcoredbg = match &source {
+        Source::Record {
+            real: Real::Netcoredbg { found },
+            ..
+        } => found.path.parent().map(Path::to_path_buf),
+        _ => None,
+    };
     let attach = scenario == "attach-detach";
     let pid_slot: Arc<Mutex<i64>> = Arc::new(Mutex::new(REPLAY_PID));
     let store = tempfile::tempdir().unwrap().keep();
@@ -1457,7 +1529,7 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
     let version = match &source {
         Source::Record { real, .. } => match real {
             Real::Mono { version, .. } | Real::Lldb { version, .. } => version.clone(),
-            Real::Netcoredbg { found } => format!("netcoredbg ({})", found.path.display()),
+            Real::Netcoredbg { found } => netcoredbg_version(&found.path),
             Real::JsDebug { .. } => String::new(),
         },
         Source::Replay { recording, .. } => recording.version.clone(),
@@ -1644,6 +1716,15 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
                 } else {
                     write("src/App/bin/Debug/net10.0/App.dll", "");
                 }
+                // netcoredbg's `module` events name the framework's assemblies under the .NET installation: `${DOTNET}`
+                // (brief 0065).
+                roots.push(("${DOTNET}".to_owned(), dotnet_root(recording, &tmp)));
+                roots.push((
+                    "${NETCOREDBG}".to_owned(),
+                    real_netcoredbg
+                        .clone()
+                        .unwrap_or_else(|| tmp.join("netcoredbg")),
+                ));
             }
             if attach && recording {
                 let mono = real_mono.as_ref().expect("recording under Mono");
@@ -1850,11 +1931,11 @@ fn spawn_waiting(exe: &Path) -> std::process::Child {
     child
 }
 
-/// Remove timing fields (`*_ms`) everywhere.
+/// Remove timing fields (`*_ms`, and `*_ms_per_*` such as `trace`'s `overhead_ms_per_hit`) everywhere.
 fn strip_timing(v: &mut Value) {
     match v {
         Value::Object(o) => {
-            o.retain(|k, _| !k.ends_with("_ms"));
+            o.retain(|k, _| !k.ends_with("_ms") && !k.contains("_ms_per_"));
             o.values_mut().for_each(strip_timing);
         }
         Value::Array(a) => a.iter_mut().for_each(strip_timing),
@@ -2101,7 +2182,13 @@ fn record_scenario(
             h.add_token(&pending_placeholder(n + 1), id);
         }
     }
-    if !all.is_empty() {
+    // netcoredbg's module ids are the assemblies' MVIDs: the TestApp's changes with every build in a new folder, so
+    // the ids of the modules under the scenario's folder are the run's own (brief 0065).
+    let modules = run_modules(&recording);
+    for (n, id) in modules.iter().enumerate() {
+        handle.add_token(&module_placeholder(n + 1), id);
+    }
+    if !all.is_empty() || !modules.is_empty() {
         recording = handle.write().unwrap();
     }
     let more: Vec<Recording> = all.iter().skip(1).map(|h| h.write().unwrap()).collect();
@@ -2117,6 +2204,12 @@ fn record_scenario(
     let mut scrubber_with_roots = scrubber.clone();
     if !scrubber_with_roots.pids().contains(&run.pid) && run.pid != REPLAY_PID {
         scrubber_with_roots.add_own_pid(run.pid);
+    }
+    // The session's process ids in text whatever their size, as the replay scrubs the id it substitutes for them:
+    // netcoredbg on Linux numbers the main thread with the process id, which the Threads rows show, and a container
+    // numbers processes below 1000 (brief 0065).
+    for pid in scrubber.pids().to_vec() {
+        scrubber_with_roots.add_own_pid(pid);
     }
     let golden: Vec<Value> = snapshots
         .into_iter()
@@ -2203,19 +2296,12 @@ fn conformance(cx: &mut TestAppContext, adapter: Adapter, scenario: &str) {
         }
     }
     let (rec_path, golden_path) = paths(&corpus_dir(), adapter, scenario);
-    let Ok(recording) = Recording::read(&rec_path) else {
-        assert_eq!(
-            adapter,
-            Adapter::Netcoredbg,
-            "{} is missing: record it with tools/dap-corpus/record.sh",
+    let recording = Recording::read(&rec_path).unwrap_or_else(|e| {
+        panic!(
+            "{} is missing ({e}): record it with tools/dap-corpus/record.sh",
             rec_path.display()
-        );
-        eprintln!(
-            "skipped: {} is not recorded yet (it is recorded where netcoredbg can be downloaded: CI or tools/dap-corpus/record.sh)",
-            rec_path.display()
-        );
-        return;
-    };
+        )
+    });
     let more = more_recordings(&rec_path);
     let (replayed, took) = replay_scenario(cx, adapter, scenario, recording, more);
     eprintln!(

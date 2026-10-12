@@ -3135,7 +3135,7 @@ fn launch_thread(job: LaunchJob) {
                 };
                 let t = found.transport();
                 match transport::connect(&t) {
-                    Ok(c) => (c, transport::describe(&t)),
+                    Ok(c) => (c, describe_netcoredbg(&t)),
                     Err(e) => return fail(format!("cannot start netcoredbg: {e}")),
                 }
             }
@@ -3274,6 +3274,12 @@ impl PlannedBrowser {
 /// Whether and where `config`'s start opens a page (on the launch thread: it reads the launch profile and looks for
 /// the embedded engine). `None`: nothing to open (a console program, a Cargo package, `browser: none`, a profile
 /// without `launchBrowser` when the start does not ask, or the setting debugger.launchBrowser off).
+/// A netcoredbg session's adapter as the Sessions rows and the Debug Output show it: named first, whatever the located
+/// file is called or wherever it lies (`netcoredbg: /path/netcoredbg --interpreter=vscode (stdio)`; brief 0065).
+fn describe_netcoredbg(t: &eludite_dap::AdapterTransport) -> String {
+    format!("netcoredbg: {}", transport::describe(t))
+}
+
 fn plan_browser(step: &BrowserStep, config: &launch::LaunchConfig) -> Option<PlannedBrowser> {
     let plan = launch::browser_launch(config)?;
     let choice = match step.choice {
@@ -3656,7 +3662,7 @@ fn attach_thread(job: AttachJob) {
             AdapterKind::Netcoredbg => setup.search.find_netcoredbg().and_then(|found| {
                 let t = found.transport();
                 transport::connect(&t)
-                    .map(|c| (c, transport::describe(&t)))
+                    .map(|c| (c, describe_netcoredbg(&t)))
                     .map_err(|e| format!("cannot start netcoredbg: {e}"))
             }),
         }
@@ -6376,12 +6382,16 @@ impl Shell {
         Ok(())
     }
 
-    /// Break All: ask the adapter to pause `thread` (default: the last one that stopped, else 0, all threads). Nothing
-    /// moves until its `stopped` event (reason `pause`) arrives; then it is shown as any break. Returns the session
-    /// generation the pause belongs to.
+    /// Break All: ask the adapter to pause `thread` (default: the last one that stopped, else the oldest thread the
+    /// adapter's `thread` events named, else 0, all threads: netcoredbg refuses 0, brief 0065). Nothing moves until its
+    /// `stopped` event (reason `pause`) arrives; then it is shown as any break. Returns the session generation the
+    /// pause belongs to.
     fn debug_pause(&mut self, thread: Option<i64>, driver: &str) -> Result<u64, CommandError> {
         let d = &mut self.debug;
-        let tid = thread.or(d.model.thread).unwrap_or(0);
+        let tid = thread
+            .or(d.model.thread)
+            .or_else(|| d.model.live_threads.first().copied())
+            .unwrap_or(0);
         let generation = d.generation();
         d.send(
             "pause",
@@ -7810,7 +7820,8 @@ impl Shell {
                     },
                 );
             }
-            Event::Continued(_) | Event::Thread(_) | Event::Initialized | Event::Other { .. } => {}
+            Event::Thread(t) => d.model.thread_event(&t.reason, t.thread_id),
+            Event::Continued(_) | Event::Initialized | Event::Other { .. } => {}
         }
     }
 
