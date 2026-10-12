@@ -70,11 +70,11 @@ public sealed class TestService : IAsyncDisposable
     {
         parameters ??= new TestDiscoverParams();
         var (generation, solution, changed) = Solution();
-        var containers = Containers(solution, parameters.Projects, parameters.Configuration, parameters.RunSettings, parameters.VstestConsolePath, parallel: false);
+        var containers = Containers(solution, parameters.Projects, parameters.Configuration, parameters.Platform, parameters.RunSettings, parameters.VstestConsolePath, parallel: false, changed);
         lock (_lock)
         {
             Forget(generation);
-            var job = new TestJob(this, ++_nextId, "discover", generation, debug: false, containers, null, changed);
+            var job = new TestJob(this, ++_nextId, "discover", generation, debug: false, containers, null, changed, coverage: false);
             _jobs[job.Id] = job;
             job.Start(job.DiscoverAllAsync);
             _log.WriteLine($"[test] #{job.Id} discover {containers.Count} container(s)");
@@ -86,8 +86,14 @@ public sealed class TestService : IAsyncDisposable
     public TestRunResult Run(TestRunParams? parameters)
     {
         parameters ??= new TestRunParams();
+        var coverage = parameters.Coverage ?? false;
+        if (coverage && (parameters.Debug ?? false))
+        {
+            throw HostErrors.BadParams("code coverage is not collected under the debugger: a run has coverage or debug, not both");
+        }
+
         var (generation, solution, changed) = Solution();
-        var all = Containers(solution, null, parameters.Configuration, parameters.RunSettings, parameters.VstestConsolePath, parameters.Parallel ?? false);
+        var all = Containers(solution, null, parameters.Configuration, parameters.Platform, parameters.RunSettings, parameters.VstestConsolePath, parameters.Parallel ?? false, changed);
         lock (_lock)
         {
             Forget(generation);
@@ -142,10 +148,16 @@ public sealed class TestService : IAsyncDisposable
                 }
             }
 
-            var run = new TestJob(this, ++_nextId, "run", generation, debug, chosen, requested, changed);
+            var id = ++_nextId;
+            if (coverage)
+            {
+                chosen = WithCoverage(id, chosen);
+            }
+
+            var run = new TestJob(this, id, "run", generation, debug, chosen, requested, changed, coverage);
             _jobs[run.Id] = run;
             run.Start(run.RunAllAsync);
-            _log.WriteLine($"[test] #{run.Id} run {chosen.Count} container(s){(debug ? " under the debugger" : string.Empty)}");
+            _log.WriteLine($"[test] #{run.Id} run {chosen.Count} container(s){(debug ? " under the debugger" : string.Empty)}{(coverage ? " with coverage" : string.Empty)}");
             return new TestRunResult(run.Id, generation, chosen.Select(c => c.Info.Id).ToList()) { Debug = debug ? true : null };
         }
     }
@@ -284,7 +296,57 @@ public sealed class TestService : IAsyncDisposable
         return (generation, solution, changed);
     }
 
-    private List<(TestContainer Container, TestContainerInfo Info)> Containers(string solution, IReadOnlyList<string>? projects, string? configuration, string? runSettings, string? vstestConsole, bool parallel)
+    /// <summary>
+    /// Brief 0076: where a coverage run's reports go, <c>&lt;temp&gt;/eludite-coverage/&lt;run&gt;-&lt;random&gt;/&lt;n&gt;/</c> per
+    /// container. The reports are kept after the run (the <c>coverage</c> update names each container's report); folders
+    /// older than <see cref="CoverageRetention"/> are deleted when a coverage run starts.
+    /// </summary>
+    public static string CoverageRoot { get; } = Path.Combine(Path.GetTempPath(), "eludite-coverage");
+
+    /// <summary>How long a coverage run's reports are kept.</summary>
+    public static readonly TimeSpan CoverageRetention = TimeSpan.FromDays(1);
+
+    /// <summary>The message of a coverage run's container whose project references no collector.</summary>
+    public const string NoCoverageCollector = "add the Microsoft.Testing.Extensions.CodeCoverage package (MTP) or coverlet.collector (VSTest) to collect coverage";
+
+    private static List<(TestContainer Container, TestContainerInfo Info)> WithCoverage(long runId, List<(TestContainer Container, TestContainerInfo Info)> chosen)
+    {
+        var root = Path.Combine(CoverageRoot, $"{runId}-{Guid.NewGuid().ToString("N")[..8]}");
+        return chosen
+            .Select((c, i) => (c.Container with { CoverageDirectory = Path.Combine(root, i.ToString(System.Globalization.CultureInfo.InvariantCulture)) }, c.Info))
+            .ToList();
+    }
+
+    /// <summary>Deletes the coverage folders older than <see cref="CoverageRetention"/> but <paramref name="keep"/>.</summary>
+    internal static void PruneCoverage(string? keep)
+    {
+        try
+        {
+            if (!Directory.Exists(CoverageRoot))
+            {
+                return;
+            }
+
+            foreach (var dir in Directory.EnumerateDirectories(CoverageRoot))
+            {
+                if (keep is not null && dir.StartsWith(keep, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (DateTime.UtcNow - Directory.GetLastWriteTimeUtc(dir) > CoverageRetention)
+                {
+                    Directory.Delete(dir, recursive: true);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Another host's folder in use, or gone already: the next run tries again.
+        }
+    }
+
+    private List<(TestContainer Container, TestContainerInfo Info)> Containers(string solution, IReadOnlyList<string>? projects, string? configuration, string? platform, string? runSettings, string? vstestConsole, bool parallel, CancellationToken cancellationToken)
     {
         IReadOnlyList<string> solutionProjects;
         try
@@ -296,7 +358,7 @@ public sealed class TestService : IAsyncDisposable
             throw HostErrors.BadParams($"the solution could not be read: {ex.Message}");
         }
 
-        IEnumerable<string> chosen = solutionProjects;
+        IReadOnlyList<string> chosen = solutionProjects;
         if (projects is { Count: > 0 })
         {
             var list = new List<string>();
@@ -305,11 +367,6 @@ public sealed class TestService : IAsyncDisposable
                 var full = Path.GetFullPath(p);
                 var match = solutionProjects.FirstOrDefault(s => Build.BuildService.PathEquals(s, full))
                     ?? throw HostErrors.BadParams($"{p} is not a project of the open solution");
-                if (TestProjectInspector.Inspect(match) is null)
-                {
-                    throw HostErrors.BadParams($"{p} is not a test project");
-                }
-
                 list.Add(match);
             }
 
@@ -321,8 +378,23 @@ public sealed class TestService : IAsyncDisposable
             RunSettings = runSettings is { Length: > 0 } ? Path.GetFullPath(runSettings) : null,
             VsTestConsole = vstestConsole is { Length: > 0 } ? vstestConsole : null,
             Parallel = parallel,
+            Platform = platform is { Length: > 0 } ? platform : null,
         };
-        return [.. TestContainers.Of(chosen, configuration is { Length: > 0 } c ? c : "Debug", settings)];
+
+        // Brief 0076: the test projects as MSBuild sees them, in the requested configuration and platform.
+        var evaluated = TestProjectEvaluator.Evaluate(chosen, configuration is { Length: > 0 } c ? c : "Debug", settings.Platform, _log, cancellationToken);
+        if (projects is { Count: > 0 })
+        {
+            for (var i = 0; i < projects.Count; i++)
+            {
+                if (!evaluated.Any(e => Build.BuildService.PathEquals(e.Project, chosen[i])))
+                {
+                    throw HostErrors.BadParams($"{projects[i]} is not a test project");
+                }
+            }
+        }
+
+        return [.. TestContainers.Of(evaluated, settings)];
     }
 }
 
@@ -344,10 +416,12 @@ internal sealed class TestJob
     private readonly Dictionary<string, HashSet<string>> _known = new(StringComparer.Ordinal);
     private readonly Dictionary<int, TaskCompletionSource<(bool, string?)>> _attaches = [];
     private readonly Dictionary<string, int> _expected = new(StringComparer.Ordinal);
+    private readonly bool _coverage;
     private long _seq;
 
-    public TestJob(TestService service, long id, string kind, long generation, bool debug, IReadOnlyList<(TestContainer, TestContainerInfo)> containers, Dictionary<string, IReadOnlyList<string>?>? requested, CancellationToken generationChanged)
+    public TestJob(TestService service, long id, string kind, long generation, bool debug, IReadOnlyList<(TestContainer, TestContainerInfo)> containers, Dictionary<string, IReadOnlyList<string>?>? requested, CancellationToken generationChanged, bool coverage)
     {
+        _coverage = coverage;
         _service = service;
         Id = id;
         Kind = kind;
@@ -373,6 +447,11 @@ internal sealed class TestJob
 
     public void Start(Func<CancellationToken, Task<string>> body)
     {
+        if (_coverage)
+        {
+            _ = Task.Run(() => TestService.PruneCoverage(_containers.Select(c => c.Container.CoverageDirectory).FirstOrDefault(d => d is not null) is { } d ? Path.GetDirectoryName(d) : null));
+        }
+
         _ = Task.Run(SendLoopAsync);
         _ = Task.Run(FlushLoopAsync);
         _ = Task.Run(async () =>
@@ -722,6 +801,8 @@ internal sealed class TestJob
 
     private void Finish(string state, string? message)
     {
+        // Brief 0076: a coverage run reads and merges its reports before it says finished.
+        var coverage = _coverage ? Coverage() : null;
         TestSummary summary;
         double elapsed;
         lock (_lock)
@@ -736,6 +817,11 @@ internal sealed class TestJob
         lock (_lock)
         {
             FlushLocked();
+            if (coverage is not null)
+            {
+                Emit(new TestUpdateParams(Id, Generation, 0, TestUpdateKinds.Coverage) { Coverage = coverage });
+            }
+
             Emit(new TestUpdateParams(Id, Generation, 0, TestUpdateKinds.Finished)
             {
                 State = state,
@@ -747,6 +833,46 @@ internal sealed class TestJob
         }
 
         _service.Log.WriteLine($"[test] #{Id} {Kind} {state}: {summary.Total} tests, {summary.Passed} passed, {summary.Failed} failed, {summary.Skipped} skipped ({elapsed:0} ms)");
+    }
+
+    /// <summary>
+    /// Brief 0076: the run's containers with their collector and report (or why none), and the merged reports. Every
+    /// report found under a container's coverage folder is merged; a container lists the newest.
+    /// </summary>
+    private TestCoverageResult Coverage()
+    {
+        var containers = new List<CoverageContainerReport>();
+        var reports = new List<Cobertura.Report>();
+        foreach (var (container, info) in _containers)
+        {
+            var collector = CoverageCollection.Name(container.Coverage);
+            if (!CoverageCollection.Collects(container))
+            {
+                containers.Add(new CoverageContainerReport(info.Id, collector) { Message = TestService.NoCoverageCollector });
+                continue;
+            }
+
+            var found = CoverageCollection.Reports(container.CoverageDirectory);
+            string? message = found.Count == 0 ? $"no coverage report was written{(info.Error is { } e ? ": " + e : string.Empty)}" : null;
+            foreach (var file in found)
+            {
+                try
+                {
+                    reports.Add(Cobertura.Read(file));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or InvalidDataException)
+                {
+                    _service.Log.WriteLine($"[test] #{Id}: the coverage report {file} could not be read: {ex.Message}");
+                    message = $"the coverage report {file} could not be read: {ex.Message}";
+                }
+            }
+
+            containers.Add(new CoverageContainerReport(info.Id, collector) { Report = found.Count > 0 ? found[^1] : null, Message = message });
+        }
+
+        var result = Cobertura.Merge(reports, containers);
+        _service.Log.WriteLine($"[test] #{Id} coverage: {reports.Count} report(s), {result.LinesCovered}/{result.LinesValid} lines");
+        return result;
     }
 
     private TestSummary Summary()

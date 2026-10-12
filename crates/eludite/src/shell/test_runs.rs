@@ -64,7 +64,7 @@ pub const TESTS_SLOT: &str = "tests";
 /// Whether menu item `command` is enabled given whether a test run goes: Run All Tests, Debug All Tests and Repeat
 /// Last Run wait for it to end.
 pub fn menu_enabled(command: &str, running: bool) -> bool {
-    !(running && (command == cmds::RUN || command == cmds::DEBUG))
+    !(running && (command == cmds::RUN || command == cmds::DEBUG || command == cmds::COVERAGE))
 }
 
 /// How long a command from another thread waits for the UI thread to take it.

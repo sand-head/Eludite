@@ -236,7 +236,13 @@ fn disabled_menu_items_do_nothing(cx: &mut TestAppContext) {
             "Debug All Tests",
             "Run Failed Tests",
             "Repeat Last Run",
-            "Test Explorer"
+            "Test Explorer",
+            // Brief 0076.
+            "Analyze Code Coverage for All Tests",
+            "Analyze Code Coverage for Selected Tests",
+            "Windows > Code Coverage Results",
+            "Show Code Coverage Coloring",
+            "Configure Run Settings > Select Solution Wide runsettings File"
         ]
     );
     // Clicking outside closes it.

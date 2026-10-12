@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Not a test project: the library whose coverage Corpus.Coverage and Corpus.Coverlet collect. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Corpus.Arithmetic</RootNamespace>
+  </PropertyGroup>
+
+</Project>

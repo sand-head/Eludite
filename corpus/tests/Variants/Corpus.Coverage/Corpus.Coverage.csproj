@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- MSTest on Microsoft.Testing.Platform with Microsoft's code coverage extension: its coverage switch writes Cobertura. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableMSTestRunner>true</EnableMSTestRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Corpus.Calculator/Corpus.Calculator.csproj" />
+  </ItemGroup>
+
+</Project>

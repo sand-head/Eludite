@@ -77,7 +77,8 @@ public sealed class VsTestRunner : ITestRunner
         await using var session = await Session.StartAsync(container, sink, cancellationToken).ConfigureAwait(false);
         var payload = new Dictionary<string, object?>
         {
-            ["RunSettings"] = RunSettings(container),
+            // Brief 0076: a coverage run's data collector.
+            ["RunSettings"] = debug ? RunSettings(container) : CoverageCollection.VsTestRunSettings(container, RunSettings(container)),
             ["KeepAlive"] = false,
             ["DebuggingEnabled"] = debug,
         };

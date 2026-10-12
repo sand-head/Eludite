@@ -8,11 +8,16 @@ namespace Eludite.TestBridge;
 /// test application with <c>--server --client-port &lt;port&gt;</c> (a debug run has the shell start it under its
 /// adapter instead), and speaks JSON-RPC 2.0 with it: <c>initialize</c>, then <c>testing/discoverTests</c> or
 /// <c>testing/runTests</c>, whose <c>testing/testUpdates/tests</c> notifications carry the nodes and their states, and
-/// <c>exit</c>. One application process serves one request. Cancel is <c>$/cancelRequest</c>; frameworks stop between
+/// <c>exit</c>. One application process serves one request. An application with a test host controller (brief 0076: the
+/// code coverage extension's <c>--coverage</c>) connects twice: the controller first, whose <c>initialize</c> answer says
+/// <c>multipleConnectionProvider</c>, then the test host it starts, which serves the request. Cancel is <c>$/cancelRequest</c>; frameworks stop between
 /// tests, so the process tree is killed when the request has not answered within <see cref="ITestRunner.CancelGrace"/>.
 /// </summary>
 public sealed class MtpRunner : ITestRunner
 {
+    /// <summary>How long a coverage run's application has to exit after <c>exit</c> (brief 0076).</summary>
+    public static readonly TimeSpan CoverageExitWait = TimeSpan.FromMinutes(2);
+
     public Task DiscoverAsync(TestContainer container, ITestSink sink, CancellationToken cancellationToken) =>
         ServeAsync(container, "testing/discoverTests", null, debug: false, sink, cancellationToken);
 
@@ -99,6 +104,8 @@ public sealed class MtpRunner : ITestRunner
         using var listener = TestProcess.Listen();
         var port = TestProcess.Port(listener);
         TestProcess? process = null;
+        System.Net.Sockets.TcpClient? hostClient = null;
+        MtpConnection? host = null;
         try
         {
             if (debug)
@@ -110,30 +117,49 @@ public sealed class MtpRunner : ITestRunner
             else
             {
                 var (fileName, args) = CommandLine(container);
+                if (method == "testing/runTests")
+                {
+                    // Brief 0076: a coverage run's switches (none for discovery or a run without coverage).
+                    args.AddRange(CoverageCollection.MtpArguments(container));
+                }
+
                 args.AddRange(["--server", "--client-port", port.ToString(CultureInfo.InvariantCulture)]);
                 sink.Log($"> {TestProcess.CommandLine(fileName, args)}");
                 process = TestProcess.Start(fileName, args, WorkingDirectory(container), container.Environment, sink.Log);
             }
 
-            using var client = await TestProcess.AcceptAsync(listener, process, debug ? ITestRunner.DebugWait : TimeSpan.FromSeconds(30), container.Name, cancellationToken).ConfigureAwait(false);
+            var wait = debug ? ITestRunner.DebugWait : TimeSpan.FromSeconds(30);
+            using var client = await TestProcess.AcceptAsync(listener, process, wait, container.Name, cancellationToken).ConfigureAwait(false);
             var mapping = new MtpMapping(sink);
             await using var connection = new MtpConnection(client.GetStream(), mapping.OnNotification);
-            var (_, init) = await connection.RequestAsync("initialize", new
+            var initialize = new
             {
                 processId = Environment.ProcessId,
                 clientInfo = new { name = "eludite", version = "0.1.0" },
                 capabilities = new { testing = new { debuggerProvider = false } },
-            }).ConfigureAwait(false);
-            await WaitAsync(init, connection, null, process, cancellationToken).ConfigureAwait(false);
+            };
+            var (_, init) = await connection.RequestAsync("initialize", initialize).ConfigureAwait(false);
+            var server = connection;
+            if (MultipleConnections(await WaitAsync(init, connection, null, process, cancellationToken).ConfigureAwait(false)))
+            {
+                // Brief 0076: a test host controller answered (the code coverage extension runs the tests in a child
+                // process under it): the test host it starts connects next, and serves the request. The controller's
+                // connection stays open until the end; it writes the coverage report once the test host exits.
+                hostClient = await TestProcess.AcceptAsync(listener, process, wait, container.Name, cancellationToken).ConfigureAwait(false);
+                host = new MtpConnection(hostClient.GetStream(), mapping.OnNotification);
+                var (_, hostInit) = await host.RequestAsync("initialize", initialize).ConfigureAwait(false);
+                await WaitAsync(hostInit, host, null, process, cancellationToken).ConfigureAwait(false);
+                server = host;
+            }
 
             object parameters = tests is null
                 ? new { runId = Guid.NewGuid().ToString() }
                 : new { runId = Guid.NewGuid().ToString(), tests = tests.Select(t => t.Native).ToList() };
-            var (id, response) = await connection.RequestAsync(method, parameters).ConfigureAwait(false);
-            await WaitAsync(response, connection, id, process, cancellationToken).ConfigureAwait(false);
+            var (id, response) = await server.RequestAsync(method, parameters).ConfigureAwait(false);
+            await WaitAsync(response, server, id, process, cancellationToken).ConfigureAwait(false);
             try
             {
-                await connection.NotifyAsync("exit", new { }).ConfigureAwait(false);
+                await server.NotifyAsync("exit", new { }).ConfigureAwait(false);
             }
             catch (TestRunnerException)
             {
@@ -141,7 +167,10 @@ public sealed class MtpRunner : ITestRunner
 
             if (process is not null)
             {
-                await process.Exited.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(false);
+                // A coverage run's controller writes the report (and restores instrumented assemblies) after the tests
+                // end: it gets longer than a plain run before it is killed.
+                var exit = method == "testing/runTests" && CoverageCollection.Collects(container) ? CoverageExitWait : TimeSpan.FromSeconds(5);
+                await process.Exited.WaitAsync(exit, CancellationToken.None).ConfigureAwait(false);
             }
         }
         catch (TimeoutException)
@@ -150,19 +179,37 @@ public sealed class MtpRunner : ITestRunner
         }
         finally
         {
+            if (host is not null)
+            {
+                await host.DisposeAsync().ConfigureAwait(false);
+            }
+
+            hostClient?.Dispose();
             process?.Dispose();
         }
     }
 
+    /// <summary>
+    /// True when the <c>initialize</c> answer is a test host controller's (<c>capabilities.testing.multipleConnectionProvider</c>):
+    /// the tests run in a child process that connects on its own.
+    /// </summary>
+    internal static bool MultipleConnections(JsonElement initializeResult) =>
+        initializeResult.ValueKind == JsonValueKind.Object
+        && initializeResult.TryGetProperty("capabilities", out var capabilities)
+        && capabilities.ValueKind == JsonValueKind.Object
+        && capabilities.TryGetProperty("testing", out var testing)
+        && testing.ValueKind == JsonValueKind.Object
+        && testing.TryGetProperty("multipleConnectionProvider", out var multiple)
+        && multiple.ValueKind == JsonValueKind.True;
+
     /// <summary>Waits for a response; on cancel, sends <c>$/cancelRequest</c> and kills the process after the grace period.</summary>
-    private static async Task WaitAsync(Task<JsonElement> response, MtpConnection connection, long? id, TestProcess? process, CancellationToken cancellationToken)
+    private static async Task<JsonElement> WaitAsync(Task<JsonElement> response, MtpConnection connection, long? id, TestProcess? process, CancellationToken cancellationToken)
     {
         var canceled = Task.Delay(Timeout.Infinite, cancellationToken);
         var first = await Task.WhenAny(response, canceled).ConfigureAwait(false);
         if (first == response)
         {
-            await response.ConfigureAwait(false);
-            return;
+            return await response.ConfigureAwait(false);
         }
 
         if (id is { } requestId)

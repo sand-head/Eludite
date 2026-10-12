@@ -1,0 +1,6 @@
+<Project>
+  <!-- Brief 0076's variants of the Test Explorer corpus: test projects as MSBuild sees them (properties and packages from
+       a Directory.Build.props, a platform, the artifacts layout) and code coverage. The corpus's own settings apply;
+       Directory.Packages.props is found above as it is for every corpus project. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+</Project>

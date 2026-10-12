@@ -15,6 +15,9 @@ public sealed record TestDiscoverParams
     public string? RunSettings { get; init; }
 
     public string? VstestConsolePath { get; init; }
+
+    /// <summary>Brief 0076: the solution platform (<c>Any CPU</c> is MSBuild's <c>AnyCPU</c>).</summary>
+    public string? Platform { get; init; }
 }
 
 /// <summary>A container of <c>eludite/test/discover</c>'s result and <c>eludite/test/status</c>.</summary>
@@ -26,6 +29,9 @@ public sealed record TestContainerInfo(string Id, string Name, string Project, s
     public string? Program { get; init; }
 
     public string? Error { get; init; }
+
+    /// <summary>Brief 0076: the coverage collector, <c>mtp</c>, <c>coverlet</c>, <c>microsoft</c> or <c>none</c>.</summary>
+    public string? Coverage { get; init; }
 }
 
 /// <summary><c>eludite/test/discover</c> result.</summary>
@@ -51,6 +57,12 @@ public sealed record TestRunParams
     public string? RunSettings { get; init; }
 
     public string? VstestConsolePath { get; init; }
+
+    /// <summary>Brief 0076: the solution platform (<c>Any CPU</c> is MSBuild's <c>AnyCPU</c>).</summary>
+    public string? Platform { get; init; }
+
+    /// <summary>Brief 0076: collect code coverage; one <c>coverage</c> update before <c>finished</c>. Not with <see cref="Debug"/>.</summary>
+    public bool? Coverage { get; init; }
 }
 
 /// <summary><c>eludite/test/run</c> result.</summary>
@@ -106,6 +118,9 @@ public sealed record TestUpdateParams(long RunId, long Generation, long Seq, str
     public double? ElapsedMs { get; init; }
 
     public string? Message { get; init; }
+
+    /// <summary>Brief 0076: <c>coverage</c> updates.</summary>
+    public TestCoverageResult? Coverage { get; init; }
 }
 
 /// <summary>A test of a running discovery, with its container (<c>eludite/test/status</c>).</summary>
@@ -151,7 +166,65 @@ public static class TestUpdateKinds
     public const string ContainerFinished = "containerFinished";
     public const string Finished = "finished";
 
+    /// <summary>Brief 0076: a coverage run's merged coverage, once before <see cref="Finished"/>.</summary>
+    public const string Coverage = "coverage";
+
     public const string Completed = "completed";
     public const string Failed = "failed";
     public const string Canceled = "canceled";
+}
+
+// Code coverage (brief 0076; test-update.json, `coverage`): a coverage run's merged Cobertura reports.
+
+/// <summary>A container's part of a coverage run: its collector and its report, or why it has none.</summary>
+/// <param name="Collector"><c>mtp</c>, <c>coverlet</c>, <c>microsoft</c> or <c>none</c>.</param>
+public sealed record CoverageContainerReport(string Container, string Collector)
+{
+    public string? Report { get; init; }
+
+    public string? Message { get; init; }
+}
+
+/// <summary>A method's coverable lines (Cobertura's <c>method</c>).</summary>
+/// <param name="Line">Its first coverable line.</param>
+public sealed record CoverageMethod(string Name, int LinesCovered, int LinesValid)
+{
+    public string? Signature { get; init; }
+
+    public int? Line { get; init; }
+
+    public int? BranchesCovered { get; init; }
+
+    public int? BranchesValid { get; init; }
+}
+
+/// <summary>A class's coverable lines: <see cref="Name"/> is <c>Namespace.Class</c>.</summary>
+public sealed record CoverageClass(string Name, int LinesCovered, int LinesValid, IReadOnlyList<CoverageMethod> Methods)
+{
+    public string? Namespace { get; init; }
+
+    public string? File { get; init; }
+
+    public int? BranchesCovered { get; init; }
+
+    public int? BranchesValid { get; init; }
+}
+
+/// <summary>An assembly (Cobertura's <c>package</c>).</summary>
+public sealed record CoverageModule(string Name, int LinesCovered, int LinesValid, IReadOnlyList<CoverageClass> Classes)
+{
+    public int? BranchesCovered { get; init; }
+
+    public int? BranchesValid { get; init; }
+}
+
+/// <summary>A source file's coverable lines: <c>[line, hits]</c> or <c>[line, hits, branchesCovered, branchesValid]</c>, by line.</summary>
+public sealed record CoverageFile(string Path, IReadOnlyList<IReadOnlyList<long>> Lines);
+
+/// <summary>A coverage run's merged coverage (the <c>coverage</c> member of a <c>coverage</c> update).</summary>
+public sealed record TestCoverageResult(int LinesCovered, int LinesValid, IReadOnlyList<CoverageContainerReport> Containers, IReadOnlyList<CoverageModule> Modules, IReadOnlyList<CoverageFile> Files)
+{
+    public int? BranchesCovered { get; init; }
+
+    public int? BranchesValid { get; init; }
 }

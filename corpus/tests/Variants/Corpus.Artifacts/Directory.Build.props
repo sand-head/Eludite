@@ -1,0 +1,9 @@
+<Project>
+  <!-- The artifacts layout (UseArtifactsOutput must be set before the SDK's props, so here): the output is
+       artifacts/bin/Corpus.Artifacts/debug/, kept under this folder so a copy of the corpus stays self-contained. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
+  </PropertyGroup>
+</Project>

@@ -40,6 +40,18 @@ public sealed record TestContainer(string Id, string Project, string TargetFrame
 
     /// <summary>The project's name as the Test Explorer shows it.</summary>
     public string Name { get; init; } = Path.GetFileNameWithoutExtension(Project);
+
+    /// <summary>Brief 0076: the coverage collector the project references.</summary>
+    public CoverageCollector Coverage { get; init; }
+
+    /// <summary>
+    /// Brief 0076: a coverage run writes the container's Cobertura reports here (<see cref="CoverageCollection"/>); null
+    /// for a run without coverage and for discovery.
+    /// </summary>
+    public string? CoverageDirectory { get; init; }
+
+    /// <summary>Brief 0076: the VSTest data collector's folder (the package's build folder), added to <c>TestAdaptersPaths</c>.</summary>
+    public string? CoverageAdapterPath { get; init; }
 }
 
 /// <summary>How to start a test application under a debug adapter (a debug run).</summary>

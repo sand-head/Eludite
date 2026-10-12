@@ -17,7 +17,10 @@ namespace Eludite.Host.Tests;
 /// container (MTP and VSTest, one per target framework) and a run of all of it with the expected outcomes; a run of
 /// ids before any discovery (discovered silently first). With a scripted runner: the update stream's order and
 /// batching, one run per container (-32012), cancel, the generation rule, the status replay, the debug hand-offs
-/// (launch, attach and eludite/test/attached) and the not-built container.
+/// (launch, attach and eludite/test/attached) and the not-built container. Brief 0076: the variants discovered and run
+/// as MSBuild sees them (platform x64, the artifacts layout, a test project from its Directory.Build.props), coverage from
+/// the MTP extension, coverlet and Microsoft's VSTest collector merged into one update before finished, and a container
+/// without a collector.
 /// </summary>
 public sealed class TestServiceTests
 {
@@ -104,6 +107,146 @@ public sealed class TestServiceTests
         Assert.Equal(1, finished.GetProperty("summary").GetProperty("failed").GetInt32());
         var updates = host.Updates(run.GetProperty("runId").GetInt64());
         Assert.DoesNotContain(updates, u => u.GetProperty("kind").GetString() == "discovered");
+    }
+
+    [Fact]
+    public async Task Variants_AreDiscoveredAndRun_AsMSBuildSeesThem_UnderPlatformX64()
+    {
+        // Brief 0076: a test project from its Directory.Build.props, an x64 project, the artifacts layout, the coverage
+        // projects; the library they test is not a container.
+        var root = await Corpus.VariantsAsync();
+        var variants = Path.Combine(root, "Variants");
+        await using var host = await WireHost.OpenAsync(Path.Combine(variants, "Variants.slnx"));
+
+        var discover = await host.CallAsync("eludite/test/discover", new { platform = "x64" });
+        var containers = discover.GetProperty("containers").EnumerateArray().ToList();
+        Assert.Equal(["Corpus.PropsDriven", "Corpus.Platform64", "Corpus.Artifacts", "Corpus.Coverage", "Corpus.Coverlet"], containers.Select(c => c.GetProperty("name").GetString()));
+        Assert.Equal(["mtp", "vstest", "mtp", "mtp", "vstest"], containers.Select(c => c.GetProperty("protocol").GetString()));
+        Assert.Equal(["mtp", "microsoft", "mtp", "mtp", "coverlet"], containers.Select(c => c.GetProperty("coverage").GetString()));
+        Assert.All(containers, c => Assert.False(c.TryGetProperty("error", out _), c.ToString()));
+        Assert.Equal(Path.Combine(variants, "Corpus.Platform64", "bin", "x64", "Debug", "net10.0", "Corpus.Platform64.dll"), containers[1].GetProperty("program").GetString());
+        Assert.Equal(Path.Combine(variants, "Corpus.Artifacts", "artifacts", "bin", "Corpus.Artifacts", "debug", "Corpus.Artifacts.dll"), containers[2].GetProperty("program").GetString());
+        var discovered = await host.FinishedAsync(discover.GetProperty("runId").GetInt64());
+        Assert.Equal("completed", discovered.GetProperty("state").GetString());
+        Assert.Equal(10, discovered.GetProperty("summary").GetProperty("total").GetInt32());
+
+        var run = await host.CallAsync("eludite/test/run", new { platform = "x64" });
+        var finished = await host.FinishedAsync(run.GetProperty("runId").GetInt64());
+        Assert.Equal("completed", finished.GetProperty("state").GetString());
+        var summary = finished.GetProperty("summary");
+        Assert.Equal((10, 9, 1), (summary.GetProperty("total").GetInt32(), summary.GetProperty("passed").GetInt32(), summary.GetProperty("failed").GetInt32()));
+        var results = host.Updates(run.GetProperty("runId").GetInt64())
+            .Where(u => u.GetProperty("kind").GetString() == "results")
+            .SelectMany(u => u.GetProperty("results").EnumerateArray()).ToList();
+        Assert.Contains(results, r => r.GetProperty("outcome").GetString() == "failed" && r.GetProperty("message").GetString()!.Contains("Four is not five", StringComparison.Ordinal));
+        // RunsIn64Bits passed: the x64 testhost ran it.
+        Assert.Equal(2, results.Count(r => r.GetProperty("outcome").GetString() == "passed" && host.Updates(discover.GetProperty("runId").GetInt64())
+            .Where(u => u.GetProperty("kind").GetString() == "discovered" && u.GetProperty("container").GetString() == containers[1].GetProperty("id").GetString())
+            .SelectMany(u => u.GetProperty("tests").EnumerateArray())
+            .Any(t => t.GetProperty("id").GetString() == r.GetProperty("id").GetString())));
+
+        // Without the platform the x64 project is evaluated for its default platform, which was not built.
+        var plain = await host.CallAsync("eludite/test/discover", new { });
+        Assert.StartsWith("not built: ", plain.GetProperty("containers")[1].GetProperty("error").GetString(), StringComparison.Ordinal);
+        await host.FinishedAsync(plain.GetProperty("runId").GetInt64());
+
+        // The library is a project of the solution, not a test project.
+        var (code, _) = await TestRpc.ErrorOfAsync(() => host.CallAsync("eludite/test/discover", new { projects = new[] { Path.Combine(variants, "Corpus.Calculator", "Corpus.Calculator.csproj") } }));
+        Assert.Equal(-32602, code);
+    }
+
+    [Fact]
+    public async Task Coverage_FromMtpAndCoverlet_IsMergedIntoOneUpdate_BeforeFinished()
+    {
+        var root = await Corpus.VariantsAsync();
+        var variants = Path.Combine(root, "Variants");
+        await using var host = await WireHost.OpenAsync(Path.Combine(variants, "Variants.slnx"));
+        var discover = await host.CallAsync("eludite/test/discover", new { platform = "x64" });
+        await host.FinishedAsync(discover.GetProperty("runId").GetInt64());
+        var ids = discover.GetProperty("containers").EnumerateArray().ToDictionary(c => c.GetProperty("name").GetString()!, c => c.GetProperty("id").GetString()!);
+
+        // Coverage is not collected under the debugger.
+        var (code, _) = await TestRpc.ErrorOfAsync(() => host.CallAsync("eludite/test/run", new { coverage = true, debug = true, containers = new[] { new { id = ids["Corpus.Coverage"] } } }));
+        Assert.Equal(-32602, code);
+
+        var watch = Stopwatch.StartNew();
+        var run = await host.CallAsync("eludite/test/run", new
+        {
+            platform = "x64",
+            coverage = true,
+            containers = new[] { new { id = ids["Corpus.Coverage"] }, new { id = ids["Corpus.Coverlet"] }, new { id = ids["Corpus.Platform64"] } },
+        });
+        var runId = run.GetProperty("runId").GetInt64();
+        var finished = await host.FinishedAsync(runId);
+        TestContext.Current.SendDiagnosticMessage($"coverage run of 3 containers: {watch.ElapsedMilliseconds} ms");
+        Assert.Equal("completed", finished.GetProperty("state").GetString());
+        Assert.Equal(6, finished.GetProperty("summary").GetProperty("passed").GetInt32());
+
+        // One coverage update, right before finished.
+        var updates = host.Updates(runId);
+        var update = Assert.Single(updates, u => u.GetProperty("kind").GetString() == "coverage");
+        Assert.Equal(update.GetProperty("seq").GetInt64() + 1, finished.GetProperty("seq").GetInt64());
+        var coverage = update.GetProperty("coverage");
+        var reports = coverage.GetProperty("containers").EnumerateArray().ToDictionary(c => c.GetProperty("container").GetString()!);
+        Assert.Equal(3, reports.Count);
+        Assert.Equal("mtp", reports[ids["Corpus.Coverage"]].GetProperty("collector").GetString());
+        Assert.Equal("coverlet", reports[ids["Corpus.Coverlet"]].GetProperty("collector").GetString());
+        Assert.Equal("microsoft", reports[ids["Corpus.Platform64"]].GetProperty("collector").GetString());
+        foreach (var name in new[] { "Corpus.Coverage", "Corpus.Coverlet", "Corpus.Platform64" })
+        {
+            var report = reports[ids[name]];
+            Assert.False(report.TryGetProperty("message", out _), report.ToString());
+            Assert.True(File.Exists(report.GetProperty("report").GetString()), report.ToString());
+        }
+
+        // Calculator.cs, measured by both collectors: Add's lines hit (by each), Divide's never, Add's if half-covered.
+        var source = Path.Combine(variants, "Corpus.Calculator", "Calculator.cs");
+        var text = File.ReadAllLines(source);
+        int LineOf(string code) => Array.FindIndex(text, l => l.Trim() == code) + 1;
+        var file = Assert.Single(coverage.GetProperty("files").EnumerateArray(), f => f.GetProperty("path").GetString() == source);
+        var lines = file.GetProperty("lines").EnumerateArray().ToDictionary(l => l[0].GetInt32(), l => l.EnumerateArray().Select(v => v.GetInt64()).ToArray());
+        Assert.True(lines[LineOf("return a + b;")][1] >= 2, "both collectors count Add's line");
+        Assert.True(lines[LineOf("return a - b;")][1] > 0);
+        Assert.Equal(0, lines[LineOf("return a / b;")][1]);
+        Assert.Equal(0, lines[LineOf("return a;")][1]);
+        var branch = lines[LineOf("if (b == 0)")];
+        Assert.Equal(4, branch.Length);
+        Assert.True(branch[2] < branch[3], "one branch of the if is taken");
+        Assert.True(coverage.GetProperty("linesCovered").GetInt32() < coverage.GetProperty("linesValid").GetInt32());
+
+        var module = Assert.Single(coverage.GetProperty("modules").EnumerateArray(), m => m.GetProperty("name").GetString() == "Corpus.Calculator");
+        var cls = Assert.Single(module.GetProperty("classes").EnumerateArray());
+        Assert.Equal(("Corpus.Arithmetic.Calculator", "Corpus.Arithmetic", source), (cls.GetProperty("name").GetString(), cls.GetProperty("namespace").GetString(), cls.GetProperty("file").GetString()));
+        Assert.All(cls.GetProperty("methods").EnumerateArray().Where(m => m.GetProperty("name").GetString() == "Divide"), m => Assert.Equal(0, m.GetProperty("linesCovered").GetInt32()));
+        Assert.Contains(cls.GetProperty("methods").EnumerateArray(), m => m.GetProperty("name").GetString() == "Add" && m.GetProperty("linesCovered").GetInt32() > 0);
+    }
+
+    [Fact]
+    public async Task CoverageRun_OfAContainerWithoutACollector_ListsItWithTheMessage()
+    {
+        using var dir = new Fixture();
+        await using var host = await WireHost.OpenAsync(dir.Solution, new ScriptedRunner { HoldRuns = false });
+        var discover = await host.CallAsync("eludite/test/discover", new { });
+        Assert.Equal("none", discover.GetProperty("containers")[0].GetProperty("coverage").GetString());
+        await host.FinishedAsync(discover.GetProperty("runId").GetInt64());
+
+        var run = await host.CallAsync("eludite/test/run", new { coverage = true });
+        var runId = run.GetProperty("runId").GetInt64();
+        var finished = await host.FinishedAsync(runId);
+        Assert.Equal("completed", finished.GetProperty("state").GetString());
+        var update = Assert.Single(host.Updates(runId), u => u.GetProperty("kind").GetString() == "coverage");
+        Assert.Equal(update.GetProperty("seq").GetInt64() + 1, finished.GetProperty("seq").GetInt64());
+        var coverage = update.GetProperty("coverage");
+        var container = Assert.Single(coverage.GetProperty("containers").EnumerateArray());
+        Assert.Equal("none", container.GetProperty("collector").GetString());
+        Assert.Equal(TestService.NoCoverageCollector, container.GetProperty("message").GetString());
+        Assert.Equal((0, 0), (coverage.GetProperty("linesCovered").GetInt32(), coverage.GetProperty("linesValid").GetInt32()));
+        Assert.Empty(coverage.GetProperty("modules").EnumerateArray());
+
+        // A run without coverage sends none.
+        var plain = await host.CallAsync("eludite/test/run", new { });
+        await host.FinishedAsync(plain.GetProperty("runId").GetInt64());
+        Assert.DoesNotContain(host.Updates(plain.GetProperty("runId").GetInt64()), u => u.GetProperty("kind").GetString() == "coverage");
     }
 
     [Fact]

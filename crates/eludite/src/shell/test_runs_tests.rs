@@ -1256,3 +1256,509 @@ fn debug_test_of_an_mtp_net472_test_breaks_under_eludite_dbg_mono_with_the_real_
         .read_with(&w.vcx, |s, _| s.test_runs().run(run).unwrap().state);
     assert_eq!(state, RunState::Canceled);
 }
+
+// ---- Brief 0076 -----------------------------------------------------------------------------------------------------
+
+/// The tree's test rows' labels and glyphs.
+fn row_kinds(t: &Tw) -> Vec<(String, tests_window::RowKind)> {
+    t.w.shell.read_with(&t.w.vcx, |s, cx| {
+        s.tests_window()
+            .read(cx)
+            .rows()
+            .iter()
+            .map(|r| (r.label.clone(), r.kind.clone()))
+            .collect()
+    })
+}
+
+#[gpui::test]
+fn a_build_the_explorer_did_not_start_rediscovers_without_emptying_the_tree(
+    cx: &mut TestAppContext,
+) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    t.cmd(cmds::DISCOVER, json!({"rebuild": false})).unwrap();
+    t.wait_phase(Phase::Ready);
+    // Adds passes first: its outcome survives the rediscovery.
+    let adds = format!("{}|u-adds", t.mtp);
+    let out = t.cmd(cmds::RUN, json!({"ids": [adds]})).unwrap();
+    t.wait_run_done(out["run"].as_u64().unwrap());
+    let before = t.rows();
+    assert!(
+        before.contains(&"      Adds Passed".to_owned()),
+        "{before:?}"
+    );
+    // A new test appears in the build output; the discovery after the build is held by the host.
+    let mut catalogue = t.w.fake.received_params("eludite/test/discover");
+    assert_eq!(catalogue.len(), 1);
+    catalogue.clear();
+    let source = t.w.path("tests/Corpus.Tests/CalculatorTests.cs");
+    t.w.fake.set_tests(json!([
+        {"container": {"id": t.mtp, "name": "Corpus.Tests", "project": t.w.path("tests/Corpus.Tests/Corpus.Tests.csproj"),
+                       "targetFramework": "net10.0", "protocol": "mtp", "runtime": "dotnet",
+                       "program": t.w.path("tests/Corpus.Tests/bin/Debug/net10.0/Corpus.Tests.dll")},
+         "tests": [
+            {"id": "u-adds", "displayName": "Corpus.Tests.CalculatorTests.Adds",
+             "fullyQualifiedName": "Corpus.Tests.CalculatorTests.Adds", "namespace": "Corpus.Tests",
+             "className": "CalculatorTests", "method": "Adds", "source": source, "line": 5},
+            {"id": "u-multiplies", "displayName": "Corpus.Tests.CalculatorTests.Multiplies",
+             "fullyQualifiedName": "Corpus.Tests.CalculatorTests.Multiplies", "namespace": "Corpus.Tests",
+             "className": "CalculatorTests", "method": "Multiplies", "source": source, "line": 17}
+         ]}
+    ]));
+    t.w.fake.set_hold_test_runs(true);
+    // Build > Build Solution (Ctrl+Shift+B): not the Test Explorer's build.
+    t.cmd(eludite_commands::build::SOLUTION, json!({"wait": false}))
+        .unwrap();
+    t.w.wait("the build", |w| w.fake.running_build().is_some());
+    t.w.fake.finish_build("succeeded", json!([]));
+    t.w.wait("the rediscovery", |w| w.fake.test_discoveries() == 2);
+    // While the host discovers, the tree is never empty: the old tests stay until their container is done.
+    let during = t.rows();
+    assert!(
+        during.contains(&"      Adds Passed".to_owned()),
+        "{during:?}"
+    );
+    assert!(
+        during.contains(&"      Multiplies NotRun".to_owned()),
+        "{during:?}"
+    );
+    assert!(during.iter().any(|r| r.contains("Subtracts")), "{during:?}");
+    t.w.fake.finish_test_run("completed");
+    t.wait_phase(Phase::Ready);
+    let after = t.rows();
+    // The test that went away is gone, the new one is there, Adds kept its outcome; the other project (no longer
+    // in the catalogue) went with its tests.
+    assert!(!after.iter().any(|r| r.contains("Subtracts")), "{after:?}");
+    assert!(
+        after.contains(&"      Multiplies NotRun".to_owned()),
+        "{after:?}"
+    );
+    assert!(after.contains(&"      Adds Passed".to_owned()), "{after:?}");
+    assert!(!after.iter().any(|r| r.contains("Greets")), "{after:?}");
+    // No build was asked by the Test Explorer for it: one build, the person's.
+    assert_eq!(t.w.fake.received_params("eludite/build/start").len(), 1);
+}
+
+#[gpui::test]
+fn a_new_generation_keeps_the_tree_stale_until_it_is_rediscovered(cx: &mut TestAppContext) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    t.cmd(cmds::DISCOVER, json!({"rebuild": false})).unwrap();
+    t.wait_phase(Phase::Ready);
+    let before = t.rows();
+    t.w.fake.set_hold_test_runs(true);
+    let sln = t.w.path("App.slnx");
+    let generation = t.w.fake.generation();
+    t.w.commands
+        .invoke(
+            workspace::SOLUTION_OPEN,
+            json!({"path": sln.to_string_lossy()}),
+        )
+        .unwrap();
+    t.w.wait("the new generation", |w| {
+        w.shell.read_with(&w.vcx, |s, _| s.generation > generation)
+    });
+    // The tree is still shown, marked stale, and the discover answer says so.
+    assert_eq!(t.rows(), before);
+    let out = t.cmd(cmds::DISCOVER, json!({"rebuild": false})).unwrap();
+    assert_eq!(out["stale"], true, "{out}");
+    assert!(t.w.shell.read_with(&t.w.vcx, |s, _| s.test_runs().stale));
+    t.w.wait("the rediscovery", |w| w.fake.test_discoveries() >= 2);
+    t.w.fake.finish_test_run("completed");
+    t.wait_phase(Phase::Ready);
+    assert!(!t.w.shell.read_with(&t.w.vcx, |s, _| s.test_runs().stale));
+    assert_eq!(t.rows(), before);
+}
+
+#[gpui::test]
+fn run_tests_from_the_editor_takes_the_caret_scope_over_the_explorer_selection(
+    cx: &mut TestAppContext,
+) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    t.cmd(cmds::EXPLORER, json!({})).unwrap();
+    t.wait_phase(Phase::Ready);
+    // The Test Explorer's selection is Subtracts.
+    let subtracts = format!("t:{}|u-subtracts", t.mtp);
+    t.w.shell.update(&mut t.w.vcx, |s, cx| {
+        s.tests_window
+            .update(cx, |w, cx| w.select(Some(subtracts.clone()), cx))
+    });
+    let source = t.w.path("tests/Corpus.Tests/CalculatorTests.cs");
+    let run_at = |t: &mut Tw, line: u32| {
+        t.cmd(
+            workspace::FILE_OPEN,
+            json!({"path": source.to_string_lossy(), "line": line}),
+        )
+        .unwrap();
+        let before = t.run_params().len();
+        t.w.vcx.simulate_keystrokes("ctrl-r t");
+        t.w.wait("the run", |w| {
+            w.fake.received_params("eludite/test/run").len() > before
+        });
+        let run =
+            t.w.shell
+                .read_with(&t.w.vcx, |s, _| s.test_runs().last_run().unwrap().id);
+        t.wait_run_done(run);
+        t.run_params().pop().unwrap()["containers"].clone()
+    };
+    // In Adds' body: Adds, not the Test Explorer's selection.
+    assert_eq!(
+        run_at(&mut t, 8),
+        json!([{"id": t.mtp, "tests": ["u-adds"]}])
+    );
+    // On the class line: the class's tests.
+    assert_eq!(
+        run_at(&mut t, 3),
+        json!([{"id": t.mtp, "tests": ["u-adds", "u-subtracts"]}])
+    );
+    // Between the members: the class's tests; never the test above.
+    assert_eq!(
+        run_at(&mut t, 10),
+        json!([{"id": t.mtp, "tests": ["u-adds", "u-subtracts"]}])
+    );
+    // From the Test Explorer (it has focus): its selection.
+    let ix = t
+        .rows()
+        .iter()
+        .position(|r| r.contains("Subtracts"))
+        .unwrap();
+    t.w.click(&tests_window::row_selector(ix));
+    t.w.click(tests_window::RUN);
+    t.w.wait("the explorer's run", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.test_runs().last_run().is_some_and(|r| {
+                r.state.done() && r.tests.len() == 1 && r.tests[0].ends_with("u-subtracts")
+            })
+        })
+    });
+}
+
+#[gpui::test]
+fn stack_frames_in_the_details_open_their_file_and_the_pane_copies_and_resizes(
+    cx: &mut TestAppContext,
+) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    t.cmd(cmds::EXPLORER, json!({})).unwrap();
+    t.wait_phase(Phase::Ready);
+    let out = t.cmd(cmds::RUN, json!({})).unwrap();
+    t.wait_run_done(out["run"].as_u64().unwrap());
+    let subtracts = format!("t:{}|u-subtracts", t.mtp);
+    t.w.shell.update(&mut t.w.vcx, |s, cx| {
+        s.tests_window
+            .update(cx, |w, cx| w.select(Some(subtracts.clone()), cx))
+    });
+    let details =
+        t.w.shell
+            .read_with(&t.w.vcx, |s, cx| s.tests_window().read(cx).details());
+    // Copy copies the pane's text.
+    t.w.shell.update(&mut t.w.vcx, |s, cx| {
+        s.tests_window.update(cx, |w, cx| w.copy_details(cx))
+    });
+    let copied =
+        t.w.vcx
+            .read_from_clipboard()
+            .and_then(|c| c.text())
+            .unwrap_or_default();
+    assert!(
+        copied.starts_with("Corpus.Tests.CalculatorTests.Subtracts\nFailed"),
+        "{copied}"
+    );
+    // Dragging the top border resizes the pane.
+    let handle = t.w.settled_bounds(tests_window::DETAILS_RESIZE).center();
+    t.w.vcx
+        .simulate_mouse_down(handle, gpui::MouseButton::Left, gpui::Modifiers::none());
+    t.w.vcx.simulate_mouse_move(
+        gpui::point(handle.x, handle.y - gpui::px(100.)),
+        Some(gpui::MouseButton::Left),
+        gpui::Modifiers::none(),
+    );
+    t.w.vcx.simulate_mouse_up(
+        gpui::point(handle.x, handle.y - gpui::px(100.)),
+        gpui::MouseButton::Left,
+        gpui::Modifiers::none(),
+    );
+    let h =
+        t.w.shell
+            .read_with(&t.w.vcx, |s, cx| s.tests_window().read(cx).details_height());
+    assert!((h - 260.).abs() < 1., "{h}");
+    // A stack frame opens its file at its line.
+    let ix = details
+        .iter()
+        .position(|l| l.contains("CalculatorTests.cs:line 14"))
+        .expect("the project frame");
+    t.w.shell.update_in(&mut t.w.vcx, |s, window, cx| {
+        s.tests_window
+            .update(cx, |w, cx| w.open_detail(ix, window, cx))
+    });
+    t.w.vcx.run_until_parked();
+    let source = t.w.path("tests/Corpus.Tests/CalculatorTests.cs");
+    let view = t.w.editor(&source);
+    let caret_line = view.read_with(&t.w.vcx, |v, _| v.editor().primary_head().row + 1);
+    assert_eq!(caret_line, 14);
+}
+
+#[gpui::test]
+fn debug_test_from_the_ui_stops_only_at_the_persons_breakpoints(cx: &mut TestAppContext) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    t.cmd(cmds::DISCOVER, json!({"rebuild": false})).unwrap();
+    t.wait_phase(Phase::Ready);
+    let adds = format!("{}|u-adds", t.mtp);
+    let out = t.cmd(cmds::DEBUG, json!({"ids": [adds]})).unwrap();
+    let run = out["run"].as_u64().unwrap();
+    // The fake adapter runs the program to its end: nothing stops it without a breakpoint of the person's.
+    t.wait_run_done(run);
+    assert!(
+        t.w.audit()
+            .contains(&eludite_commands::debug::START.to_owned())
+    );
+    // No temporary function breakpoint was set, and the answer names none.
+    t.w.shell.read_with(&t.w.vcx, |s, _| {
+        assert!(
+            s.debugger()
+                .model
+                .breakpoints
+                .function_breakpoints(false)
+                .1
+                .is_empty()
+        );
+        assert_eq!(
+            s.test_runs()
+                .run(run)
+                .unwrap()
+                .debug
+                .as_ref()
+                .unwrap()
+                .breakpoint,
+            None
+        );
+    });
+    assert!(
+        !t.w.audit()
+            .contains(&eludite_commands::debug::TOGGLE_BREAKPOINT.to_owned())
+    );
+    // Tests of two projects: refused with their names.
+    let both = [
+        format!("{}|u-adds", t.mtp),
+        format!("{}|v-greets", t.vstest),
+    ];
+    let out = t.cmd(cmds::DEBUG, json!({"ids": both})).unwrap();
+    let run = out["run"].as_u64().unwrap();
+    assert_eq!(t.wait_run_done(run), RunState::Failed);
+    let message = t.w.shell.read_with(&t.w.vcx, |s, _| {
+        s.test_runs()
+            .run(run)
+            .unwrap()
+            .message
+            .clone()
+            .unwrap_or_default()
+    });
+    assert_eq!(
+        message,
+        "the tests to debug are in 2 projects (Corpus.Tests, Legacy.Tests): debug one project at a time"
+    );
+}
+
+#[gpui::test]
+fn the_tree_has_a_context_menu_keys_group_by_and_a_running_mark(cx: &mut TestAppContext) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    t.cmd(cmds::EXPLORER, json!({})).unwrap();
+    t.wait_phase(Phase::Ready);
+    // The data row sits under its method node.
+    let kinds = row_kinds(&t);
+    let method = kinds
+        .iter()
+        .position(|(l, k)| l == "AddsPairs" && *k == tests_window::RowKind::Method)
+        .expect("the method node");
+    assert_eq!(kinds[method + 1].0, "AddsPairs(a: 1)");
+    // Keyboard: Down from the first row walks the rows; Left collapses, Right expands.
+    t.w.click(&tests_window::row_selector(0));
+    t.w.vcx.simulate_keystrokes("down down");
+    let selected = |t: &Tw| {
+        t.w.shell.read_with(&t.w.vcx, |s, cx| {
+            s.tests_window().read(cx).selected().map(str::to_owned)
+        })
+    };
+    assert_eq!(
+        selected(&t).as_deref(),
+        Some(format!("g:p:{}/Corpus.Tests/CalculatorTests", t.mtp).as_str())
+    );
+    let rows_before = t.rows().len();
+    t.w.vcx.simulate_keystrokes("left");
+    assert!(t.rows().len() < rows_before);
+    t.w.vcx.simulate_keystrokes("right");
+    assert_eq!(t.rows().len(), rows_before);
+    // Right on an expanded node goes to its first child, Adds; F12 goes to the test.
+    t.w.vcx.simulate_keystrokes("right");
+    assert_eq!(selected(&t), Some(format!("t:{}|u-adds", t.mtp)));
+    t.w.vcx.simulate_keystrokes("f12");
+    let source = t.w.path("tests/Corpus.Tests/CalculatorTests.cs");
+    let view = t.w.editor(&source);
+    assert_eq!(
+        view.read_with(&t.w.vcx, |v, _| v.editor().primary_head().row + 1),
+        5
+    );
+    // The context menu on Subtracts: Copy, then Run.
+    let ix = t
+        .rows()
+        .iter()
+        .position(|r| r.contains("Subtracts"))
+        .unwrap();
+    let at = t.w.settled_bounds(&tests_window::row_selector(ix)).center();
+    t.w.vcx
+        .simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+    t.w.vcx
+        .simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+    t.w.vcx.run_until_parked();
+    t.w.click(&tests_window::menu_selector("copy"));
+    assert_eq!(
+        t.w.vcx
+            .read_from_clipboard()
+            .and_then(|c| c.text())
+            .as_deref(),
+        Some("Corpus.Tests.CalculatorTests.Subtracts")
+    );
+    // A run marks its tests running until their results arrive (xunit.v3 reports no in-progress state).
+    t.w.fake.set_hold_test_runs(true);
+    t.w.vcx
+        .simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+    t.w.vcx
+        .simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+    t.w.vcx.run_until_parked();
+    t.w.click(&tests_window::menu_selector("run"));
+    t.w.wait("the held run", |w| w.fake.running_test_run().is_some());
+    assert!(
+        t.rows().contains(&"      Subtracts Running".to_owned()),
+        "{:?}",
+        t.rows()
+    );
+    assert_eq!(
+        t.run_params().pop().unwrap()["containers"],
+        json!([{"id": t.mtp, "tests": ["u-subtracts"]}])
+    );
+    t.w.fake.finish_test_run("completed");
+    t.w.wait("the run's end", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.test_runs().current.is_none())
+    });
+    assert!(
+        t.rows().contains(&"      Subtracts NotRun".to_owned()),
+        "{:?}",
+        t.rows()
+    );
+    // Group By Outcome through the toolbar's menu (the setting test.groupBy).
+    t.w.click(tests_window::GROUP_BY);
+    t.w.click(&tests_window::group_selector(
+        tests_window::GroupBy::Namespace,
+    ));
+    t.w.wait("grouped by namespace", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.tests_window()
+                .read(cx)
+                .rows()
+                .first()
+                .is_some_and(|r| r.label == "Corpus.Tests")
+                && s.test_runs().group_by == "namespace"
+        })
+    });
+    let tops: Vec<String> = t.w.shell.read_with(&t.w.vcx, |s, cx| {
+        s.tests_window()
+            .read(cx)
+            .rows()
+            .iter()
+            .filter(|r| r.depth == 0)
+            .map(|r| r.label.clone())
+            .collect()
+    });
+    assert_eq!(tops, ["Corpus.Tests", "Legacy.Tests"]);
+    // Ctrl+R, F is Run Failed Tests.
+    let km = eludite_ui::vs_keymap();
+    assert!(km.iter().any(|b| b.keystrokes == "ctrl-r f"
+        && b.command == cmds::RUN
+        && b.args == json!({"failed_only": true})));
+}
+
+#[gpui::test]
+fn run_tests_after_build_runs_the_rediscovered_tests_and_the_cache_comes_back_stale(
+    cx: &mut TestAppContext,
+) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    t.cmd(cmds::DISCOVER, json!({"rebuild": false})).unwrap();
+    t.wait_phase(Phase::Ready);
+    t.w.commands
+        .invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "test.runAfterBuild", "value": true}),
+        )
+        .unwrap();
+    t.w.wait("the setting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.test_runs().run_after_build)
+    });
+    let runs = t.run_params().len();
+    t.cmd(eludite_commands::build::SOLUTION, json!({"wait": false}))
+        .unwrap();
+    t.w.wait("the build", |w| w.fake.running_build().is_some());
+    t.w.fake.finish_build("succeeded", json!([]));
+    t.w.wait("the run after the build", |w| {
+        w.fake.received_params("eludite/test/run").len() > runs
+    });
+    let run =
+        t.w.shell
+            .read_with(&t.w.vcx, |s, _| s.test_runs().last_run().unwrap().id);
+    assert_eq!(t.wait_run_done(run), RunState::Failed);
+    // The tree and its outcomes are cached in the workspace's .eludite/tests.json ...
+    let cache = t.w.path(".eludite/tests.json");
+    t.w.wait("the cache", |_| {
+        std::fs::read_to_string(&cache).is_ok_and(|s| s.contains("\"failed\""))
+    });
+    // ... and an empty tree takes it, stale, at the next generation.
+    t.w.shell.update(&mut t.w.vcx, |s, _| {
+        s.tests.projects.clear();
+        s.tests.tests.clear();
+    });
+    t.w.shell.update(&mut t.w.vcx, |s, _| s.load_test_cache());
+    t.w.shell.read_with(&t.w.vcx, |s, _| {
+        let r = s.test_runs();
+        assert!(r.stale);
+        assert_eq!(r.tests.len(), 4);
+        assert_eq!(
+            r.tests
+                .iter()
+                .find(|x| x.runner_id == "u-subtracts")
+                .unwrap()
+                .outcome(),
+            cmds::Outcome::Failed
+        );
+    });
+}
+
+#[gpui::test]
+fn the_workspace_windows_run_tests_runs_a_projects_tests(cx: &mut TestAppContext) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    t.cmd(cmds::DISCOVER, json!({"rebuild": false})).unwrap();
+    t.wait_phase(Phase::Ready);
+    let project = t.w.path("tests/Corpus.Tests/Corpus.Tests.csproj");
+    let (command, args) = super::explorer::context_command("run_tests", &project).expect("an item");
+    assert_eq!(command, cmds::RUN);
+    t.cmd(command, args).unwrap();
+    t.w.wait("the project's run", |w| {
+        !w.fake.received_params("eludite/test/run").is_empty()
+    });
+    let run =
+        t.w.shell
+            .read_with(&t.w.vcx, |s, _| s.test_runs().last_run().unwrap().id);
+    t.wait_run_done(run);
+    assert_eq!(
+        t.run_params().pop().unwrap()["containers"],
+        json!([{"id": t.mtp}])
+    );
+    let (command, _) = super::explorer::context_command("debug_tests", &project).unwrap();
+    assert_eq!(command, cmds::DEBUG);
+}

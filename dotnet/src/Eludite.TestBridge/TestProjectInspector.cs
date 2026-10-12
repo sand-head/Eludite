@@ -8,10 +8,15 @@ namespace Eludite.TestBridge;
 /// <param name="IsExe">An executable (<c>OutputType</c> Exe or WinExe; MTP test projects are).</param>
 public sealed record TestProjectInfo(TestRunnerProtocol Protocol, IReadOnlyList<string> TargetFrameworks, string AssemblyName, bool IsExe);
 
-/// <summary>Decides which test protocol a project will speak by reading its project file.</summary>
+/// <summary>
+/// Decides which test protocol a project will speak by reading its project file alone. Since brief 0076 the host decides
+/// from MSBuild's evaluation (Eludite.Host's <c>TestProjectEvaluator</c>: Directory.Build.props, imports, the evaluated
+/// <c>TargetPath</c>); this is its fallback when MSBuild is not available or a project does not evaluate.
+/// </summary>
 public static class TestProjectInspector
 {
-    private static readonly string[] MtpProperties =
+    /// <summary>The properties that, set to <c>true</c>, make a project an MTP test application.</summary>
+    public static readonly IReadOnlyList<string> MtpProperties =
     [
         "EnableMSTestRunner",
         "EnableNUnitRunner",
@@ -21,13 +26,18 @@ public static class TestProjectInspector
 
     private static readonly string[] MtpPackagePrefixes = ["Microsoft.Testing.Platform", "xunit.v3"];
 
-    private const string VsTestPackage = "Microsoft.NET.Test.Sdk";
+    // Brief 0076: TUnit runs on Microsoft.Testing.Platform only.
+    private static readonly string[] MtpPackages = ["TUnit", "TUnit.Engine", "TUnit.Core"];
+
+    /// <summary>The package of a VSTest test project.</summary>
+    public const string VsTestPackage = "Microsoft.NET.Test.Sdk";
 
     /// <summary>
     /// Returns <see cref="TestRunnerProtocol.MicrosoftTestingPlatform"/> when an MTP runner property is
     /// <c>true</c>, the project uses <c>MSTest.Sdk</c>, or it references a Microsoft.Testing.Platform or
     /// xunit.v3 package; <see cref="TestRunnerProtocol.VsTest"/> when it only references
-    /// <c>Microsoft.NET.Test.Sdk</c> (or sets <c>UseVSTest</c>); null when it is not a test project.
+    /// <c>Microsoft.NET.Test.Sdk</c> (or sets <c>UseVSTest</c>); null when it is not a test project. A <c>TUnit</c>
+    /// package is MTP (brief 0076).
     /// Only this file is inspected; Directory.Build.props and imports are not followed.
     /// </summary>
     /// <exception cref="System.Xml.XmlException">The text is not well-formed XML.</exception>
@@ -76,6 +86,17 @@ public static class TestProjectInspector
         return new TestProjectInfo(protocol, frameworks, assembly, isExe);
     }
 
+    /// <summary>
+    /// True for a package that makes a project a Microsoft.Testing.Platform test application: Microsoft.Testing.Platform*,
+    /// xunit.v3*, and TUnit (<c>TUnit</c>, <c>TUnit.Engine</c>, <c>TUnit.Core</c>).
+    /// </summary>
+    public static bool IsMtpPackage(string packageId)
+    {
+        ArgumentNullException.ThrowIfNull(packageId);
+        return MtpPackagePrefixes.Any(prefix => packageId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            || MtpPackages.Contains(packageId, StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>True for a .NET Framework moniker (<c>net20</c> to <c>net481</c>): no dot after <c>net</c>.</summary>
     public static bool IsNetFramework(string targetFramework)
     {
@@ -108,7 +129,7 @@ public static class TestProjectInspector
         var usesMSTestSdk = ((string?)project.Attribute("Sdk"))?.StartsWith("MSTest.Sdk", StringComparison.OrdinalIgnoreCase) == true;
         if (usesMSTestSdk
             || MtpProperties.Any(p => IsTrue(properties, p))
-            || packages.Any(p => MtpPackagePrefixes.Any(prefix => p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))))
+            || packages.Any(IsMtpPackage))
         {
             return TestRunnerProtocol.MicrosoftTestingPlatform;
         }

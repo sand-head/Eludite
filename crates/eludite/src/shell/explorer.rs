@@ -73,6 +73,10 @@ pub const CONTEXT_ITEMS: [(&str, &str); 6] = [
     ("properties", "Properties"),
 ];
 
+// Brief 0076: Run Tests and Debug Tests on a project (its tests) and on the solution (every test).
+pub const TEST_ITEMS: [(&str, &str); 2] =
+    [("run_tests", "Run Tests"), ("debug_tests", "Debug Tests")];
+
 /// Debug selector of a context menu item (`build`, `rebuild`, `clean`, `startup`, `folder`).
 pub fn context_item_selector(item: &str) -> String {
     format!("se-menu-{item}")
@@ -94,6 +98,9 @@ pub fn context_command(item: &str, path: &Path) -> Option<(&'static str, Value)>
         return Some((command, args));
     }
     Some(match item {
+        // Brief 0076.
+        "run_tests" => (eludite_commands::test::RUN, json!({ "project": p })),
+        "debug_tests" => (eludite_commands::test::DEBUG, json!({ "project": p })),
         "build" => (eludite_commands::build::PROJECT, json!({ "project": p })),
         "rebuild" => (
             eludite_commands::build::PROJECT,
@@ -991,6 +998,17 @@ impl SolutionExplorer {
             cx.notify();
             return;
         }
+        // Brief 0076: Run Tests and Debug Tests on the solution run every test.
+        if row.kind == NodeKind::Solution && TEST_ITEMS.iter().any(|(i, _)| *i == item) {
+            let command = if item == "run_tests" {
+                eludite_commands::test::RUN
+            } else {
+                eludite_commands::test::DEBUG
+            };
+            window.dispatch_action(Box::new(RunCommand::new(command, json!({}))), cx);
+            cx.notify();
+            return;
+        }
         if let Some((command, args)) = context_command(item, &path) {
             window.dispatch_action(Box::new(RunCommand::new(command, args)), cx);
         }
@@ -1037,6 +1055,11 @@ impl SolutionExplorer {
             }
             items
         };
+        // Brief 0076: Run Tests and Debug Tests last on a project and on the solution.
+        let mut entries = entries;
+        if matches!(row.kind, NodeKind::Project { .. } | NodeKind::Solution) {
+            entries.extend(TEST_ITEMS);
+        }
         let file = row.kind.opens_file();
         let dotnet_project = matches!(row.kind, NodeKind::Project { .. });
         let nuget_menu = row.kind.is_dependency() || row.kind == NodeKind::Solution;

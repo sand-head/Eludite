@@ -324,6 +324,32 @@ pub fn vs_menus() -> Vec<Menu> {
                 },
                 Separator,
                 item("Test Explorer", "eludite.test.explorer"),
+                // Brief 0076: code coverage, the results window, the coloring and the run settings.
+                Separator,
+                item(
+                    "Analyze Code Coverage for All Tests",
+                    "eludite.test.coverage",
+                ),
+                MenuEntry::Item {
+                    label: "Analyze Code Coverage for Selected Tests",
+                    command: "eludite.test.coverage",
+                    args: json!({ "selection": true }),
+                },
+                item(
+                    "Windows > Code Coverage Results",
+                    "eludite.test.coverage_window",
+                ),
+                item(
+                    "Show Code Coverage Coloring",
+                    "eludite.test.coverage_coloring",
+                ),
+                Separator,
+                // The setting test.runSettings, on the Options page that also has Run Tests After Build.
+                MenuEntry::Item {
+                    label: "Configure Run Settings > Select Solution Wide runsettings File",
+                    command: "eludite.tools.options",
+                    args: json!({ "section": "Test > General" }),
+                },
             ],
         ),
         menu(

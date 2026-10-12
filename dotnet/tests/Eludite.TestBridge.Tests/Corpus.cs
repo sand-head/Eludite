@@ -8,7 +8,9 @@ namespace Eludite.TestBridge.Tests;
 /// Brief 0035's test corpus (<c>corpus/tests</c>) copied to a temp folder and built there once per test process, with a
 /// generated <c>Corpus.Many</c> project (xunit.v3 on MTP, <see cref="ManyTests"/> facts) for the discovery budget. Shared
 /// by the bridge's and the host's tests (the host's project links this file). Brief 0063 adds the Visual Basic
-/// (<c>.vbproj</c>) and F# (<c>.fsproj</c>) projects; <see cref="Project"/> knows each project's file extension.
+/// (<c>.vbproj</c>) and F# (<c>.fsproj</c>) projects; <see cref="Project"/> knows each project's file extension. Brief
+/// 0076's variants (<c>corpus/tests/Variants</c>) are copied and built in a folder of their own, on first use only
+/// (<see cref="VariantsAsync"/>).
 /// </summary>
 internal static class Corpus
 {
@@ -25,10 +27,22 @@ internal static class Corpus
         ["Corpus.FSharp"] = ".fsproj",
     };
 
+    /// <summary>Brief 0076: the variants' projects in their solution's order (<c>Corpus.Calculator</c> is not a test project).</summary>
+    public static readonly string[] Variants = ["Corpus.PropsDriven", "Corpus.Platform64", "Corpus.Artifacts", "Corpus.Coverage", "Corpus.Coverlet", "Corpus.Calculator"];
+
     private static readonly Lazy<Task<string>> Built = new(BuildAsync);
+
+    private static readonly Lazy<Task<string>> BuiltVariants = new(BuildVariantsAsync);
 
     /// <summary>The folder with the built corpus and its <c>Corpus.slnx</c>.</summary>
     public static Task<string> DirectoryAsync() => Built.Value;
+
+    /// <summary>
+    /// Brief 0076: the folder with the built variants (<c>Variants/</c> beside the corpus's Directory.Build.props and
+    /// Directory.Packages.props) and their <c>Variants/Variants.slnx</c>; <c>Corpus.Platform64</c> is built with
+    /// <c>Platform</c> x64.
+    /// </summary>
+    public static Task<string> VariantsAsync() => BuiltVariants.Value;
 
     /// <summary>The project file (<c>.csproj</c>, <c>.vbproj</c> or <c>.fsproj</c>) of the named corpus project.</summary>
     public static string Project(string root, string name) => Path.Combine(root, name, name + Extension(name));
@@ -108,6 +122,85 @@ internal static class Corpus
         }
 
         return root;
+    }
+
+    /// <summary>Brief 0076: the variants copied beside the corpus's props and built, the x64 one for x64.</summary>
+    private static async Task<string> BuildVariantsAsync()
+    {
+        var source = Source();
+        var root = Path.Combine(Path.GetTempPath(), "eludite-test-variants-" + Guid.NewGuid().ToString("N")[..12]);
+        Directory.CreateDirectory(root);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(root, Path.GetFileName(file)));
+        }
+
+        var variants = Path.Combine(root, "Variants");
+        CopyTree(Path.Combine(source, "Variants"), variants);
+        var slnx = new StringBuilder("<Solution>\n");
+        foreach (var p in Variants)
+        {
+            slnx.Append(CultureInfo.InvariantCulture, $"  <Project Path=\"{p}/{p}.csproj\" />\n");
+        }
+
+        slnx.Append("</Solution>\n");
+        await File.WriteAllTextAsync(Path.Combine(variants, "Variants.slnx"), slnx.ToString());
+
+        // Everything but the x64 project in one build (Corpus.Calculator through its references), then that one for x64.
+        var anyCpu = new StringBuilder("<Solution>\n");
+        foreach (var p in Variants.Where(v => v is not "Corpus.Platform64" and not "Corpus.Calculator"))
+        {
+            anyCpu.Append(CultureInfo.InvariantCulture, $"  <Project Path=\"{p}/{p}.csproj\" />\n");
+        }
+
+        anyCpu.Append("</Solution>\n");
+        await File.WriteAllTextAsync(Path.Combine(variants, "Build.slnx"), anyCpu.ToString());
+        var bound = Budget.Hang(TimeSpan.FromMinutes(10));
+        string[][] builds =
+        [
+            ["build", Path.Combine(variants, "Build.slnx"), "--configuration", "Debug", "--nologo", "-v", "q"],
+            ["build", Path.Combine(variants, "Corpus.Platform64", "Corpus.Platform64.csproj"), "--configuration", "Debug", "-p:Platform=x64", "--nologo", "-v", "q"],
+        ];
+        foreach (var args in builds)
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                var (code, output) = await DotnetAsync(variants, bound, args);
+                if (code == 0)
+                {
+                    break;
+                }
+
+                if (attempt == 1 && output.Contains("NU1301", StringComparison.Ordinal))
+                {
+                    Console.Error.WriteLine($"building the variants hit a NuGet network failure, retrying once:\n{output}");
+                    continue;
+                }
+
+                throw new InvalidOperationException($"building the variants failed ({code}):\n{output}");
+            }
+        }
+
+        return root;
+    }
+
+    private static void CopyTree(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var file in Directory.GetFiles(from))
+        {
+            File.Copy(file, Path.Combine(to, Path.GetFileName(file)));
+        }
+
+        foreach (var dir in Directory.GetDirectories(from))
+        {
+            if (Path.GetFileName(dir) is "bin" or "obj" or "artifacts" or "TestResults")
+            {
+                continue;
+            }
+
+            CopyTree(dir, Path.Combine(to, Path.GetFileName(dir)));
+        }
     }
 
     /// <summary>Runs <c>dotnet</c> in <paramref name="root"/>; the exit code and its output. Killed with its process tree after <paramref name="bound"/>.</summary>

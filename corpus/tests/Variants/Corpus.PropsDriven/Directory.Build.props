@@ -1,0 +1,14 @@
+<Project>
+  <!-- Everything that makes Corpus.PropsDriven a test project is here, not in its project file: IsTestProject, MSTest's
+       runner (an executable on Microsoft.Testing.Platform) and the MSTest package. The file-only inspection sees none
+       of it; MSBuild's evaluation does. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <EnableMSTestRunner>true</EnableMSTestRunner>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MSTest" />
+  </ItemGroup>
+</Project>

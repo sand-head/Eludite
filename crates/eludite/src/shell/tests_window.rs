@@ -34,6 +34,16 @@ use serde_json::{Value, json};
 
 use super::test_runs::{NodeState, Phase, ProjectNode, TestNode};
 
+gpui::actions!(
+    test_explorer,
+    [
+        /// F12 in the Test Explorer: Go To Test (brief 0076).
+        GoToTest,
+        /// Ctrl+C in the Test Explorer: Copy (brief 0076).
+        CopyTests
+    ]
+);
+
 /// Debug selectors.
 pub const RUN_ALL: &str = "test-explorer-run-all";
 pub const RUN: &str = "test-explorer-run";
@@ -455,6 +465,11 @@ pub struct TestExplorer {
 
 impl TestExplorer {
     pub fn new(theme: Theme, cx: &mut Context<Self>) -> Self {
+        // Brief 0076: F12 and Ctrl+C mean Go To Test and Copy in the Test Explorer, over their global bindings.
+        cx.bind_keys([
+            gpui::KeyBinding::new("f12", GoToTest, Some("TestExplorer")),
+            gpui::KeyBinding::new("ctrl-c", CopyTests, Some("TestExplorer")),
+        ]);
         Self {
             theme,
             data: TreeData::default(),
@@ -1283,6 +1298,26 @@ impl TestExplorer {
         )
     }
 
+    /// Copy (the details pane's button): its text to the clipboard.
+    pub fn copy_details(&self, cx: &mut Context<Self>) {
+        let text = self.details_text();
+        if !text.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    /// Open the stack frame on line `ix` of the details pane (a click on it).
+    pub fn open_detail(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((file, line)) = self.details().get(ix).and_then(|l| frame_of(l)) {
+            self.run(
+                eludite_commands::workspace::FILE_OPEN,
+                json!({ "path": file, "line": line }),
+                window,
+                cx,
+            );
+        }
+    }
+
     /// The details pane's copy (its lines joined).
     pub fn details_text(&self) -> String {
         self.details().join("\n")
@@ -1504,20 +1539,16 @@ impl Render for TestExplorer {
                     .whitespace_nowrap();
                 match frame_of(&l) {
                     // Brief 0076: a stack frame opens its file at its line.
-                    Some((file, line)) => el
-                        .text_color(t.accent)
-                        .cursor_pointer()
-                        .hover(|s| s.underline())
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.run(
-                                eludite_commands::workspace::FILE_OPEN,
-                                json!({ "path": file, "line": line }),
-                                window,
-                                cx,
-                            )
-                        }))
-                        .child(SharedString::from(l))
-                        .into_any_element(),
+                    Some(_) => {
+                        el.text_color(t.accent)
+                            .cursor_pointer()
+                            .hover(|s| s.underline())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_detail(ix, window, cx)
+                            }))
+                            .child(SharedString::from(l))
+                            .into_any_element()
+                    }
                     None => el.child(SharedString::from(l)).into_any_element(),
                 }
             })
@@ -1532,6 +1563,12 @@ impl Render for TestExplorer {
             .track_focus(&self.focus)
             .key_context("TestExplorer")
             .on_key_down(cx.listener(Self::tree_key))
+            .on_action(
+                cx.listener(|this, _: &GoToTest, window, cx| this.menu_action("go", window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &CopyTests, window, cx| this.menu_action("copy", window, cx)),
+            )
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, _, cx| {
                 if let Some((y0, h0)) = this.resizing {
                     if e.pressed_button == Some(MouseButton::Left) {
@@ -1605,12 +1642,7 @@ impl Render for TestExplorer {
                             .child(div().flex_1())
                             .child(
                                 toolbar_button(COPY_DETAILS, "Copy", self.selected.is_some(), &t)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        let text = this.details_text();
-                                        if !text.is_empty() {
-                                            cx.write_to_clipboard(ClipboardItem::new_string(text));
-                                        }
-                                    })),
+                                    .on_click(cx.listener(|this, _, _, cx| this.copy_details(cx))),
                             ),
                     )
                     .children(detail_lines),

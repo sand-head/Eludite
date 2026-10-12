@@ -3,7 +3,10 @@
        Microsoft.Testing.Platform, xunit 2 and NUnit on VSTest. All MIT, except NUnit and NUnit3TestAdapter (MIT too).
        FSharp.Core (MIT; brief 0063): the F# SDK's implicit reference takes its version from here under central package
        management, and without one the assembly is never copied beside Corpus.FSharp.dll, so no test loads. The version
-       is the one the pinned SDK (global.json) ships in FSharp/library-packs. -->
+       is the one the pinned SDK (global.json) ships in FSharp/library-packs. Brief 0076's coverage collectors, used by
+       Variants/Corpus.Coverage and Variants/Corpus.Coverlet only: Microsoft.Testing.Extensions.CodeCoverage (Microsoft's
+       .NET Library license, the version MSTest 4.4.1 itself brings, on Microsoft.Testing.Platform 2.4) and
+       coverlet.collector (MIT). -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
@@ -16,5 +19,7 @@
     <PackageVersion Include="NUnit" Version="4.6.1" />
     <PackageVersion Include="NUnit3TestAdapter" Version="6.3.0" />
     <PackageVersion Include="FSharp.Core" Version="10.1.302" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.11.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
   </ItemGroup>
 </Project>

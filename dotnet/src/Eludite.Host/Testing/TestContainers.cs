@@ -5,32 +5,27 @@ namespace Eludite.Host.Testing;
 
 /// <summary>
 /// The test containers of a solution (host-rpc.md, "Tests", Containers): each test project
-/// (<see cref="TestProjectInspector"/>) once per target framework, with its build output.
+/// (<see cref="TestProjectEvaluator"/>, brief 0076) once per target framework, with its build output.
 /// </summary>
 public static class TestContainers
 {
-    /// <summary>The containers of <paramref name="projects"/> (absolute project paths, in solution order).</summary>
-    public static IReadOnlyList<(TestContainer Container, TestContainerInfo Info)> Of(IEnumerable<string> projects, string configuration, Settings settings)
+    /// <summary>The containers of the evaluated test projects <paramref name="projects"/> (in solution order).</summary>
+    public static IReadOnlyList<(TestContainer Container, TestContainerInfo Info)> Of(IEnumerable<TestProjectEvaluation> projects, Settings settings)
     {
         ArgumentNullException.ThrowIfNull(projects);
         ArgumentNullException.ThrowIfNull(settings);
         var list = new List<(TestContainer, TestContainerInfo)>();
-        foreach (var project in projects)
+        foreach (var evaluation in projects)
         {
-            if (TestProjectInspector.Inspect(project) is not { } info)
-            {
-                continue;
-            }
-
-            var dir = Path.GetDirectoryName(project)!;
+            var project = evaluation.Project;
             var name = Path.GetFileNameWithoutExtension(project);
-            var frameworks = info.TargetFrameworks.Count > 0 ? info.TargetFrameworks : ["net10.0"];
-            foreach (var tfm in frameworks)
+            var frameworks = evaluation.Outputs;
+            foreach (var output in frameworks)
             {
+                var tfm = output.TargetFramework;
+                var program = output.Program;
                 var netfx = TestProjectInspector.IsNetFramework(tfm);
-                var mtp = info.Protocol == TestRunnerProtocol.MicrosoftTestingPlatform;
-                var extension = netfx && info.IsExe ? ".exe" : ".dll";
-                var program = Path.Combine(dir, "bin", configuration, tfm, info.AssemblyName + extension);
+                var mtp = evaluation.Protocol == TestRunnerProtocol.MicrosoftTestingPlatform;
                 var runtime = !netfx ? TestRuntime.Dotnet : OperatingSystem.IsWindows() ? TestRuntime.NetFx : TestRuntime.Mono;
                 string? error = null;
                 if (!File.Exists(program))
@@ -48,7 +43,7 @@ public static class TestContainers
 
                 var display = frameworks.Count > 1 ? $"{name} ({tfm})" : name;
                 var id = $"{project}|{tfm}";
-                var container = new TestContainer(id, project, tfm, info.Protocol, program, runtime)
+                var container = new TestContainer(id, project, tfm, evaluation.Protocol, program, runtime)
                 {
                     Name = display,
                     MonoExecutable = settings.Mono,
@@ -56,6 +51,8 @@ public static class TestContainers
                     RunSettings = settings.RunSettings,
                     VsTestConsole = settings.VsTestConsole,
                     Parallel = settings.Parallel,
+                    Coverage = output.Coverage,
+                    CoverageAdapterPath = output.CoverageAdapterPath,
                 };
                 list.Add((container, new TestContainerInfo(id, display, project, tfm, mtp ? "mtp" : "vstest")
                 {
@@ -67,6 +64,7 @@ public static class TestContainers
                     },
                     Program = program,
                     Error = error,
+                    Coverage = CoverageCollection.Name(output.Coverage),
                 }));
             }
         }
@@ -124,6 +122,9 @@ public static class TestContainers
     /// <summary>Where the runners come from for one request.</summary>
     public sealed record Settings(string? Mono, string Dotnet)
     {
+        /// <summary>Brief 0076: the solution platform (<c>x64</c>, <c>Any CPU</c>); null for the projects' default.</summary>
+        public string? Platform { get; init; }
+
         public string? RunSettings { get; init; }
 
         public string? VsTestConsole { get; init; }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build brief 0035's Test Explorer corpus in place, in the Debug configuration the Test Explorer discovers: the six
 # .NET test projects (xunit.v3 for net10.0 and net472 on Microsoft.Testing.Platform, MSTest on Microsoft.Testing.Platform,
-# xunit 2 and NUnit on VSTest; brief 0063's Visual Basic on MSTest and F# on NUnit) and the Cargo package's test
-# executables (`cargo test --no-run`). Needs the .NET SDK
+# xunit 2 and NUnit on VSTest; brief 0063's Visual Basic on MSTest and F# on NUnit), brief 0076's variants under
+# Variants/ (Corpus.Platform64 for Platform x64) and the Cargo package's test executables (`cargo test --no-run`). Needs the .NET SDK
 # pinned in global.json and the Rust toolchain; the net472 build takes the .NET Framework reference assemblies from
 # NuGet off Windows. `--no-cargo` leaves the Cargo package out (a .NET-only machine). Extra arguments go to every
 # `dotnet build`.
@@ -21,6 +21,11 @@ for project in Corpus.XunitV3/Corpus.XunitV3.csproj Corpus.Xunit2/Corpus.Xunit2.
   Corpus.NUnit/Corpus.NUnit.csproj Corpus.VisualBasic/Corpus.VisualBasic.vbproj Corpus.FSharp/Corpus.FSharp.fsproj; do
   "$dotnet" build "$here/$project" --configuration Debug --nologo "$@"
 done
+# Brief 0076: test projects as MSBuild sees them, and code coverage (Corpus.Calculator through its references).
+for project in Corpus.PropsDriven Corpus.Artifacts Corpus.Coverage Corpus.Coverlet; do
+  "$dotnet" build "$here/Variants/$project/$project.csproj" --configuration Debug --nologo "$@"
+done
+"$dotnet" build "$here/Variants/Corpus.Platform64/Corpus.Platform64.csproj" --configuration Debug -p:Platform=x64 --nologo "$@"
 if [ "$with_cargo" = 1 ]; then
   "$cargo" test --no-run --manifest-path "$here/rust/Cargo.toml" --quiet
 fi

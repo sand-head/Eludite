@@ -189,6 +189,13 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             command: "eludite.test.run",
             args: json!({ "repeat_last": true }),
         },
+        // Brief 0076: TestExplorer.RunFailedTests (Ctrl+R, F).
+        KeyBindingSpec {
+            keystrokes: "ctrl-r f",
+            display: "Ctrl+R, F",
+            command: "eludite.test.run",
+            args: json!({ "failed_only": true }),
+        },
     ]
 }
 
