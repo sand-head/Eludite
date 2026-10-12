@@ -117,6 +117,9 @@ public sealed class LspProxy : IAsyncDisposable
     private readonly OpenDocuments _documents = new();
     private readonly DiagnosticsWarmer _warmer;
 
+    // Brief 0079: Razor's HTML projections and the relay of its HTML requests to the shell.
+    private readonly RazorDocuments _razor = new();
+
     // Guarded by _lock.
     private CancellationTokenSource _generationCts = new();
     private long _generation;
@@ -174,6 +177,9 @@ public sealed class LspProxy : IAsyncDisposable
     /// <summary>The warming scheduler (exposed for tests and diagnostics).</summary>
     public DiagnosticsWarmer Warmer => _warmer;
 
+    /// <summary>Brief 0079: the Razor documents' HTML projections (exposed for tests and diagnostics).</summary>
+    public RazorDocuments Razor => _razor;
+
     /// <summary>Warming pulls that returned a report.</summary>
     public long WarmingPullsCompleted => Interlocked.Read(ref _pullsCompleted);
 
@@ -183,6 +189,13 @@ public sealed class LspProxy : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(shell);
         _shell = shell;
         foreach (var method in ForwardedRequests)
+        {
+            var handler = new Func<JsonElement, CancellationToken, Task<JsonElement>>((p, ct) => ForwardRequestAsync(method, p, ct));
+            AddMethod(shell, method, handler);
+        }
+
+        // Brief 0079: the requests Razor documents need beyond the forwarded lists (another brief may add the same).
+        foreach (var method in RazorDocuments.ForwardedRequests.Except(ForwardedRequests))
         {
             var handler = new Func<JsonElement, CancellationToken, Task<JsonElement>>((p, ct) => ForwardRequestAsync(method, p, ct));
             AddMethod(shell, method, handler);
@@ -507,6 +520,13 @@ public sealed class LspProxy : IAsyncDisposable
             uri = _documents.Close(parameters);
             generation = _generation;
             EnqueueNotificationLocked("textDocument/didClose", parameters);
+
+            // Brief 0079: Razor drops its HTML synchronization state for the document, as VS Code's client asks it to.
+            if (RazorDocuments.IsRazor(uri))
+            {
+                _razor.Close(uri!);
+                EnqueueNotificationLocked(RazorDocuments.DocumentClosed, JsonSerializer.SerializeToElement(new { uri }));
+            }
         }
 
         if (uri is not null)
@@ -829,6 +849,7 @@ public sealed class LspProxy : IAsyncDisposable
         // Run off the caller's thread: eludite/host/initialize must not wait for the child process.
         await Task.Yield();
         await NotifyShellAsync("eludite/languageServer/status", new LanguageServerStatus("starting")).ConfigureAwait(false);
+        _razor.Clear(); // Brief 0079: a new server publishes its projections again.
         LanguageServerConnection? connection = null;
         try
         {
@@ -1042,6 +1063,17 @@ public sealed class LspProxy : IAsyncDisposable
         foreach (var method in RelayedServerNotifications)
         {
             AddMethod(upstream, method, new Func<JsonElement, Task>(p => NotifyShellAsync(method, p.Clone())));
+        }
+
+        // Brief 0079: Razor's HTML projections, and its HTML requests relayed to the shell as eludite/razor/html.
+        AddMethod(upstream, RazorDocuments.UpdateHtml, new Func<JsonElement, JsonElement>(_razor.Update));
+        foreach (var method in RazorDocuments.HtmlMethods)
+        {
+            AddMethod(upstream, method, new Func<JsonElement, CancellationToken, Task<JsonElement>>((p, ct) =>
+            {
+                var (generation, _, changed) = CurrentSolution();
+                return _razor.RelayAsync(method, p, _shell, generation, changed, ct);
+            }));
         }
     }
 
