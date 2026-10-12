@@ -107,7 +107,8 @@ public sealed class LspProxy : IAsyncDisposable
 
     private static readonly JsonElement JsonNull = JsonDocument.Parse("null").RootElement.Clone();
 
-    private static readonly string[] SupportedExtensions = [".sln", ".slnx", ".csproj", ".vbproj", ".fsproj"];
+    // Brief 0072: a solution filter (.slnf) opens too.
+    private static readonly string[] SupportedExtensions = [".sln", ".slnx", ".slnf", ".csproj", ".vbproj", ".fsproj"];
 
     private readonly ILanguageServerLauncher? _launcher;
     private readonly TextWriter _log;
@@ -233,7 +234,7 @@ public sealed class LspProxy : IAsyncDisposable
         var full = Path.GetFullPath(path);
         if (!SupportedExtensions.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase))
         {
-            throw HostErrors.BadParams($"{full}: expected a .sln, .slnx, .csproj, .vbproj or .fsproj file");
+            throw HostErrors.BadParams($"{full}: expected a .sln, .slnx, .slnf, .csproj, .vbproj or .fsproj file"); // Brief 0072
         }
 
         if (!File.Exists(full))
@@ -657,7 +658,16 @@ public sealed class LspProxy : IAsyncDisposable
                 return;
             }
 
-            if (extension is ".csproj" or ".vbproj")
+            if (extension == ".slnf")
+            {
+                // Brief 0072: a solution filter is the projects it names of its solution; Roslyn opens them as projects (no F#).
+                var filtered = SolutionProjects.Read(load.Path)
+                    .Where(p => !p.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase))
+                    .Select(p => new Uri(p).AbsoluteUri)
+                    .ToArray();
+                await session.Rpc.NotifyWithParameterObjectAsync("project/open", new { projects = filtered }).ConfigureAwait(false);
+            }
+            else if (extension is ".csproj" or ".vbproj")
             {
                 // Roslyn extension: open individual projects when there is no solution file.
                 await session.Rpc.NotifyWithParameterObjectAsync("project/open", new { projects = new[] { new Uri(load.Path).AbsoluteUri } }).ConfigureAwait(false);

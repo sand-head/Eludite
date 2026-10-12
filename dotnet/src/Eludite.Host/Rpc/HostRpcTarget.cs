@@ -7,6 +7,7 @@ using Eludite.Host.NuGet;
 using Eludite.Host.Projects;
 using Eludite.Host.Resources;
 using Eludite.Host.Sdk;
+using Eludite.Host.Templates;
 using Eludite.Host.Testing;
 using StreamJsonRpc;
 
@@ -35,7 +36,10 @@ public sealed class HostRpcTarget
     /// in-process MSBuild that reloads the solution through <paramref name="languageServer"/> after a write.</param>
     /// <param name="resx">Answers <c>eludite/resx/*</c> (proposal 0005); when null, one on the in-process MSBuild that reloads the
     /// solution through <paramref name="languageServer"/> after a project write.</param>
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null, ProjectPropertiesService? properties = null, ResxService? resx = null)
+    /// <param name="templates">Answers <c>eludite/templates/*</c> (brief 0072); when null, one on the located SDK's template packages.</param>
+    /// <param name="items">Answers <c>eludite/project/addItem</c> and <c>addExisting</c> (brief 0072); when null, one on
+    /// <paramref name="templates"/>' catalog that reloads the solution through <paramref name="languageServer"/> after a project write.</param>
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null, ProjectPropertiesService? properties = null, ResxService? resx = null, TemplateService? templates = null, ItemService? items = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
@@ -47,7 +51,17 @@ public sealed class HostRpcTarget
         Properties = properties ?? new ProjectPropertiesService(LanguageServer.CurrentSolution, () => LanguageServer.Generation, LanguageServer.OpenSolution, log);
         NuGet = nuget ?? new NuGetService(LanguageServer.CurrentSolution, LanguageServer.AdvanceGeneration, log);
         Resx = resx ?? new ResxService(LanguageServer.CurrentSolution, () => LanguageServer.Generation, LanguageServer.OpenSolution, log);
+
+        // Brief 0072: templates and items.
+        Templates = templates ?? new TemplateService(new TemplateCatalog(log: log), log);
+        Items = items ?? new ItemService(Templates.Catalog, LanguageServer.CurrentSolution, LanguageServer.OpenSolution, log);
     }
+
+    /// <summary>The <c>eludite/templates/*</c> service (brief 0072).</summary>
+    public TemplateService Templates { get; }
+
+    /// <summary>The <c>eludite/project/addItem</c> and <c>addExisting</c> service (brief 0072).</summary>
+    public ItemService Items { get; }
 
     /// <summary>The <c>eludite/resx/*</c> service (proposal 0005).</summary>
     public ResxService Resx { get; }
@@ -322,6 +336,35 @@ public sealed class HostRpcTarget
     {
         RequireInitialized();
         return Resx.DesignerAsync(parameters, cancellationToken);
+    }
+
+    // Brief 0072: templates and items.
+    [JsonRpcMethod("eludite/templates/list", UseSingleObjectParameterDeserialization = true)]
+    public Task<TemplatesListResult> TemplatesListAsync(TemplatesListParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Templates.ListAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/templates/create", UseSingleObjectParameterDeserialization = true)]
+    public Task<TemplatesCreateResult> TemplatesCreateAsync(TemplatesCreateParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Templates.CreateAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/project/addItem", UseSingleObjectParameterDeserialization = true)]
+    public Task<ProjectAddItemResult> ProjectAddItemAsync(ProjectAddItemParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Items.AddItemAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/project/addExisting", UseSingleObjectParameterDeserialization = true)]
+    public Task<ProjectAddExistingResult> ProjectAddExistingAsync(ProjectAddExistingParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Items.AddExistingAsync(parameters, cancellationToken);
     }
 
     [JsonRpcMethod("eludite/host/shutdown")]

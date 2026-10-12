@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -38,6 +39,10 @@ public static partial class SolutionProjects
         {
             return File.Exists(full) ? [full] : [];
         }
+        else if (IsSolutionFilter(full))
+        {
+            return ReadFilter(full);
+        }
         else if (full.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
         {
             relative = XDocument.Load(full).Descendants("Project").Select(p => (string?)p.Attribute("Path")).OfType<string>()
@@ -53,6 +58,82 @@ public static partial class SolutionProjects
             .Where(File.Exists)
             .Distinct(StringComparer.Ordinal)
             .ToList();
+    }
+
+    /// <summary>True when <paramref name="path"/> is a solution filter (<c>.slnf</c>, brief 0072).</summary>
+    public static bool IsSolutionFilter(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return path.EndsWith(".slnf", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The solution a solution filter names (<c>{"solution": {"path": ...}}</c>, relative to the filter's folder), full;
+    /// null when the filter does not name one or cannot be read (brief 0072).
+    /// </summary>
+    public static string? FilterSolution(string filterPath)
+    {
+        ArgumentNullException.ThrowIfNull(filterPath);
+        var full = Path.GetFullPath(filterPath);
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(full), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("solution", out var solution)
+                && solution.ValueKind == JsonValueKind.Object
+                && solution.TryGetProperty("path", out var path)
+                && path.ValueKind == JsonValueKind.String
+                && path.GetString() is { Length: > 0 } relative)
+            {
+                return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(full)!, relative.Replace('\\', Path.DirectorySeparatorChar)));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The projects of a solution filter (brief 0072): <c>{"solution": {"path": "&lt;.sln or .slnx relative to the
+    /// filter&gt;", "projects": ["&lt;relative to the solution's folder&gt;"]}}</c>. Only the projects the solution itself
+    /// lists count, in the filter's order; missing ones are skipped.
+    /// </summary>
+    public static IReadOnlyList<string> ReadFilter(string filterPath)
+    {
+        ArgumentNullException.ThrowIfNull(filterPath);
+        var full = Path.GetFullPath(filterPath);
+        if (FilterSolution(full) is not { } solutionPath || IsSolutionFilter(solutionPath) || !File.Exists(solutionPath))
+        {
+            return [];
+        }
+
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var listed = new HashSet<string>(Read(solutionPath), comparer);
+        var solutionDir = Path.GetDirectoryName(solutionPath)!;
+        using var document = JsonDocument.Parse(File.ReadAllText(full), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        if (!document.RootElement.GetProperty("solution").TryGetProperty("projects", out var projects) || projects.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var result = new List<string>();
+        foreach (var project in projects.EnumerateArray())
+        {
+            if (project.ValueKind != JsonValueKind.String || project.GetString() is not { Length: > 0 } relative)
+            {
+                continue;
+            }
+
+            var path = Path.GetFullPath(Path.Combine(solutionDir, relative.Replace('\\', Path.DirectorySeparatorChar)));
+            if (listed.Contains(path) && !result.Contains(path, comparer))
+            {
+                result.Add(path);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>True when the project file is legacy (non-SDK) MSBuild XML: no <c>Sdk</c> attribute or element.</summary>
