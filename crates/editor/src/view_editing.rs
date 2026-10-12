@@ -8,8 +8,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, ClipboardItem, Context, Entity, KeyBinding, MouseButton, MouseDownEvent, Pixels, Point,
-    Stateful, Subscription, Window, actions, prelude::*, px,
+    App, ClipboardItem, Context, Entity, Focusable, KeyBinding, MouseButton, MouseDownEvent,
+    Pixels, Point, SharedString, Stateful, Subscription, Window, actions, div, prelude::*, px,
 };
 
 use super::EditorView;
@@ -57,6 +57,7 @@ actions!(
         ReplaceNext,
         ReplaceAll,
         FindBarPrevious,
+        GoToLine,
     ]
 );
 
@@ -108,6 +109,7 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("secondary-h", QuickReplace, c),
         KeyBinding::new("ctrl-f3", FindNextSelected, c),
         KeyBinding::new("ctrl-shift-f3", FindPreviousSelected, c),
+        KeyBinding::new("ctrl-g", GoToLine, c),
         // The Quick Find bar's own keys, while its boxes have the focus.
         KeyBinding::new("alt-c", super::ToggleFindCaseSensitive, f),
         KeyBinding::new("alt-w", ToggleFindWholeWord, f),
@@ -128,8 +130,35 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
 /// A handler that takes Tab first (a snippet session, brief 0069): true when it handled the key.
 pub type TabHandler = Rc<dyn Fn(&mut EditorView, &mut Window, &mut Context<EditorView>) -> bool>;
 
-/// What right-click asks the owner to show: the window position and the caret offset after the click.
-pub type ContextMenuHandler = Rc<dyn Fn(Point<Pixels>, usize, &mut Window, &mut App)>;
+/// What right-click shows: the owner's items for the caret offset after the click (the shell's code-window menu).
+pub type ContextMenuHandler = Rc<dyn Fn(usize, &App) -> Vec<ContextMenuEntry>>;
+
+/// One row of the editor's context menu. Choosing an item dispatches [`eludite_ui::RunCommand`] with its command.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ContextMenuEntry {
+    Item {
+        label: SharedString,
+        /// As Visual Studio shows it (`Ctrl+K, Ctrl+C`).
+        shortcut: Option<SharedString>,
+        command: SharedString,
+        args: serde_json::Value,
+        enabled: bool,
+    },
+    Separator,
+}
+
+/// The open context menu: where, and its entries.
+pub(crate) struct OpenMenu {
+    pub at: Point<Pixels>,
+    pub entries: Vec<ContextMenuEntry>,
+}
+
+/// The Go To Line dialog's box.
+pub(crate) struct GoToLineDialog {
+    pub input: Entity<TextInput>,
+    pub error: bool,
+    _subscription: Subscription,
+}
 
 /// The view's brief 0068 state.
 #[derive(Default)]
@@ -148,6 +177,8 @@ pub(crate) struct EditingViewState {
     pub history_index: Option<usize>,
     /// Replace All's count, shown until the query changes.
     pub replaced: Option<usize>,
+    pub menu: Option<OpenMenu>,
+    pub go_to_line: Option<GoToLineDialog>,
     pub subscriptions: Vec<Subscription>,
 }
 
@@ -302,8 +333,270 @@ impl EditorView {
         }
         let caret = self.editor.primary_selection().head;
         if let Some(handler) = self.editing.context_menu.clone() {
-            handler(event.position, caret, window, cx);
+            let entries = handler(caret, cx);
+            self.open_context_menu(event.position, entries, cx);
         }
+    }
+
+    /// Show `entries` as the context menu at `at` (window coordinates).
+    pub fn open_context_menu(
+        &mut self,
+        at: Point<Pixels>,
+        entries: Vec<ContextMenuEntry>,
+        cx: &mut Context<Self>,
+    ) {
+        self.editing.menu = (!entries.is_empty()).then_some(OpenMenu { at, entries });
+        cx.notify();
+    }
+
+    /// The context menu's entries while it is open.
+    pub fn context_menu(&self) -> Option<&[ContextMenuEntry]> {
+        self.editing.menu.as_ref().map(|m| m.entries.as_slice())
+    }
+
+    pub fn close_context_menu(&mut self, cx: &mut Context<Self>) {
+        if self.editing.menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Choose context menu item `index`: the menu closes and the item's command runs.
+    pub fn choose_context_item(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(menu) = self.editing.menu.take() else {
+            return;
+        };
+        cx.notify();
+        if let Some(ContextMenuEntry::Item {
+            command,
+            args,
+            enabled: true,
+            ..
+        }) = menu.entries.get(index)
+        {
+            window.dispatch_action(
+                Box::new(eludite_ui::RunCommand::new(command.clone(), args.clone())),
+                cx,
+            );
+        }
+    }
+
+    /// Edit.GoTo (Ctrl+G): Visual Studio's Go To Line dialog over the editor, "Line number (1 - N):", with the caret's
+    /// line selected; Enter goes (clamped), Escape cancels.
+    pub fn open_go_to_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let line = self.editor.primary_head().row + 1;
+        let style = self.style.clone();
+        let input = cx.new(|cx| {
+            let mut input = TextInput::new(false, cx);
+            input.set_style(style, cx);
+            input.set_text(&line.to_string(), cx);
+            input.select_all(cx);
+            input
+        });
+        let sub = cx.subscribe_in(
+            &input,
+            window,
+            |this, input, event, window, cx| match event {
+                crate::input::TextInputEvent::Submit => {
+                    let text = input.read(cx).text();
+                    this.submit_go_to_line(&text, window, cx);
+                }
+                crate::input::TextInputEvent::Escape => this.close_go_to_line(window, cx),
+                crate::input::TextInputEvent::Changed => {
+                    if let Some(d) = this.editing.go_to_line.as_mut() {
+                        d.error = false;
+                    }
+                }
+                _ => {}
+            },
+        );
+        let focus = input.focus_handle(cx);
+        self.editing.go_to_line = Some(GoToLineDialog {
+            input,
+            error: false,
+            _subscription: sub,
+        });
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// The dialog is open.
+    pub fn is_go_to_line_open(&self) -> bool {
+        self.editing.go_to_line.is_some()
+    }
+
+    /// OK: go to the line typed (a number; out of range is clamped). False, and the dialog stays, for a non-number.
+    pub fn submit_go_to_line(
+        &mut self,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Ok(line) = text.trim().parse::<u32>() else {
+            if let Some(d) = self.editing.go_to_line.as_mut() {
+                d.error = true;
+            }
+            cx.notify();
+            return false;
+        };
+        self.movement(cx, |e| e.go_to_line(line));
+        self.close_go_to_line(window, cx);
+        true
+    }
+
+    pub fn close_go_to_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.editing.go_to_line = None;
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    /// The context menu and the Go To Line dialog, drawn over the text.
+    pub(super) fn render_editing_overlays(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Vec<gpui::AnyElement> {
+        let theme = self.style.theme;
+        let mut out = Vec::new();
+        if let Some(menu) = &self.editing.menu {
+            let origin = self
+                .layout
+                .as_ref()
+                .map_or(menu.at, |l| menu.at - l.bounds.origin);
+            let mut rows: Vec<gpui::AnyElement> = Vec::new();
+            for (i, entry) in menu.entries.iter().enumerate() {
+                match entry {
+                    ContextMenuEntry::Separator => rows.push(
+                        div()
+                            .h(px(1.))
+                            .mx_1()
+                            .my_1()
+                            .bg(theme.border)
+                            .into_any_element(),
+                    ),
+                    ContextMenuEntry::Item {
+                        label,
+                        shortcut,
+                        enabled,
+                        ..
+                    } => {
+                        let row = div()
+                            .id(SharedString::from(format!("editor-context-item-{i}")))
+                            .flex()
+                            .flex_row()
+                            .justify_between()
+                            .gap_4()
+                            .px_2()
+                            .py(px(2.))
+                            .min_w(px(240.))
+                            .when(!*enabled, |d| d.text_color(theme.text_disabled))
+                            .when(*enabled, |d| d.hover(|d| d.bg(theme.menu_hover)))
+                            .child(label.clone())
+                            .children(shortcut.clone())
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.choose_context_item(i, window, cx)
+                                }),
+                            );
+                        rows.push(row.into_any_element());
+                    }
+                }
+            }
+            out.push(
+                div()
+                    .id("editor-context-menu")
+                    .absolute()
+                    .left(origin.x)
+                    .top(origin.y)
+                    .py_1()
+                    .bg(theme.menu_background)
+                    .border_1()
+                    .border_color(theme.popup_border)
+                    .text_color(theme.menu_text)
+                    .text_size(theme.typography.ui)
+                    .cursor_default()
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_context_menu(cx)))
+                    .children(rows)
+                    .into_any_element(),
+            );
+        }
+        if let Some(dialog) = &self.editing.go_to_line {
+            let n = self.editor.buffer().line_count();
+            let input = dialog.input.clone();
+            out.push(
+                div()
+                    .id("go-to-line")
+                    .absolute()
+                    .top(px(40.))
+                    .left(px(80.))
+                    .w(px(300.))
+                    .p_2()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .bg(theme.panel)
+                    .border_1()
+                    .border_color(theme.accent)
+                    .text_color(theme.text)
+                    .text_size(theme.typography.ui)
+                    .cursor_default()
+                    .child(SharedString::from("Go To Line"))
+                    .child(SharedString::from(format!("Line number (1 - {n}):")))
+                    .child(
+                        div()
+                            .border_1()
+                            .border_color(if dialog.error {
+                                theme.warning
+                            } else {
+                                theme.border
+                            })
+                            .child(input.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("go-to-line-ok")
+                                    .px_2()
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .child("OK")
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(move |this, _, window, cx| {
+                                            let text = input.read(cx).text();
+                                            this.submit_go_to_line(&text, window, cx);
+                                        }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("go-to-line-cancel")
+                                    .px_2()
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .child("Cancel")
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, window, cx| {
+                                            this.close_go_to_line(window, cx)
+                                        }),
+                                    ),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        out
     }
 
     /// Alt+drag: the (row, visual column) under `position`, columns past a line's end included.
@@ -377,6 +670,9 @@ impl EditorView {
             .on_action(cx.listener(|this, _: &ScrollLineUp, _, cx| this.scroll_lines(-1, cx)))
             .on_action(cx.listener(|this, _: &ScrollLineDown, _, cx| this.scroll_lines(1, cx)))
             .on_action(cx.listener(|this, _: &ExpandSelection, _, cx| this.expand_selection(cx)))
+            .on_action(
+                cx.listener(|this, _: &GoToLine, window, cx| this.open_go_to_line(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &QuickReplace, window, cx| {
                 this.open_find_bar(true, window, cx)
             }))

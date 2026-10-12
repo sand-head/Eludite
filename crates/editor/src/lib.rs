@@ -147,7 +147,7 @@ pub use view::{
     COMPLETION_CONTEXT, COMPLETION_SELECTED_CONTEXT, Decoration, DecorationStyle, EditorStyle,
     EditorView, KEY_CONTEXT, LightbulbKind, SIGNATURES_CONTEXT, default_font_family, key_bindings,
 };
-pub use view::{ContextMenuHandler, FIND_BAR_CONTEXT, TabHandler};
+pub use view::{ContextMenuEntry, ContextMenuHandler, FIND_BAR_CONTEXT, TabHandler};
 /// The text input's actions (context [`INPUT_KEY_CONTEXT`]).
 pub mod input_actions {
     pub use crate::input::{
@@ -178,10 +178,11 @@ pub mod actions {
     pub use crate::view::{
         BoxSelectDown, BoxSelectLeft, BoxSelectRight, BoxSelectUp, CommentSelection,
         ContractSelection, CycleClipboardRing, DeleteHorizontalWhiteSpace, DeleteLine, Duplicate,
-        ExpandSelection, FindNextSelected, FindPreviousSelected, InsertCaretsAtAllMatching,
-        LineCut, MakeLowercase, MakeUppercase, MoveLinesDown, MoveLinesUp, OpenLineAbove,
-        OpenLineBelow, Outdent, QuickReplace, RemoveLastCaret, ReplaceAll, ReplaceNext,
-        ScrollLineDown, ScrollLineUp, SkipOccurrence, ToggleBlockComment, ToggleFindInSelection,
-        ToggleFindRegex, ToggleFindWholeWord, ToggleLineComment, TransposeLine, UncommentSelection,
+        ExpandSelection, FindNextSelected, FindPreviousSelected, GoToLine,
+        InsertCaretsAtAllMatching, LineCut, MakeLowercase, MakeUppercase, MoveLinesDown,
+        MoveLinesUp, OpenLineAbove, OpenLineBelow, Outdent, QuickReplace, RemoveLastCaret,
+        ReplaceAll, ReplaceNext, ScrollLineDown, ScrollLineUp, SkipOccurrence, ToggleBlockComment,
+        ToggleFindInSelection, ToggleFindRegex, ToggleFindWholeWord, ToggleLineComment,
+        TransposeLine, UncommentSelection,
     };
 }

@@ -90,16 +90,7 @@ impl Editor {
         };
         let mut edits = Vec::new();
         for (a, b) in self.row_blocks() {
-            let rows: Vec<u32> = (a..=b)
-                .filter(|&r| !self.buffer.line(r).trim().is_empty())
-                .collect();
-            let Some(indent) = rows.iter().map(|&r| self.indentation_of(r).len()).min() else {
-                continue;
-            };
-            for r in rows {
-                let at = self.line_start(r) + indent;
-                edits.push((at..at, format!("{token} ")));
-            }
+            edits.extend(self.line_comment_insertions(a, b, token));
         }
         self.step(edits, None)
     }
@@ -137,6 +128,27 @@ impl Editor {
         };
         let edits = self.line_comment_removals(token);
         self.step(edits, None)
+    }
+
+    /// `token` and a space at the lowest indentation of rows `a..=b`, on the rows that are not blank.
+    fn line_comment_insertions(&self, a: u32, b: u32, token: &str) -> Vec<(Range<usize>, String)> {
+        let rows: Vec<(u32, usize)> = (a..=b)
+            .filter_map(|r| {
+                let line = self.buffer.line(r);
+                let content = line.trim_start_matches([' ', '\t']);
+                (!content.trim_end().is_empty()).then(|| (r, line.len() - content.len()))
+            })
+            .collect();
+        let Some(indent) = rows.iter().map(|(_, i)| *i).min() else {
+            return Vec::new();
+        };
+        let with = format!("{token} ");
+        rows.into_iter()
+            .map(|(r, _)| {
+                let at = self.line_start(r) + indent;
+                (at..at, with.clone())
+            })
+            .collect()
     }
 
     fn line_comment_removals(&self, token: &str) -> Vec<(Range<usize>, String)> {
@@ -213,16 +225,7 @@ impl Editor {
         } else {
             let mut edits = Vec::new();
             for (a, b) in self.row_blocks() {
-                let rows: Vec<u32> = (a..=b)
-                    .filter(|&r| !self.buffer.line(r).trim().is_empty())
-                    .collect();
-                let Some(indent) = rows.iter().map(|&r| self.indentation_of(r).len()).min() else {
-                    continue;
-                };
-                for r in rows {
-                    let at = self.line_start(r) + indent;
-                    edits.push((at..at, format!("{token} ")));
-                }
+                edits.extend(self.line_comment_insertions(a, b, token));
             }
             self.step(edits, None)
         }

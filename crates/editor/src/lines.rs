@@ -377,6 +377,13 @@ impl Editor {
         self.step(edits, None)
     }
 
+    /// Edit.GoTo's line: the caret at the first non-blank character of 1-based `line` (clamped to the document).
+    pub fn go_to_line(&mut self, line: u32) {
+        let row = line.saturating_sub(1).min(self.buffer.line_count() - 1);
+        let indent = self.indentation_of(row).len();
+        self.set_caret(self.line_start(row) + indent);
+    }
+
     // ----- the Clipboard Ring -----
 
     /// Remember `text` as the newest Clipboard Ring entry (copy and cut call it).
@@ -510,6 +517,17 @@ mod tests {
         let mut e = editor("    [x   =  1;   ]");
         e.delete_horizontal_white_space();
         assert_eq!(e.text(), "    x = 1;");
+    }
+
+    #[test]
+    fn go_to_line_lands_on_the_first_character() {
+        let mut e = editor("a\n    b\nc|");
+        e.go_to_line(2);
+        assert_eq!(marked(&e), "a\n    |b\nc");
+        e.go_to_line(99);
+        assert_eq!(marked(&e), "a\n    b\n|c");
+        e.go_to_line(0);
+        assert_eq!(marked(&e), "|a\n    b\nc");
     }
 
     #[test]

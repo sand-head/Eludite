@@ -17,6 +17,37 @@ use crate::find::FindState;
 use crate::indent::IndentSettings;
 use crate::syntax::editing::{EditingConfig, PLAIN};
 
+/// Above this many edits, [`Editor::step`] applies them as one splice.
+const COALESCE_ABOVE: usize = 64;
+
+/// Where `sels` go through `edits` (sorted, against the same text), as left-biased anchors move: an insertion at a
+/// position goes after it, a position inside a replaced range goes to the range's start.
+fn map_left_biased(
+    sels: &[SelectionRange],
+    edits: &[(Range<usize>, String)],
+) -> Vec<SelectionRange> {
+    let map = |offset: usize| -> usize {
+        let mut delta: isize = 0;
+        for (r, t) in edits {
+            if r.start >= offset {
+                break;
+            }
+            if r.end <= offset {
+                delta += t.len() as isize - r.len() as isize;
+            } else {
+                return (r.start as isize + delta) as usize;
+            }
+        }
+        (offset as isize + delta) as usize
+    };
+    sels.iter()
+        .map(|s| SelectionRange {
+            tail: map(s.tail),
+            head: map(s.head),
+        })
+        .collect()
+}
+
 /// The Clipboard Ring's size (Visual Studio keeps 20).
 pub const CLIPBOARD_RING_SIZE: usize = 20;
 
@@ -145,6 +176,18 @@ impl Editor {
             .filter(|(r, t)| !(r.is_empty() && t.is_empty()))
             .collect();
         debug_assert!(edits.windows(2).all(|w| w[0].0.end <= w[1].0.start));
+        // Many small edits (a block of lines) go to the buffer as one: the rope applies one splice far faster than a
+        // thousand. Selections then cannot follow as anchors through the splice, so they are mapped here first, as a
+        // left-biased anchor would move.
+        let (edits, selections) = if edits.len() > COALESCE_ABOVE {
+            let selections = selections.or_else(|| {
+                let sels = self.selections();
+                Some((map_left_biased(&sels, &edits), self.primary))
+            });
+            (self.coalesce(edits), selections)
+        } else {
+            (edits, selections)
+        };
         if edits.is_empty() {
             if let Some((sels, primary)) = selections {
                 self.set_selections(sels, primary);
@@ -166,6 +209,26 @@ impl Editor {
             self.history.insert(id, (before, self.selections.clone()));
         }
         true
+    }
+
+    /// `edits` (sorted, not overlapping) as one edit over their span.
+    fn coalesce(&self, edits: Vec<(Range<usize>, String)>) -> Vec<(Range<usize>, String)> {
+        let (Some(first), Some(last)) = (edits.first(), edits.last()) else {
+            return edits;
+        };
+        let span = first.0.start..last.0.end;
+        let original = self.buffer.text_for_range(span.clone());
+        let mut out = String::with_capacity(
+            original.len() + edits.iter().map(|(_, t)| t.len()).sum::<usize>(),
+        );
+        let mut at = span.start;
+        for (r, t) in &edits {
+            out.push_str(&original[at - span.start..r.start - span.start]);
+            out.push_str(t);
+            at = r.end;
+        }
+        out.push_str(&original[at - span.start..]);
+        vec![(span, out)]
     }
 
     /// The leading spaces and tabs of row `row`.

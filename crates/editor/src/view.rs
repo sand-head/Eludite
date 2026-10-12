@@ -101,11 +101,11 @@ mod editing;
 #[path = "find_bar.rs"]
 mod find_bar;
 pub use editing::{
-    BoxSelectDown, BoxSelectLeft, BoxSelectRight, BoxSelectUp, CommentSelection,
+    BoxSelectDown, BoxSelectLeft, BoxSelectRight, BoxSelectUp, CommentSelection, ContextMenuEntry,
     ContextMenuHandler, ContractSelection, CycleClipboardRing, DeleteHorizontalWhiteSpace,
     DeleteLine, Duplicate, ExpandSelection, FIND_BAR_CONTEXT, FindNextSelected,
-    FindPreviousSelected, InsertCaretsAtAllMatching, LineCut, MakeLowercase, MakeUppercase,
-    MoveLinesDown, MoveLinesUp, OpenLineAbove, OpenLineBelow, Outdent, QuickReplace,
+    FindPreviousSelected, GoToLine, InsertCaretsAtAllMatching, LineCut, MakeLowercase,
+    MakeUppercase, MoveLinesDown, MoveLinesUp, OpenLineAbove, OpenLineBelow, Outdent, QuickReplace,
     RemoveLastCaret, ReplaceAll, ReplaceNext, ScrollLineDown, ScrollLineUp, SkipOccurrence,
     TabHandler, ToggleBlockComment, ToggleFindInSelection, ToggleFindRegex, ToggleFindWholeWord,
     ToggleLineComment, TransposeLine, UncommentSelection,
@@ -374,6 +374,10 @@ impl EditorView {
             lenses: CodeLenses::default(),
             editing: editing::EditingViewState::default(),
         };
+        // The language's comment tokens, brackets and indent rules (brief 0068).
+        if let Some(l) = &this.syntax.language {
+            this.editor.set_language_editing(l.editing());
+        }
         this.schedule_highlight(cx);
         this
     }
@@ -1155,8 +1159,10 @@ impl Render for EditorView {
             .find_bar_open
             .then(|| self.render_find_bar(cx).into_any_element());
         let popups = self.render_popups(window, cx);
+        let overlays = self.render_editing_overlays(cx);
         el.child(EditorElement { view: cx.entity() })
             .children(find_bar)
+            .children(overlays)
             .children(popups)
     }
 }
