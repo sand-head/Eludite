@@ -131,7 +131,7 @@ pub fn attach_plan(
                 "type": "coreclr",
                 "request": "attach",
                 "processId": pid,
-                "justMyCode": true,
+                "justMyCode": crate::options::just_my_code(), // Brief 0077: debugger.justMyCode.
             }),
         ),
         AttachAdapter::Mono => {

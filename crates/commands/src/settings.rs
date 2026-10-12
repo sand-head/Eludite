@@ -671,6 +671,11 @@ mod tests {
                 "debugger.allowAgentsByDefault",
                 "debugger.launchBrowser",
                 "debugger.attachBrowser",
+                // Brief 0077.
+                "debugger.justMyCode",
+                "debugger.enablePropertyEvaluation",
+                "debugger.showExternalCode",
+                "debugger.hexadecimalDisplay",
                 "debugger.nodePath",
                 "debugger.jsDebugPath",
                 "languageServers.rustAnalyzerPath",

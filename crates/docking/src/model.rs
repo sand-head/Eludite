@@ -64,6 +64,13 @@ pub mod ids {
     pub const THREADS: &str = "threads";
     pub const BREAKPOINTS: &str = "breakpoints";
     pub const EXCEPTION_SETTINGS: &str = "exception_settings";
+    /// Brief 0077: Watch 2 to 4, Autos, Immediate and Modules, closed until shown, tabbed at the bottom.
+    pub const WATCH_2: &str = "watch_2";
+    pub const WATCH_3: &str = "watch_3";
+    pub const WATCH_4: &str = "watch_4";
+    pub const AUTOS: &str = "autos";
+    pub const IMMEDIATE: &str = "immediate";
+    pub const MODULES: &str = "modules";
     /// Test > Test Explorer (brief 0035): closed until shown, docked left as Visual Studio docks it.
     pub const TEST_EXPLORER: &str = "test_explorer";
     /// Git > Manage Branches, Ctrl+0, Ctrl+R (brief 0040): the Git Repository window, closed until shown, docked at
@@ -161,6 +168,13 @@ impl ToolWindowRegistry {
             (ids::FIND_RESULTS_2, "Find Results 2", DockSide::Bottom),
             (ids::PULL_REQUESTS, "Pull Requests", DockSide::Right),
             (ids::ISSUES, "Issues", DockSide::Right),
+            // Brief 0077.
+            (ids::WATCH_2, "Watch 2", DockSide::Bottom),
+            (ids::WATCH_3, "Watch 3", DockSide::Bottom),
+            (ids::WATCH_4, "Watch 4", DockSide::Bottom),
+            (ids::AUTOS, "Autos", DockSide::Bottom),
+            (ids::IMMEDIATE, "Immediate Window", DockSide::Bottom),
+            (ids::MODULES, "Modules", DockSide::Bottom),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }

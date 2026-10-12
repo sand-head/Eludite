@@ -72,6 +72,17 @@ pub mod state;
 #[cfg(test)]
 mod tests;
 pub mod windows;
+// Brief 0077: the inspection windows and helpers.
+pub mod autos;
+pub mod breakpoint_settings;
+pub mod datatips;
+pub mod exception_helper;
+pub mod immediate;
+pub mod inspect;
+#[cfg(test)]
+mod inspect_tests;
+pub mod modules;
+pub mod quickwatch;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -495,6 +506,9 @@ impl DebugMenuState {
             | cmds::STEP_OUT
             | cmds::RUN_TO_CURSOR
             | cmds::SET_NEXT_STATEMENT => self.in_break.load(Relaxed),
+            // Brief 0077: Show Next Statement and QuickWatch need a break.
+            eludite_commands::debug_inspect::SHOW_NEXT_STATEMENT
+            | eludite_commands::debug_inspect::QUICKWATCH => self.in_break.load(Relaxed),
             cmds::PAUSE => self.running.load(Relaxed),
             cmds::STOP => self.live.load(Relaxed),
             _ => true,
@@ -821,6 +835,8 @@ enum EvalTarget {
         expression: String,
         expand: bool,
     },
+    // Brief 0077: an Immediate window line.
+    Immediate,
 }
 
 enum Pending {
@@ -926,6 +942,12 @@ enum Pending {
         reply: oneshot::Sender<Result<Value, String>>,
     },
     Other,
+    // Brief 0077: the inspection windows' requests (Watch 2 to 4, Autos, QuickWatch, DataTips, threads' locations).
+    Inspect {
+        generation: u64,
+        stop: u64,
+        target: inspect::Target,
+    },
 }
 
 /// A line a tracepoint printed (brief 0026): which point, its hit, when, and for an emulated one what the stop cost.
@@ -1196,6 +1218,8 @@ pub struct Debugger {
     pub attach_browser: bool,
     /// The `browser` entries of the start being applied (brief 0038; they become their sessions').
     start_browsers: Vec<cmds::BrowserEntry>,
+    /// Brief 0077: the inspection windows' and helpers' state.
+    pub inspect: inspect::Inspect,
 }
 
 impl Debugger {
@@ -1276,6 +1300,8 @@ impl Debugger {
                 attach_browser: true,
                 start_browsers: Vec::new(),
                 test_launch: None,
+                // Brief 0077.
+                inspect: inspect::Inspect::default(),
             },
             rx,
         )
@@ -4173,6 +4199,10 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(DebugOutput, Option<Follow>), CommandError> {
+        // Brief 0077: the inspection commands.
+        if let DebugRequest::Inspect(r) = request {
+            return self.apply_inspect(r, caller, agent, window, cx);
+        }
         // What acts on no single session, or on every one.
         match &request {
             DebugRequest::Sessions => {
@@ -4392,6 +4422,8 @@ impl Shell {
         };
         let follow = match request {
             DebugRequest::Sessions => unreachable!("answered by apply_debug"),
+            // Brief 0077.
+            DebugRequest::Inspect(_) => unreachable!("answered by apply_debug"),
             DebugRequest::State => {
                 self.refresh_debug(cx);
                 return Ok((self.debug_state(), None));
@@ -6253,6 +6285,10 @@ impl Shell {
     /// Visual Studio's Debug layout the first time: Locals and Watch beside the Error List and Output, Call Stack and
     /// Breakpoints in a second group at the bottom. A layout the user changed is left alone.
     fn show_debug_windows(&mut self) {
+        // Brief 0077: the Debug layout the person kept, when there is one.
+        if self.inspect_layout_start() {
+            return;
+        }
         let c = &self.controller;
         let hidden = |id: &str| {
             c.all_states()
@@ -6596,6 +6632,8 @@ impl Shell {
                     },
                     None,
                 ),
+                // Brief 0077: the Immediate window's lines.
+                (EvalContext::Repl, _) => (EvalTarget::Immediate, None),
                 _ => {
                     d.console_line(format!("> {expression}"));
                     (EvalTarget::Console, None)
@@ -6833,6 +6871,11 @@ impl Shell {
                     cx,
                 );
                 true
+            }
+            // Brief 0077: the glyph's menu and tooltip.
+            EditorEvent::BreakpointMarginContext { .. }
+            | EditorEvent::BreakpointMarginHovered { .. } => {
+                self.inspect_on_editor_event(id, event, cx)
             }
             EditorEvent::HoverTriggered { offset } if self.debug.model.mode == Mode::Break => {
                 let Some(doc) = self.documents.get(id) else {
@@ -7158,6 +7201,8 @@ impl Shell {
             }
         };
         self.status.set(DEBUG_SLOT, status);
+        // Brief 0077: the inspection windows, the helpers and the layouts.
+        self.refresh_inspect(cx);
         // Waiting agents re-check whether the state settled, and wait again if not.
         for w in self.debug.waiters.drain(..) {
             let _ = w.send(());
@@ -7810,6 +7855,10 @@ impl Shell {
                     },
                 );
             }
+            // Brief 0077: the Modules window.
+            Event::Other { event, body } if event == "module" => {
+                self.on_module_event(&event, &body)
+            }
             Event::Continued(_) | Event::Thread(_) | Event::Initialized | Event::Other { .. } => {}
         }
     }
@@ -8110,6 +8159,8 @@ impl Shell {
                         e.exception_id,
                         e.description.map(|d| format!(": {d}")).unwrap_or_default()
                     ));
+                    // Brief 0077: the exception helper.
+                    self.exception_helper_answer(cx);
                 }
             }
             Pending::SetBreakpoints {
@@ -8188,6 +8239,12 @@ impl Shell {
                     }
                 }
             }
+            // Brief 0077: the inspection windows' answers (stale ones are dropped there).
+            Pending::Inspect {
+                generation,
+                stop,
+                target,
+            } => self.on_inspect_response(generation, stop, target, result, cx),
             // An answer for an older session or stop: dropped (CLAUDE.md invariant 12). An agent waiting on it hears
             // that it is stale.
             Pending::Eval {
@@ -8467,27 +8524,14 @@ impl Shell {
                 };
                 self.debug.console_line(line);
             }
+            // Brief 0077: a DataTip tree instead of one line of Quick Info; a failure shows no tip.
             EvalTarget::Hover {
                 doc,
                 id,
                 expression,
-            } => {
-                if let Some(d) = self.documents.get(&doc) {
-                    let text = match r {
-                        Ok(e) => format!(
-                            "{expression} = {}{}",
-                            cmds::null_spelling(e.result),
-                            e.type_name
-                                .filter(|t| !t.is_empty())
-                                .map(|t| format!("  ({t})"))
-                                .unwrap_or_default()
-                        ),
-                        Err(m) => m,
-                    };
-                    d.view
-                        .update(cx, |v, cx| v.set_hover(id, Some(&text), None, cx));
-                }
-            }
+            } => self.datatip_answer(doc, id, expression, r, cx),
+            // Brief 0077.
+            EvalTarget::Immediate => self.immediate_answer(r, cx),
             EvalTarget::Agent {
                 reply,
                 expression,

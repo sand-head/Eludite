@@ -905,6 +905,16 @@ impl EditorView {
             cx.emit(EditorEvent::BreakpointMarginClicked { row });
             return;
         }
+        // Brief 0077: the glyph's menu.
+        if event.button == MouseButton::Right
+            && let Some(row) = self.margin_row(event.position)
+        {
+            cx.emit(EditorEvent::BreakpointMarginContext {
+                row,
+                position: event.position,
+            });
+            return;
+        }
         if event.button == MouseButton::Left
             && let Some(bulb) = self.lightbulb_bounds()
             && bulb.contains(&event.position)
@@ -968,6 +978,12 @@ impl EditorView {
         }
         if event.pressed_button.is_none() {
             self.hover_mouse_moved(event.position, cx);
+        }
+        // Brief 0077: the glyph's tooltip follows the margin row under the mouse.
+        let margin = self.margin_row(event.position);
+        if margin != self.popups.margin_hover {
+            self.popups.margin_hover = margin;
+            cx.emit(EditorEvent::BreakpointMarginHovered { row: margin });
         }
         if !self.dragging || event.pressed_button != Some(MouseButton::Left) {
             return;

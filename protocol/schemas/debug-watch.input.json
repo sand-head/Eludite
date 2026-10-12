@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-watch.input.json",
   "title": "eludite.debug.watch input",
-  "description": "Add an expression to the Watch window or remove one. Watch values are evaluated in the selected frame at every break.",
+  "description": "Add, remove, edit or move an expression of a Watch window (Watch 1 to 4; brief 0077). Watch values are evaluated in the selected frame at every break. Give exactly one of `add`, `remove`, `edit` and `move`.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -20,6 +20,51 @@
       "description": "The index of the watch to remove (0 is the first row).",
       "type": "integer",
       "minimum": 0
+    },
+    "window": {
+      "description": "Which Watch window (brief 0077): 1 to 4, default 1. Watch 1's expressions persist per solution and are the state's `watches`.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4
+    },
+    "edit": {
+      "description": "Replace an expression in place (F2 or a double click on its name).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "expression"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The row (0 is the first)."
+        },
+        "expression": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "move": {
+      "description": "Move a row (a drag in the window).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "to": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   }
 }

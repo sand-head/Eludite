@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-enable-breakpoints.input.json",
+  "title": "eludite.debug.enable_breakpoints input",
+  "description": "Enable or disable breakpoints (brief 0077): with `all`, every line and function breakpoint (Debug > Enable All Breakpoints, Disable All Breakpoints); otherwise the breakpoint at `path` and `line` (default: the active document's caret line), toggled when `enabled` is absent (Ctrl+F9, Debug.EnableBreakpoint). Answers the state.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "all": {
+      "type": "boolean"
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Required with `all`."
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

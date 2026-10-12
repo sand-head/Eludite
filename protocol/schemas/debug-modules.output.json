@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-modules.output.json",
+  "title": "eludite.debug.modules output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "modules",
+    "total"
+  ],
+  "properties": {
+    "modules": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The adapter's module id."
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "optimized": {
+            "type": "boolean"
+          },
+          "user_code": {
+            "type": "boolean"
+          },
+          "symbol_status": {
+            "type": "string",
+            "description": "As the adapter words it (`Symbols loaded.`, `Skipped loading symbols.`)."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Modules loaded; more than `modules` lists when over 2,000."
+    }
+  }
+}

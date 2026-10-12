@@ -103,6 +103,10 @@ pub(crate) struct Popups {
     hover_timer: Option<(usize, Task<()>)>,
     /// The offset the last mouse hover was asked for.
     mouse_hover: Option<usize>,
+    // Brief 0077: the owner's popups (exception helper, DataTips, Breakpoint Settings) and the margin row under the
+    // mouse.
+    pub(crate) anchored: Vec<crate::anchored::AnchoredPopup>,
+    pub(crate) margin_hover: Option<u32>,
 }
 
 impl Default for Popups {
@@ -117,6 +121,9 @@ impl Default for Popups {
             identifier_task: None,
             hover_timer: None,
             mouse_hover: None,
+            // Brief 0077.
+            anchored: Vec::new(),
+            margin_hover: None,
         }
     }
 }
@@ -1071,7 +1078,7 @@ impl EditorView {
 
     /// Window position of the top-left corner of the character at `offset` at the current scroll position, if its row
     /// is in view.
-    fn popup_origin(&self, offset: usize) -> Option<Point<Pixels>> {
+    pub(crate) fn popup_origin(&self, offset: usize) -> Option<Point<Pixels>> {
         let l = self.layout.as_ref()?;
         let buffer = self.editor.buffer();
         let p = buffer.offset_to_point(offset);
@@ -1208,6 +1215,8 @@ impl EditorView {
                 .into_any_element(),
             );
         }
+        // Brief 0077: the owner's anchored popups.
+        out.extend(self.render_anchored(lh));
         out
     }
 

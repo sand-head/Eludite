@@ -39,6 +39,8 @@ pub mod discovery;
 #[cfg(feature = "fake")]
 pub mod fake;
 pub mod launch;
+// Brief 0077: Tools > Options > Debugging > General (Just My Code).
+pub mod options;
 pub mod processes;
 pub mod record;
 #[cfg(feature = "replay")]

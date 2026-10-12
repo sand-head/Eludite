@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-quickwatch.input.json",
+  "title": "eludite.debug.quickwatch input",
+  "description": "Visual Studio's QuickWatch (Shift+F9; brief 0077): open the QuickWatch dialog on an expression and evaluate it in the selected frame (context `watch`). Needs break mode. Answers like eludite.debug.evaluate (`pending` from the UI; the value once it arrives for an agent).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "expression": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Default: the active document's selection, else the expression at the caret."
+    }
+  }
+}

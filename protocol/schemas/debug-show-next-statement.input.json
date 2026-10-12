@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-show-next-statement.input.json",
+  "title": "eludite.debug.show_next_statement input",
+  "description": "Visual Studio's Debug > Show Next Statement (Alt+Num*; brief 0077): select the stopped thread's top frame, open its document at the statement the debuggee runs next, and reopen the exception helper at an exception stop. Needs break mode. Answers the state.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

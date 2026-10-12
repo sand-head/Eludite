@@ -28,7 +28,7 @@ const PROGRAM_CS: &str = "class Program\n{\n    static void Main()\n    {\n     
 const CALC_CS: &str = "class Calc\n{\n    public static int Add(int a, int b)\n    {\n        var sum = a + b;\n        return sum;\n    }\n}\n";
 
 /// The fake adapter's program over the test solution's files: Main (lines 5 to 8) calls Calc.Add (lines 5 and 6).
-fn program(dir: &Path) -> FakeProgram {
+pub(super) fn program(dir: &Path) -> FakeProgram {
     let p = |rel: &str| {
         normalize_path(&dir.join(rel))
             .to_string_lossy()
@@ -78,7 +78,7 @@ fn program(dir: &Path) -> FakeProgram {
 }
 
 /// The Output window's Debug source (brief 0020).
-fn debug_output(d: &Dbg) -> Vec<String> {
+pub(super) fn debug_output(d: &Dbg) -> Vec<String> {
     d.w.shell.read_with(&d.w.vcx, |s, cx| {
         s.output()
             .read(cx)
@@ -87,14 +87,14 @@ fn debug_output(d: &Dbg) -> Vec<String> {
     })
 }
 
-fn state_of(w: &Ws) -> Value {
+pub(super) fn state_of(w: &Ws) -> Value {
     w.shell.read_with(&w.vcx, |s, _| {
         serde_json::to_value(s.debugger().model.state()).unwrap()
     })
 }
 
-struct Dbg {
-    w: Ws,
+pub(super) struct Dbg {
+    pub(super) w: Ws,
     /// The fake of the latest session.
     fake: Arc<Mutex<Option<FakeHandle>>>,
     /// Every session's fake, with the process id it reports (brief 0028's several sessions).
@@ -104,11 +104,11 @@ struct Dbg {
 
 /// The test solution as an executable project that is built, the debugger reaching the fake adapter, and
 /// breakpoints persisting under a temporary directory.
-fn setup(cx: &mut TestAppContext) -> Dbg {
+pub(super) fn setup(cx: &mut TestAppContext) -> Dbg {
     setup_with(cx, |_| {})
 }
 
-fn setup_with(
+pub(super) fn setup_with(
     cx: &mut TestAppContext,
     tweak: impl Fn(&mut FakeProgram) + Send + Sync + 'static,
 ) -> Dbg {
@@ -212,7 +212,7 @@ impl Dbg {
         });
     }
 
-    fn fake(&self) -> FakeHandle {
+    pub(super) fn fake(&self) -> FakeHandle {
         self.fake
             .lock()
             .unwrap()
@@ -221,7 +221,11 @@ impl Dbg {
     }
 
     /// Run a command from the UI (the test thread is the UI thread), as a key or a window does.
-    fn cmd(&mut self, command: &str, args: Value) -> Result<Value, eludite_commands::CommandError> {
+    pub(super) fn cmd(
+        &mut self,
+        command: &str,
+        args: Value,
+    ) -> Result<Value, eludite_commands::CommandError> {
         let r = self.w.shell.update_in(&mut self.w.vcx, |s, window, cx| {
             s.invoke(command, args, window, cx)
         });
@@ -229,17 +233,17 @@ impl Dbg {
         r
     }
 
-    fn state(&mut self) -> Value {
+    pub(super) fn state(&mut self) -> Value {
         self.cmd(cmds::STATE, json!({})).unwrap()
     }
 
-    fn mode(&self) -> Mode {
+    pub(super) fn mode(&self) -> Mode {
         self.w
             .shell
             .read_with(&self.w.vcx, |s, _| s.debugger().model.mode)
     }
 
-    fn wait_mode(&mut self, mode: Mode) {
+    pub(super) fn wait_mode(&mut self, mode: Mode) {
         self.w.wait(&format!("mode {mode:?}"), |w| {
             w.shell
                 .read_with(&w.vcx, |s, _| s.debugger().model.mode == mode)
@@ -247,7 +251,7 @@ impl Dbg {
     }
 
     /// Wait for break mode with the locals loaded.
-    fn wait_break(&mut self, stop: u64) {
+    pub(super) fn wait_break(&mut self, stop: u64) {
         self.w.wait(&format!("break {stop}"), |w| {
             w.shell.read_with(&w.vcx, |s, _| {
                 let m = &s.debugger().model;
@@ -256,7 +260,11 @@ impl Dbg {
         });
     }
 
-    fn open(&mut self, rel: &str, line: u32) -> gpui::Entity<eludite_editor::EditorView> {
+    pub(super) fn open(
+        &mut self,
+        rel: &str,
+        line: u32,
+    ) -> gpui::Entity<eludite_editor::EditorView> {
         self.cmd(
             eludite_commands::workspace::FILE_OPEN,
             json!({"path": rel, "line": line}),
@@ -266,7 +274,7 @@ impl Dbg {
         self.w.editor(&path)
     }
 
-    fn locals(&self) -> Vec<(String, String)> {
+    pub(super) fn locals(&self) -> Vec<(String, String)> {
         self.w.shell.read_with(&self.w.vcx, |s, cx| {
             s.debugger()
                 .windows
@@ -291,7 +299,7 @@ impl Dbg {
         view.read_with(&self.w.vcx, |v, _| v.execution_point())
     }
 
-    fn top_line(&mut self) -> (String, u64) {
+    pub(super) fn top_line(&mut self) -> (String, u64) {
         let s = self.state();
         (
             format!(
@@ -307,7 +315,7 @@ impl Dbg {
     }
 
     /// Start under the fake, run once to the first breakpoint.
-    fn start_and_break(&mut self) {
+    pub(super) fn start_and_break(&mut self) {
         self.w.vcx.simulate_keystrokes("f5");
         self.wait_mode(Mode::Running);
         self.fake().trigger();
@@ -629,17 +637,17 @@ fn f5_breaks_with_windows_populated_steps_move_the_line_and_stop_tears_down(
     program.update(&mut d.w.vcx, |_, cx| {
         cx.emit(EditorEvent::HoverTriggered { offset })
     });
+    // Brief 0077: the data tip is a tree (Name, Value, Type) in its own popup, no longer a line of Quick Info.
     d.w.wait("the data tip", |w| {
-        program
-            .read_with(&w.vcx, |v, _| v.hover().and_then(|h| h.text))
-            .is_some()
+        program.read_with(&w.vcx, |v, _| v.anchored_popups().contains(&"datatip"))
     });
-    assert_eq!(
-        program
-            .read_with(&d.w.vcx, |v, _| v.hover().and_then(|h| h.text))
-            .as_deref(),
-        Some("order = {Order}  (Order)")
-    );
+    let tip = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        let (_, _, panel) = s.debugger().inspect.datatip_panel.clone().unwrap();
+        let tree = panel.read(cx).tree.clone();
+        let r = tree.read(cx).rows()[0].clone();
+        (r.name, r.value, r.type_name)
+    });
+    assert_eq!(tip, ("order".into(), "{Order}".into(), "Order".into()));
     assert_eq!(d.fake().last("evaluate").unwrap()["context"], "hover");
 
     // Shift+F5: the session ends, the windows and the margin forget the stop.
@@ -3002,7 +3010,7 @@ fn debug_ring(d: &Dbg) -> Vec<String> {
 }
 
 /// Type `text` into the focused box, as keys.
-fn type_text(d: &mut Dbg, text: &str) {
+pub(super) fn type_text(d: &mut Dbg, text: &str) {
     let keys: Vec<String> = text
         .chars()
         .map(|c| match c {
@@ -3367,7 +3375,7 @@ fn function_breakpoints_bind_by_name_and_stop(cx: &mut TestAppContext) {
 }
 
 /// Program.cs line 7 throws a handled `FormatException`, line 8 a handled `InvalidOperationException`.
-fn throwing(p: &mut FakeProgram) {
+pub(super) fn throwing(p: &mut FakeProgram) {
     let main = p.steps[0].path.clone();
     let mut a = FakeStep::new(&main, 7, "App.Program.Main()", 0, vec![]);
     a.throws = Some(eludite_dap::fake::FakeThrow::new(

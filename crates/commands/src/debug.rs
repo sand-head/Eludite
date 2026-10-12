@@ -990,6 +990,8 @@ pub enum DebugRequest {
     },
     /// The live sessions (brief 0028).
     Sessions,
+    // Brief 0077: Show Next Statement, Modules, QuickWatch, Enable Breakpoints and the Watch 2 to 4 edits.
+    Inspect(crate::debug_inspect::InspectRequest),
 }
 
 impl DebugRequest {
@@ -1022,6 +1024,8 @@ impl DebugRequest {
             DebugRequest::Restart { .. } => RESTART,
             DebugRequest::AllowAgents { .. } => ALLOW_AGENTS,
             DebugRequest::Sessions => SESSIONS,
+            // Brief 0077.
+            DebugRequest::Inspect(r) => r.command(),
         }
     }
 
@@ -1983,6 +1987,8 @@ pub enum DebugOutput {
     Processes(ProcessesOutput),
     AllowAgents(AllowAgentsOutput),
     Sessions(SessionsOutput),
+    // Brief 0077: the Modules window's rows.
+    Modules(crate::debug_inspect::ModulesOutput),
 }
 
 impl DebugOutput {
@@ -2001,6 +2007,8 @@ impl DebugOutput {
             DebugOutput::Processes(p) => serde_json::to_value(p),
             DebugOutput::AllowAgents(a) => serde_json::to_value(a),
             DebugOutput::Sessions(s) => serde_json::to_value(s),
+            // Brief 0077.
+            DebugOutput::Modules(m) => serde_json::to_value(m),
         }
         .expect("debug outputs serialize")
     }
@@ -2096,6 +2104,11 @@ struct SelectFrameIn {
 struct WatchIn {
     add: Option<String>,
     remove: Option<usize>,
+    // Brief 0077: Watch 2 to 4, in-place edits and moves.
+    window: Option<usize>,
+    edit: Option<Value>,
+    #[serde(rename = "move")]
+    mv: Option<Value>,
 }
 
 #[derive(Deserialize, Default)]
@@ -2671,6 +2684,12 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
         }
         WATCH => {
             let i: WatchIn = input(value)?;
+            // Brief 0077: Watch 2 to 4, `edit` and `move` are inspection requests.
+            if let Some(r) =
+                crate::debug_inspect::parse_watch(i.window, i.add.clone(), i.remove, i.edit, i.mv)?
+            {
+                return Ok(DebugRequest::Inspect(r));
+            }
             match (i.add, i.remove) {
                 (Some(e), None) if !e.trim().is_empty() => DebugRequest::AddWatch(e),
                 (None, Some(ix)) => DebugRequest::RemoveWatch(ix),
@@ -3173,6 +3192,16 @@ pub fn register(registry: &CommandRegistry, target: Arc<dyn DebugTarget>) {
         registry.replace_with_escalation(spec(id), escalation(id), move |input| {
             let (session, request) = parse_with_session(id, input)?;
             target.apply(session, request).map(|out| out.to_json())
+        });
+    }
+    // Brief 0077: the inspection commands, applied to the same target.
+    for id in crate::debug_inspect::ALL {
+        let target = target.clone();
+        registry.replace(crate::debug_inspect::spec(id), move |input| {
+            let request = crate::debug_inspect::parse(id, input)?;
+            target
+                .apply(None, DebugRequest::Inspect(request))
+                .map(|out| out.to_json())
         });
     }
 }

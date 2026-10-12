@@ -247,6 +247,17 @@ impl Shell {
         self.debug.set_attach_browser(applied.attach_browser);
         self.debug.set_node_path(applied.node.clone());
         self.debug.set_js_debug_path(applied.js_debug.clone());
+        // Brief 0077: Tools > Options > Debugging > General.
+        let inspect = {
+            let s = self.settings.lock();
+            super::debug::inspect::InspectSettings {
+                just_my_code: s.bool("debugger.justMyCode"),
+                property_evaluation: s.bool("debugger.enablePropertyEvaluation"),
+                show_external_code: s.bool("debugger.showExternalCode"),
+                hexadecimal: s.bool("debugger.hexadecimalDisplay"),
+            }
+        };
+        self.inspect_apply_settings(inspect, cx);
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
         self.launches.settings = applied.server_settings.clone();
         self.launches.node = applied.language_node.clone();

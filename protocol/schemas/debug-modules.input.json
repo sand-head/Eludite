@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-modules.input.json",
+  "title": "eludite.debug.modules input",
+  "description": "The Modules window's rows (brief 0077): the modules the active session's debug adapter reported loaded (DAP `module` events), in load order. Read only; allowed in any mode (empty with no session).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

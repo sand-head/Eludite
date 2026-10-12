@@ -172,6 +172,34 @@
       "x-eludite-section": "Debugging > General",
       "x-eludite-label": "Debug the page's JavaScript when a web project starts"
     },
+    "debugger.justMyCode": {
+      "description": "Enable Just My Code (brief 0077): the debugger steps over and does not break in code that is not the person's (framework and NuGet assemblies without symbols); passed as `justMyCode` to the debug adapter at launch and attach. Applies to the next session.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Enable Just My Code"
+    },
+    "debugger.enablePropertyEvaluation": {
+      "description": "Enable property evaluation and other implicit function calls (brief 0077): the Locals, Watch, Autos and DataTips show property values, which runs their getters in the debuggee. Kept for adapters that take the option (netcoredbg evaluates properties always).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Enable property evaluation and other implicit function calls"
+    },
+    "debugger.showExternalCode": {
+      "description": "Show External Code (brief 0077): the Call Stack lists frames without source (framework, native) one by one; off, consecutive ones are one [External Code] row, as Visual Studio shows them with Just My Code.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Show External Code in the Call Stack"
+    },
+    "debugger.hexadecimalDisplay": {
+      "description": "Hexadecimal Display (brief 0077): integers in the Locals, Watch, Autos, QuickWatch and DataTips are shown as 0x...; the variables windows' context menu toggles it.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Hexadecimal display"
+    },
     "debugger.nodePath": {
       "description": "The Node.js executable vscode-js-debug runs on (brief 0038; version 18 or later). Empty: `node` on PATH, then Volta's (`~/.volta/bin/node`), nvm's default (`~/.nvm/alias/default`) and fnm's default (`~/.local/share/fnm/aliases/default`, `~/.fnm/aliases/default`). Located, never bundled. Applies to the next session.",
       "type": "string",

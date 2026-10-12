@@ -238,6 +238,8 @@ pub struct FakeProgram {
     pub exit_at_end: Option<i64>,
     /// Serve as vscode-js-debug's session of a page target (brief 0038; [`listen_js_debug`] sets it): this target.
     pub js_debug: Option<JsTarget>,
+    /// Brief 0077: DAP `Module`s sent as `module` events (reason `new`) right after the `process` event.
+    pub modules: Vec<Value>,
 }
 
 /// The page target a fake vscode-js-debug child session debugs (brief 0038).
@@ -262,6 +264,8 @@ impl Default for FakeProgram {
             extra_capabilities: Value::Null,
             exit_at_end: None,
             js_debug: None,
+            // Brief 0077.
+            modules: Vec::new(),
         }
     }
 }
@@ -957,6 +961,10 @@ impl Machine {
                     json!({"name": "dotnet", "systemProcessId": pid,
                            "isLocalProcess": true, "startMethod": method}),
                 );
+                // Brief 0077: the loaded modules.
+                for m in self.program.modules.clone() {
+                    self.event("module", json!({"reason": "new", "module": m}));
+                }
                 self.respond(seq, command, Ok(json!({})));
                 let set: Vec<(String, i64, i64)> = self
                     .breakpoints

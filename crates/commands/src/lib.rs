@@ -53,6 +53,8 @@ pub mod build;
 pub mod builtins;
 mod caller;
 pub mod debug;
+// Brief 0077: the debugger's inspection commands (Show Next Statement, Modules, QuickWatch, Enable Breakpoints).
+pub mod debug_inspect;
 pub mod diagnostics;
 pub mod files;
 pub mod forge;

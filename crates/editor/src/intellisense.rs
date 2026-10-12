@@ -84,6 +84,16 @@ pub enum EditorEvent {
     BreakpointMarginClicked {
         row: u32,
     },
+    // Brief 0077: the margin's right click (the glyph's menu) and the row under the mouse (the glyph's tooltip).
+    /// The breakpoint margin of `row` was right-clicked at window `position`: the owner opens the glyph's menu.
+    BreakpointMarginContext {
+        row: u32,
+        position: gpui::Point<gpui::Pixels>,
+    },
+    /// The mouse entered the breakpoint margin of `row`, or left the margin (`None`).
+    BreakpointMarginHovered {
+        row: Option<u32>,
+    },
     /// The document's lenses are wanted (brief 0052): it was opened, edited [`CODE_LENS_DEBOUNCE`] ago, or refreshed.
     /// The owner asks its server(s) and answers with [`crate::EditorView::set_code_lenses`] quoting `id`; an answer
     /// for another id, or computed on text the person has changed since, is dropped.

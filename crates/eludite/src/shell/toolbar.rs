@@ -36,6 +36,8 @@ pub const RESTART_BUTTON: &str = "toolbar-restart";
 pub const STEP_OVER_BUTTON: &str = "toolbar-step-over";
 pub const STEP_INTO_BUTTON: &str = "toolbar-step-into";
 pub const STEP_OUT_BUTTON: &str = "toolbar-step-out";
+// Brief 0077: Show Next Statement, before the steps as in Visual Studio's Debug toolbar.
+pub const SHOW_NEXT_STATEMENT_BUTTON: &str = "toolbar-show-next-statement";
 pub const BUILD_BUTTON: &str = "toolbar-build";
 pub const AGENTS_BUTTON: &str = "toolbar-agents";
 
@@ -364,6 +366,13 @@ impl Shell {
                 json!({}),
             ))
             .child(separator())
+            // Brief 0077.
+            .child(button(
+                SHOW_NEXT_STATEMENT_BUTTON,
+                "\u{27A1}",
+                eludite_commands::debug_inspect::SHOW_NEXT_STATEMENT,
+                json!({}),
+            ))
             .child(button(
                 STEP_OVER_BUTTON,
                 "Step Over",

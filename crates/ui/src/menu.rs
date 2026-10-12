@@ -287,6 +287,9 @@ pub fn vs_menus() -> Vec<Menu> {
                 // Set Next Statement (brief 0026): only where the debug adapter has gotoTargets; the command refuses it
                 // otherwise, naming the adapter.
                 item("Set Next Statement", "eludite.debug.set_next_statement"),
+                // Brief 0077: Show Next Statement and QuickWatch.
+                item("Show Next Statement", "eludite.debug.show_next_statement"),
+                item("QuickWatch...", "eludite.debug.quickwatch"),
                 Separator,
                 item("Toggle Breakpoint", "eludite.debug.toggle_breakpoint"),
                 // New Breakpoint > Function Breakpoint (brief 0026): the Breakpoints window, whose name box sets one.
@@ -296,6 +299,17 @@ pub fn vs_menus() -> Vec<Menu> {
                     command: "eludite.debug.toggle_breakpoint",
                     args: json!({ "action": "delete_all" }),
                 },
+                // Brief 0077: Enable All Breakpoints and Disable All Breakpoints.
+                MenuEntry::Item {
+                    label: "Enable All Breakpoints",
+                    command: "eludite.debug.enable_breakpoints",
+                    args: json!({ "all": true, "enabled": true }),
+                },
+                MenuEntry::Item {
+                    label: "Disable All Breakpoints",
+                    command: "eludite.debug.enable_breakpoints",
+                    args: json!({ "all": true, "enabled": false }),
+                },
                 Separator,
                 show("Windows > Breakpoints", "breakpoints"),
                 show("Windows > Exception Settings", "exception_settings"),
@@ -303,6 +317,13 @@ pub fn vs_menus() -> Vec<Menu> {
                 show("Windows > Locals", "locals"),
                 show("Windows > Call Stack", "call_stack"),
                 show("Windows > Threads", "threads"),
+                // Brief 0077.
+                show("Windows > Watch 2", "watch_2"),
+                show("Windows > Watch 3", "watch_3"),
+                show("Windows > Watch 4", "watch_4"),
+                show("Windows > Autos", "autos"),
+                show("Windows > Immediate", "immediate"),
+                show("Windows > Modules", "modules"),
             ],
         ),
         menu(

@@ -459,6 +459,55 @@ pub struct ProcessEvent {
     pub system_process_id: Option<i64>,
 }
 
+// Brief 0077: the Modules window. `module` events stay `Event::Other` (so no match on `Event` changes); the shell decodes
+// them with `ModuleEvent::decode`.
+/// A DAP `Module`: what the Modules window lists.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Module {
+    /// A number or a string in DAP; kept as text.
+    #[serde(deserialize_with = "id_text")]
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_optimized: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_user_code: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_file_path: Option<String>,
+}
+
+fn id_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(match Value::deserialize(d)? {
+        Value::String(s) => s,
+        Value::Null => String::new(),
+        other => other.to_string(),
+    })
+}
+
+/// A `module` event: `reason` is `new`, `changed` or `removed`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ModuleEvent {
+    pub reason: String,
+    pub module: Module,
+}
+
+impl ModuleEvent {
+    /// The event of an [`Event::Other`] named `module`, if its body decodes.
+    pub fn decode(event: &str, body: &Value) -> Option<ModuleEvent> {
+        (event == "module")
+            .then(|| serde_json::from_value(body.clone()).ok())
+            .flatten()
+    }
+}
+
 /// An adapter event, decoded.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -517,6 +566,31 @@ impl Event {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // Brief 0077.
+    #[test]
+    fn module_events_decode_with_numeric_or_text_ids() {
+        let e = Event::decode(
+            "module",
+            json!({"reason": "new", "module": {"id": 3, "name": "App.dll", "path": "/p/App.dll",
+                   "isOptimized": false, "isUserCode": true, "symbolStatus": "Symbols loaded."}}),
+        );
+        let Event::Other { event, body } = e else {
+            panic!("module events stay Other")
+        };
+        let m = ModuleEvent::decode(&event, &body).unwrap();
+        assert_eq!(m.reason, "new");
+        assert_eq!(m.module.id, "3");
+        assert_eq!(m.module.is_user_code, Some(true));
+        assert_eq!(m.module.symbol_status.as_deref(), Some("Symbols loaded."));
+        let m = ModuleEvent::decode(
+            "module",
+            &json!({"reason": "removed", "module": {"id": "{a-b}", "name": "X"}}),
+        )
+        .unwrap();
+        assert_eq!(m.module.id, "{a-b}");
+        assert!(ModuleEvent::decode("loadedSource", &json!({})).is_none());
+    }
 
     #[test]
     fn decodes_netcoredbg_shapes() {

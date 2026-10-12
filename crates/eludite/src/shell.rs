@@ -849,6 +849,8 @@ impl Shell {
             )
             .detach();
         }
+        // Brief 0077: the inspection windows' events.
+        debug::inspect::subscribe(&debugger.windows, cx);
         let mut status = StatusBar::vs_default();
         status.add_slot(SOLUTION_SLOT, SlotAlign::Left);
         status.add_slot(build::BUILD_SLOT, SlotAlign::Left);
@@ -2359,6 +2361,8 @@ impl Render for Shell {
             .children(self.configuration_manager_overlay())
             .children(self.debug.attach_dialog.clone())
             .children(self.debug.startup_dialog.clone())
+            // Brief 0077.
+            .children(self.debug.inspect.quickwatch_dialog.clone())
             .children(self.code_actions.menu.clone())
             .children(self.search.dialog.clone())
             .children(self.forge.signin.clone())

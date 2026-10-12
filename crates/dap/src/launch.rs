@@ -522,7 +522,7 @@ impl LaunchConfig {
             "cwd": self.cwd.to_string_lossy(),
             "env": self.env,
             "stopAtEntry": false,
-            "justMyCode": true,
+            "justMyCode": crate::options::just_my_code(), // Brief 0077: debugger.justMyCode.
         })
     }
 
@@ -539,7 +539,7 @@ impl LaunchConfig {
             "runtimeExecutable": mono.to_string_lossy(),
             "runtimeArgs": [],
             "stopAtEntry": false,
-            "justMyCode": true,
+            "justMyCode": crate::options::just_my_code(), // Brief 0077: debugger.justMyCode.
         })
     }
 

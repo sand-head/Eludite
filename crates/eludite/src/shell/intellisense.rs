@@ -834,6 +834,9 @@ impl Shell {
             ),
             // Handled by the debugger above (brief 0018).
             EditorEvent::BreakpointMarginClicked { .. } => {}
+            // Brief 0077: the glyph's menu and tooltip (handled by the debugger above).
+            EditorEvent::BreakpointMarginContext { .. }
+            | EditorEvent::BreakpointMarginHovered { .. } => {}
             // CodeLens (brief 0052).
             EditorEvent::CodeLensRequested { id: request } => {
                 self.request_code_lenses(id, *request, cx)

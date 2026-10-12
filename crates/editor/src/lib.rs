@@ -109,6 +109,8 @@
 //! lines are shaped whole, find is ASCII case-insensitive only, and files
 //! must be UTF-8.
 
+// Brief 0077: popups the owner supplies, anchored under a line.
+mod anchored;
 mod buffer;
 mod codelens;
 mod debugging;
