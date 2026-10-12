@@ -64,3 +64,26 @@ removed (the composition the unpatched pin produces): the server accepts `projec
 `Completed (re)load of 1 project(s)` but never `Successfully completed load of ...VisualBasic.vbproj` (the loader
 returned `null` at line 291), and `textDocument/diagnostic` on the `.vb` document stays empty until the test gives up
 after three minutes. Nothing is logged about the dropped project.
+
+## Razor (brief 0079, ADR-0015)
+
+Nothing is added for Razor: at the pinned commit dotnet/razor lives in dotnet/roslyn (`src/Razor/`), and the server
+project references `Microsoft.VisualStudioCode.RazorExtension` as a runtime dependency ("Ship the VS Code Razor
+entrypoint as a real runtime dependency"). The build output therefore already holds the Razor cohost extension and
+its dependencies (`Microsoft.VisualStudioCode.RazorExtension.dll`, `Microsoft.CodeAnalysis.Razor.Workspaces.dll`,
+`Microsoft.CodeAnalysis.Remote.Razor.dll`, `Microsoft.CodeAnalysis.Razor.Compiler.dll`,
+`Microsoft.CodeAnalysis.ExternalAccess.RazorCompiler.dll`, `Microsoft.AspNetCore.Razor.Utilities.Shared.dll`) and the
+design-time targets in `Targets/` (`Microsoft.NET.Sdk.Razor.DesignTime.targets`,
+`Microsoft.CSharpExtension.DesignTime.targets`, `Rules/`), which `LanguageServerProjectLoader` passes to Razor
+projects as `RazorDesignTimeTargets`. `LanguageServerExportProviderBuilder` composes the extension unconditionally,
+so no `--extension` argument is passed. Anything that packages the server must ship the whole output folder,
+`Targets/` included.
+
+What the host does with it is `protocol/schemas/host-rpc.md`, "Razor": `.razor` and `.cshtml` documents are opened
+with the language id `aspnetcorerazor`, Razor's `razor/updateHtml` projections are kept by the host, and its HTML
+requests are relayed to the shell (`eludite/razor/html`). Measured by `dotnet/tests/Eludite.Host.Tests/RazorTests.cs`
+on `corpus/web/blazor-app` through the real host: C# completion in `@code` (999 items), the `Counter` component after
+`<`, its `IncrementAmount` parameter, `@bind` and `@onclick` on an element, hover (`(field) int
+Counter.currentCount`), go to definition from `<Counter` to `Counter.razor`, CS0029 inside `@code` by pull, and Format
+Document re-indenting a code block with every statement kept. Warm completion in `@code`: p50 58 ms, p95 96 ms over 50
+runs on a 4-core Linux machine (Debug host).
