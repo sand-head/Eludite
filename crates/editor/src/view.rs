@@ -95,6 +95,22 @@ actions!(
     ]
 );
 
+// Brief 0068: the editing operations' actions, keys and listeners, and the Quick Find bar.
+#[path = "view_editing.rs"]
+mod editing;
+#[path = "find_bar.rs"]
+mod find_bar;
+pub use editing::{
+    BoxSelectDown, BoxSelectLeft, BoxSelectRight, BoxSelectUp, CommentSelection,
+    ContextMenuHandler, ContractSelection, CycleClipboardRing, DeleteHorizontalWhiteSpace,
+    DeleteLine, Duplicate, ExpandSelection, FIND_BAR_CONTEXT, FindNextSelected,
+    FindPreviousSelected, InsertCaretsAtAllMatching, LineCut, MakeLowercase, MakeUppercase,
+    MoveLinesDown, MoveLinesUp, OpenLineAbove, OpenLineBelow, Outdent, QuickReplace,
+    RemoveLastCaret, ReplaceAll, ReplaceNext, ScrollLineDown, ScrollLineUp, SkipOccurrence,
+    TabHandler, ToggleBlockComment, ToggleFindInSelection, ToggleFindRegex, ToggleFindWholeWord,
+    ToggleLineComment, TransposeLine, UncommentSelection,
+};
+
 /// The key context the bindings below are scoped to.
 pub const KEY_CONTEXT: &str = "Editor";
 
@@ -176,6 +192,8 @@ pub fn key_bindings() -> Vec<KeyBinding> {
     .into_iter()
     // The text box's keys (brief 0057), in its own context.
     .chain(crate::input::bindings())
+    // The editing operations (brief 0068), bound last so they win over the older bindings of the same keys.
+    .chain(editing::bindings())
     .collect()
 }
 
@@ -314,6 +332,8 @@ pub struct EditorView {
     emmet: bool,
     /// CodeLens rows (brief 0052).
     pub(crate) lenses: CodeLenses,
+    /// The editing operations' state (brief 0068).
+    editing: editing::EditingViewState,
 }
 
 impl EditorView {
@@ -352,6 +372,7 @@ impl EditorView {
             execution: None,
             emmet: false,
             lenses: CodeLenses::default(),
+            editing: editing::EditingViewState::default(),
         };
         this.schedule_highlight(cx);
         this
@@ -632,12 +653,6 @@ impl EditorView {
     }
 
     fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
-        if self.find_bar_open {
-            let mut q = self.editor.find_query().clone();
-            q.text.pop();
-            self.set_find_text(q, cx);
-            return;
-        }
         if self.read_only {
             return;
         }
@@ -648,11 +663,8 @@ impl EditorView {
 
     /// Tab: expand an Emmet abbreviation before the caret in an HTML or CSS document (brief 0050), else indent. With
     /// the completion list open, Tab accepts the selected item instead (its own binding).
-    fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.read_only && self.expand_emmet(cx) {
-            return;
-        }
-        self.edit(cx, Editor::tab);
+    fn tab(&mut self, _: &Tab, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch_tab(window, cx);
     }
 
     /// Turn Emmet expansion on Tab on or off (the setting `editor.emmet`); it applies only to languages with an Emmet
@@ -704,16 +716,10 @@ impl EditorView {
     }
 
     fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
-        if self.find_bar_open {
-            self.movement(cx, |e| {
-                e.find_next();
-            });
-            return;
-        }
         self.edit(cx, Editor::newline);
     }
 
-    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+    fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         // Escape closes the innermost IntelliSense popup first, as in Visual Studio.
         if self.popups.completion.is_some() {
             self.close_completion(cx);
@@ -728,29 +734,14 @@ impl EditorView {
             return;
         }
         if self.find_bar_open {
-            self.find_bar_open = false;
-            cx.notify();
+            self.close_find_bar(window, cx);
             return;
         }
         self.movement(cx, Editor::collapse_to_primary);
     }
 
-    fn find(&mut self, _: &Find, _: &mut Window, cx: &mut Context<Self>) {
-        self.find_bar_open = true;
-        // Seed the query with a single-line selection, as Visual Studio does.
-        let sel = self.editor.primary_selection();
-        if !sel.is_empty() {
-            let text = self.editor.buffer().text_for_range(sel.range());
-            if !text.contains('\n') {
-                let q = FindQuery {
-                    text,
-                    case_sensitive: self.editor.find_query().case_sensitive,
-                };
-                self.editor.set_find_query(q);
-            }
-        }
-        self.recount_find_matches();
-        cx.notify();
+    fn find(&mut self, _: &Find, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_find_bar(false, window, cx);
     }
 
     fn toggle_case(&mut self, _: &ToggleFindCaseSensitive, _: &mut Window, cx: &mut Context<Self>) {
@@ -761,6 +752,7 @@ impl EditorView {
 
     /// Find as you type: search again from the start of the current match.
     fn set_find_text(&mut self, query: FindQuery, cx: &mut Context<Self>) {
+        self.editing.replaced = None;
         let start = self.editor.primary_selection().start();
         self.editor.set_find_query(query);
         self.editor.set_caret(start);
@@ -772,12 +764,7 @@ impl EditorView {
     }
 
     fn recount_find_matches(&mut self) {
-        let len = self.editor.buffer().len();
-        self.find_match_count = if self.editor.find_query().text.is_empty() {
-            0
-        } else {
-            self.editor.find_matches(0..len).len()
-        };
+        self.find_match_count = self.editor.find_match_count();
     }
 
     pub fn is_find_bar_open(&self) -> bool {
@@ -785,7 +772,8 @@ impl EditorView {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        cx.write_to_clipboard(ClipboardItem::new_string(self.editor.selected_text()));
+        // A box's rows are remembered as a block, and the Clipboard Ring keeps the text (brief 0068).
+        cx.write_to_clipboard(ClipboardItem::new_string(self.editor.copy_selection()));
     }
 
     fn cut(&mut self, _: &Cut, _: &mut Window, cx: &mut Context<Self>) {
@@ -801,21 +789,16 @@ impl EditorView {
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) {
-            self.edit(cx, |e| e.paste(&text));
+            self.edit(cx, |e| e.paste_text(&text));
         }
     }
 
     fn insert_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        if self.find_bar_open {
-            let mut q = self.editor.find_query().clone();
-            q.text.push_str(text);
-            self.set_find_text(q, cx);
-            return;
-        }
         if self.read_only {
             return;
         }
-        self.editor.insert(text);
+        // Brace completion, the box's virtual space and smart indent of closers (brief 0068).
+        self.editor.type_text(text);
         self.changed(cx);
         self.after_typing(text, cx);
     }
@@ -943,6 +926,19 @@ impl EditorView {
         };
         let m = event.modifiers;
         let add = m.control && m.alt;
+        // Alt+drag starts a box selection (brief 0068).
+        if m.alt
+            && !m.control
+            && !m.shift
+            && kind == ClickKind::Single
+            && let Some(at) = self.box_point(event.position)
+        {
+            self.editor.select_box(at, at);
+            self.dragging = true;
+            self.moved(cx);
+            self.after_other_change(cx);
+            return;
+        }
         // Ctrl+click is Go To Definition in Visual Studio: place the caret, then ask the owner to navigate.
         let go_to_definition =
             m.control && !m.alt && !m.shift && !m.platform && event.click_count <= 1;
@@ -970,6 +966,13 @@ impl EditorView {
             self.hover_mouse_moved(event.position, cx);
         }
         if !self.dragging || event.pressed_button != Some(MouseButton::Left) {
+            return;
+        }
+        if let Some(b) = self.editor.box_selection()
+            && let Some(at) = self.box_point(event.position)
+        {
+            self.editor.select_box(b.anchor, at);
+            self.moved(cx);
             return;
         }
         if let Some(offset) = self.offset_for_position(event.position) {
@@ -1110,6 +1113,7 @@ impl Render for EditorView {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll));
+        let el = self.bind_editing(el, cx);
         let el = bind!(el, cx,
             MoveLeft => |e| e.move_left(false), movement;
             MoveRight => |e| e.move_right(false), movement;
@@ -1147,28 +1151,9 @@ impl Render for EditorView {
             Undo => |e| e.undo(), edit;
             Redo => |e| e.redo(), edit;
         );
-        let find_bar = self.find_bar_open.then(|| {
-            let q = self.editor.find_query();
-            let theme = &self.style.theme;
-            div()
-                .absolute()
-                .top_0()
-                .right(px(16.))
-                .px_2()
-                .py_1()
-                .bg(theme.panel)
-                .border_1()
-                .border_color(theme.accent)
-                .text_color(theme.text)
-                .text_size(theme.typography.ui)
-                .child(SharedString::from(format!(
-                    "Find: {}{}   {} match{}",
-                    q.text,
-                    if q.case_sensitive { "  [Aa]" } else { "" },
-                    self.find_match_count,
-                    if self.find_match_count == 1 { "" } else { "es" },
-                )))
-        });
+        let find_bar = self
+            .find_bar_open
+            .then(|| self.render_find_bar(cx).into_any_element());
         let popups = self.render_popups(window, cx);
         el.child(EditorElement { view: cx.entity() })
             .children(find_bar)

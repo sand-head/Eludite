@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-select.input.json",
+  "title": "eludite.editor.select input",
+  "description": "Set a document's selections, so the other operations apply to them: ranges (the last one is primary), or a box (rectangular) selection between two corners. Exactly one of ranges and box.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "ranges": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "line",
+          "column"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "line": {
+            "description": "1-based line of the start (the anchor).",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based column (characters) of the start.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "description": "1-based line of the end (the caret); default line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_column": {
+            "description": "1-based column of the end; default column.",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "box": {
+      "type": "object",
+      "required": [
+        "anchor",
+        "head"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "type": "object",
+          "required": [
+            "line",
+            "column"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "line": {
+              "description": "1-based line.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "column": {
+              "description": "1-based visual column; past the line's end is virtual space.",
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "head": {
+          "type": "object",
+          "required": [
+            "line",
+            "column"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "line": {
+              "description": "1-based line.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "column": {
+              "description": "1-based visual column; past the line's end is virtual space.",
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

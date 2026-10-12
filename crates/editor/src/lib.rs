@@ -109,13 +109,22 @@
 //! lines are shaped whole, find is ASCII case-insensitive only, and files
 //! must be UTF-8.
 
+mod autoclose;
+mod box_selection;
 mod buffer;
 mod codelens;
+mod comments;
 mod debugging;
 pub mod display;
 mod editor;
+pub mod editorconfig;
+mod expand_selection;
+pub mod find;
+pub mod indent;
 mod input;
 pub mod intellisense;
+mod lines;
+mod ops;
 mod popups;
 pub mod syntax;
 mod view;
@@ -125,6 +134,8 @@ pub use debugging::{BreakpointGlyph, ExecutionKind};
 pub use display::{RowHit, VerticalLayout};
 pub use editor::{ClickKind, Editor, FindQuery, Selection, SelectionRange};
 pub use eludite_ui::CompletionKind;
+pub use find::{Matcher, SearchOptions};
+pub use indent::{AutoIndent, IndentSettings};
 pub use input::{INPUT_KEY_CONTEXT, InputLayout, TextInput, TextInputEvent};
 pub use intellisense::{
     AcceptedCompletion, CodeLens, CodeLensSnapshot, CompletionEdit, CompletionItem,
@@ -136,6 +147,7 @@ pub use view::{
     COMPLETION_CONTEXT, COMPLETION_SELECTED_CONTEXT, Decoration, DecorationStyle, EditorStyle,
     EditorView, KEY_CONTEXT, LightbulbKind, SIGNATURES_CONTEXT, default_font_family, key_bindings,
 };
+pub use view::{ContextMenuHandler, FIND_BAR_CONTEXT, TabHandler};
 /// The text input's actions (context [`INPUT_KEY_CONTEXT`]).
 pub mod input_actions {
     pub use crate::input::{
@@ -161,5 +173,15 @@ pub mod actions {
         SelectPageDown, SelectPageUp, SelectRight, SelectToEnd, SelectToLineEnd, SelectToLineStart,
         SelectToStart, SelectUp, SelectWordLeft, SelectWordRight, Tab, ToggleFindCaseSensitive,
         Undo,
+    };
+    // Brief 0068: the editing operations.
+    pub use crate::view::{
+        BoxSelectDown, BoxSelectLeft, BoxSelectRight, BoxSelectUp, CommentSelection,
+        ContractSelection, CycleClipboardRing, DeleteHorizontalWhiteSpace, DeleteLine, Duplicate,
+        ExpandSelection, FindNextSelected, FindPreviousSelected, InsertCaretsAtAllMatching,
+        LineCut, MakeLowercase, MakeUppercase, MoveLinesDown, MoveLinesUp, OpenLineAbove,
+        OpenLineBelow, Outdent, QuickReplace, RemoveLastCaret, ReplaceAll, ReplaceNext,
+        ScrollLineDown, ScrollLineUp, SkipOccurrence, ToggleBlockComment, ToggleFindInSelection,
+        ToggleFindRegex, ToggleFindWholeWord, ToggleLineComment, TransposeLine, UncommentSelection,
     };
 }

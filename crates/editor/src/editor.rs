@@ -8,7 +8,7 @@ use std::time::Instant;
 use text::{Anchor, Point, TransactionId};
 
 use crate::buffer::Buffer;
-use crate::display::{TAB_SIZE, byte_for_visual_column, visual_column};
+use crate::display::{byte_for_visual_column, visual_column};
 
 /// A selection stored as anchors, so it follows edits made by anyone.
 /// `tail == head` is a caret.
@@ -81,15 +81,18 @@ pub struct FindQuery {
 /// added (the one the view scrolls to).
 #[derive(Debug)]
 pub struct Editor {
-    buffer: Buffer,
-    selections: Vec<Selection>,
-    primary: usize,
+    pub(crate) buffer: Buffer,
+    pub(crate) selections: Vec<Selection>,
+    pub(crate) primary: usize,
     /// Selections before and after each undo step.
-    history: HashMap<TransactionId, (Vec<Selection>, Vec<Selection>)>,
-    find: FindQuery,
+    pub(crate) history: HashMap<TransactionId, (Vec<Selection>, Vec<Selection>)>,
+    pub(crate) find: FindQuery,
     /// Rows moved by Page Up / Page Down. The view keeps it in sync with
     /// the viewport.
     pub page_rows: u32,
+    /// Brief 0068's editing state: the language's editing data, indentation settings, auto-inserted closers, the
+    /// Clipboard Ring, the box selection, Expand Selection's steps and Quick Find's options.
+    pub(crate) ops: crate::ops::OpsState,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -126,6 +129,7 @@ impl Editor {
             history: HashMap::new(),
             find: FindQuery::default(),
             page_rows: 40,
+            ops: crate::ops::OpsState::default(),
         }
     }
 
@@ -178,12 +182,14 @@ impl Editor {
         self.set_selections(vec![SelectionRange::caret(offset)], 0);
     }
 
-    fn set_selections_with_goals(
+    pub(crate) fn set_selections_with_goals(
         &mut self,
         ranges: Vec<(SelectionRange, Option<u32>)>,
         primary: usize,
     ) {
         assert!(!ranges.is_empty(), "an editor always has a selection");
+        // Any selection change ends a box selection; the box commands set it again (brief 0068).
+        self.ops.boxed = None;
         let len = self.buffer.len();
         let mut items: Vec<(usize, SelectionRange, Option<u32>)> = ranges
             .into_iter()
@@ -271,7 +277,7 @@ impl Editor {
     // ----- editing -----
 
     /// Run `f` as one undo step, remembering selections before and after.
-    fn transact(&mut self, f: impl FnOnce(&mut Self)) {
+    pub(crate) fn transact(&mut self, f: impl FnOnce(&mut Self)) {
         let before = self.selections.clone();
         let now = Instant::now();
         self.buffer.start_transaction_at(now);
@@ -284,7 +290,10 @@ impl Editor {
 
     /// Replace, for each selection, the range `f` returns with its text, as
     /// one undo step. Carets land at the end of each inserted text.
-    fn edit_each(&mut self, f: impl Fn(&Self, SelectionRange) -> Option<(Range<usize>, String)>) {
+    pub(crate) fn edit_each(
+        &mut self,
+        f: impl Fn(&Self, SelectionRange) -> Option<(Range<usize>, String)>,
+    ) {
         let mut edits: Vec<(Range<usize>, String)> = self
             .selections()
             .into_iter()
@@ -367,35 +376,15 @@ impl Editor {
         self.edit_each(|_, s| Some((s.range(), text.to_owned())));
     }
 
-    /// Enter: a line break plus the current line's leading whitespace.
-    pub fn newline(&mut self) {
-        self.edit_each(|this, s| {
-            let row = this.buffer.offset_to_point(s.start()).row;
-            let line = this.buffer.line(row);
-            let indent: String = line
-                .chars()
-                .take_while(|c| *c == ' ' || *c == '\t')
-                .collect();
-            Some((s.range(), format!("\n{indent}")))
-        });
-    }
-
-    /// Tab: spaces to the next tab stop at every caret.
-    pub fn tab(&mut self) {
-        self.edit_each(|this, s| {
-            let p = this.buffer.offset_to_point(s.start());
-            let line = this.buffer.line(p.row);
-            let col = visual_column(&line, p.column as usize);
-            let n = TAB_SIZE - col % TAB_SIZE;
-            Some((s.range(), " ".repeat(n as usize)))
-        });
-    }
-
     /// Backspace: delete the selection, or the character before the caret.
     pub fn backspace(&mut self) {
         self.edit_each(|this, s| {
             if !s.is_empty() {
                 return Some((s.range(), String::new()));
+            }
+            // Between an empty pair the editor inserted, both go (brief 0068).
+            if let Some(pair) = this.autoclosed_pair_at(s.head) {
+                return Some((pair, String::new()));
             }
             let prev = this.prev_char_boundary(s.head)?;
             Some((prev..s.head, String::new()))
@@ -459,7 +448,11 @@ impl Editor {
 
     /// Cut: copy then delete; with no selection, the whole caret line.
     pub fn cut(&mut self) -> String {
-        let text = self.selected_text();
+        // A box's rows go as a block, and the Clipboard Ring keeps the text (brief 0068).
+        let boxed = self.box_text();
+        self.ops.box_clip = boxed.clone();
+        let text = boxed.unwrap_or_else(|| self.selected_text());
+        self.remember_clipboard(&text);
         if self.selections().iter().all(|s| s.is_empty()) {
             self.edit_each(|this, s| {
                 let row = this.buffer.offset_to_point(s.head).row;
@@ -503,19 +496,19 @@ impl Editor {
         true
     }
 
-    fn normalize_selections(&mut self) {
+    pub(crate) fn normalize_selections(&mut self) {
         let sels = self.selections();
         self.set_selections(sels, self.primary);
     }
 
     // ----- movement -----
 
-    fn prev_char_boundary(&self, offset: usize) -> Option<usize> {
+    pub(crate) fn prev_char_boundary(&self, offset: usize) -> Option<usize> {
         let c = self.buffer.snapshot().reversed_chars_at(offset).next()?;
         Some(offset - c.len_utf8())
     }
 
-    fn next_char_boundary(&self, offset: usize) -> Option<usize> {
+    pub(crate) fn next_char_boundary(&self, offset: usize) -> Option<usize> {
         let c = self.buffer.snapshot().chars_at(offset).next()?;
         Some(offset + c.len_utf8())
     }
@@ -858,65 +851,6 @@ impl Editor {
 
     pub fn set_find_query(&mut self, query: FindQuery) {
         self.find = query;
-    }
-
-    /// Select the next match after the primary selection, wrapping at the
-    /// end. Returns false if there is no match.
-    pub fn find_next(&mut self) -> bool {
-        let from = self.primary_selection().end();
-        let len = self.buffer.len();
-        let q = &self.find;
-        let m = self
-            .buffer
-            .find_in_range(&q.text, from..len, q.case_sensitive)
-            .into_iter()
-            .next()
-            .or_else(|| {
-                self.buffer
-                    .find_in_range(&q.text, 0..from.min(len), q.case_sensitive)
-                    .into_iter()
-                    .next()
-            });
-        self.select_match(m)
-    }
-
-    /// Select the previous match before the primary selection, wrapping.
-    pub fn find_previous(&mut self) -> bool {
-        let to = self.primary_selection().start();
-        let len = self.buffer.len();
-        let q = &self.find;
-        let m = self
-            .buffer
-            .find_in_range(&q.text, 0..to, q.case_sensitive)
-            .pop()
-            .or_else(|| {
-                self.buffer
-                    .find_in_range(&q.text, to..len, q.case_sensitive)
-                    .pop()
-            });
-        self.select_match(m)
-    }
-
-    fn select_match(&mut self, m: Option<Range<usize>>) -> bool {
-        match m {
-            Some(m) => {
-                self.set_selections(
-                    vec![SelectionRange {
-                        tail: m.start,
-                        head: m.end,
-                    }],
-                    0,
-                );
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// Matches of the current query in `range`, for highlighting.
-    pub fn find_matches(&self, range: Range<usize>) -> Vec<Range<usize>> {
-        self.buffer
-            .find_in_range(&self.find.text, range, self.find.case_sensitive)
     }
 }
 

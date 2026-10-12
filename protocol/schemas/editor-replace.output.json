@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-replace.output.json",
+  "title": "eludite.editor.replace output",
+  "description": "What Quick Replace did.",
+  "type": "object",
+  "required": [
+    "path",
+    "matches",
+    "replaced"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "matches": {
+      "description": "Matches of the query in scope before replacing.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "replaced": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "error": {
+      "description": "The regular expression's error; nothing was replaced.",
+      "type": "string"
+    },
+    "bar": {
+      "description": "The Quick Replace bar opened (no query).",
+      "type": "boolean"
+    }
+  }
+}

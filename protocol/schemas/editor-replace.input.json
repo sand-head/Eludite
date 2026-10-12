@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-replace.input.json",
+  "title": "eludite.editor.replace input",
+  "description": "Quick Replace (Ctrl+H): replace the next match (Replace Next, from the primary selection) or every match (Replace All, one undo step). Without query, open the Quick Replace bar.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "query": {
+      "description": "Text, or a regular expression with regex.",
+      "type": "string",
+      "minLength": 1
+    },
+    "replacement": {
+      "description": "The replacement; with regex, $1, ${1}, ${name} and $$ expand.",
+      "type": "string"
+    },
+    "match_case": {
+      "type": "boolean"
+    },
+    "whole_word": {
+      "type": "boolean"
+    },
+    "regex": {
+      "type": "boolean"
+    },
+    "in_selection": {
+      "description": "Only within the current selections.",
+      "type": "boolean"
+    },
+    "all": {
+      "description": "Replace All instead of Replace Next.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

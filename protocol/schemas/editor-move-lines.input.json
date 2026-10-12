@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-move-lines.input.json",
+  "title": "eludite.editor.move_lines input",
+  "description": "Edit.MoveSelectedLinesUp and Edit.MoveSelectedLinesDown (Alt+Up, Alt+Down): the lines each selection touches swap with the line above or below.",
+  "type": "object",
+  "required": [
+    "direction"
+  ],
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "direction": {
+      "enum": [
+        "up",
+        "down"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

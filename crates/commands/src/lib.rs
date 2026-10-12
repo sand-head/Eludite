@@ -54,6 +54,8 @@ pub mod builtins;
 mod caller;
 pub mod debug;
 pub mod diagnostics;
+// Brief 0068: the editor's editing operations, `eludite.editor.*` and the Edit menu's clipboard items.
+pub mod editing;
 pub mod files;
 pub mod forge;
 pub mod git;

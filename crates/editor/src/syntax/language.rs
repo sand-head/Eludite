@@ -444,6 +444,11 @@ impl Language {
         &self.config
     }
 
+    /// The language's comment tokens, brackets, quotes and indent rules (brief 0068).
+    pub fn editing(&self) -> &'static super::editing::EditingConfig {
+        super::editing::for_language(self.id())
+    }
+
     pub(crate) fn grammar(&self) -> &tree_sitter::Language {
         &self.grammar
     }

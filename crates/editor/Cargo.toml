@@ -17,6 +17,8 @@ gpui.workspace = true
 eludite-ui.workspace = true
 # tree-sitter's allocator (src/syntax/alloc.rs); MIT.
 libmimalloc-sys.workspace = true
+# Quick Find's and Quick Replace's matcher (brief 0068). MIT OR Apache-2.0; already in the build through GPUI.
+regex = "1"
 text.workspace = true
 # tree-sitter and its grammars (all MIT); versions recorded in docs/briefs/0009-report.md and, for the web
 # grammars, docs/briefs/0050-report.md.

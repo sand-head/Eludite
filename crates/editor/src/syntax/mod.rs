@@ -24,6 +24,7 @@
 pub mod alloc;
 #[cfg(test)]
 mod dotnet_tests;
+pub mod editing;
 mod highlighter;
 mod highlights;
 pub mod language;

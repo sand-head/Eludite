@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-edit.input.json",
+  "title": "eludite.editor editing operation input",
+  "description": "An editing operation of brief 0068 on a document's selections (Edit > Advanced: indent, outdent, comment, uncomment, toggle comments, duplicate, delete line, line cut, open line, case, transpose, white space, expand and contract selection, the Clipboard Ring, cut, copy, paste, select all). Every selection takes part; the operation is one undo step.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

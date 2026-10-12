@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-edit.output.json",
+  "title": "eludite.editor editing operation output",
+  "description": "The document after an editing operation: whether its text changed and where its selections are.",
+  "type": "object",
+  "required": [
+    "path",
+    "changed",
+    "selections",
+    "primary",
+    "line_count"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "changed": {
+      "description": "The operation changed the text.",
+      "type": "boolean"
+    },
+    "selections": {
+      "description": "Every selection, in document order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "line",
+          "column",
+          "end_line",
+          "end_column"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "line": {
+            "description": "1-based line of the selection's start.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based column (characters) of the start.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "description": "1-based line of the end.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_column": {
+            "description": "1-based column of the end (the column after the last selected character).",
+            "type": "integer",
+            "minimum": 1
+          },
+          "reversed": {
+            "description": "The caret is at the start.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "primary": {
+      "description": "Index in selections of the primary selection (the one the view follows).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "line_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "text": {
+      "description": "The text the operation put on the clipboard (copy, cut, line cut, the Clipboard Ring).",
+      "type": "string"
+    },
+    "dialog": {
+      "description": "eludite.editor.go_to_line without a line: the Go To Line dialog opened.",
+      "type": "boolean"
+    }
+  }
+}

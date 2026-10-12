@@ -1869,6 +1869,7 @@ dependencies = [
  "gpui_platform",
  "libmimalloc-sys",
  "mimalloc",
+ "regex",
  "serde_json",
  "text",
  "tree-sitter",
