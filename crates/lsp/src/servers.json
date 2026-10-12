@@ -87,7 +87,15 @@
           "importModuleSpecifierPreference": "shortest",
           "quotePreference": "auto",
           "providePrefixAndSuffixTextForRename": true,
-          "allowRenameOfImportPath": true
+          "allowRenameOfImportPath": true,
+          "includeInlayParameterNameHints": "all",
+          "includeInlayParameterNameHintsWhenArgumentMatchesName": false,
+          "includeInlayVariableTypeHints": true,
+          "includeInlayVariableTypeHintsWhenTypeMatchesName": false,
+          "includeInlayFunctionParameterTypeHints": true,
+          "includeInlayPropertyDeclarationTypeHints": true,
+          "includeInlayFunctionLikeReturnTypeHints": true,
+          "includeInlayEnumMemberValueHints": true
         }
       },
       "settings": {

@@ -522,3 +522,93 @@ fn code_lens_requests_and_the_refresh_move_the_lens_generation() {
     assert_eq!(lens_generation, 1);
     assert_eq!(client.connection().code_lens_generation(), 1);
 }
+
+/// Brief 0066: semantic tokens (full, delta, range) and inlay hints are typed requests the generic client sends, and
+/// the server's refresh requests are answered `null` and become events.
+#[test]
+fn semantic_tokens_inlay_hints_and_their_refreshes() {
+    let fake = FakeServer::new();
+    fake.respond("textDocument/semanticTokens/full", |_| {
+        FakeReply::Result(json!({"resultId": "1", "data": [0, 3, 4, 2, 0]}))
+    });
+    fake.respond("textDocument/semanticTokens/full/delta", |p| {
+        assert_eq!(p["previousResultId"], "1");
+        FakeReply::Result(
+            json!({"resultId": "2", "edits": [{"start": 5, "deleteCount": 0, "data": [1, 0, 2, 1, 0]}]}),
+        )
+    });
+    fake.respond("textDocument/inlayHint", |_| {
+        FakeReply::Result(
+            json!([{"position": {"line": 0, "character": 9}, "label": ": i32", "kind": 1}]),
+        )
+    });
+    let (client, rx) = start(&fake, 0);
+    fake.wait_for("initialized", T, |_| true).unwrap();
+    let doc = lsp::TextDocumentIdentifier {
+        uri: "file:///ws/src/lib.rs".into(),
+    };
+    let full = client
+        .request::<lsp::SemanticTokensFull>(lsp::SemanticTokensParams {
+            text_document: doc.clone(),
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("tokens");
+    let mut data = full.data;
+    let Some(lsp::SemanticTokensDeltaResult::Delta(delta)) = client
+        .request::<lsp::SemanticTokensFullDelta>(lsp::SemanticTokensDeltaParams {
+            text_document: doc.clone(),
+            previous_result_id: full.result_id.unwrap(),
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+    else {
+        panic!("a delta")
+    };
+    eludite_lsp::semantic::apply_edits(&mut data, &delta.edits).unwrap();
+    assert_eq!(eludite_lsp::semantic::decode(&data).len(), 2);
+    let hints = client
+        .request::<lsp::InlayHintRequest>(lsp::InlayHintParams {
+            text_document: doc,
+            range: lsp::Range {
+                start: lsp::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lsp::Position {
+                    line: 10,
+                    character: 0,
+                },
+            },
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("hints");
+    assert_eq!(eludite_lsp::inlay::label(&hints[0]), ": i32");
+
+    for (method, semantic) in [
+        ("workspace/semanticTokens/refresh", true),
+        ("workspace/inlayHint/refresh", false),
+    ] {
+        let answer = fake.request_client(method, Value::Null, T).unwrap();
+        assert_eq!(answer["result"], Value::Null);
+        let event = next(&rx, method, |e| {
+            matches!(
+                e,
+                Event::SemanticTokensRefresh { .. } | Event::InlayHintRefresh { .. }
+            )
+        });
+        match event {
+            Event::SemanticTokensRefresh { generation } if semantic => {
+                assert_eq!(generation, client.generation())
+            }
+            Event::InlayHintRefresh { generation } if !semantic => {
+                assert_eq!(generation, client.generation())
+            }
+            other => panic!("{method}: {other:?}"),
+        }
+    }
+}

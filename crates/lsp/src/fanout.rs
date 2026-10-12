@@ -83,8 +83,10 @@ fn capability(method: &str) -> Option<&'static str> {
         "textDocument/rangeFormatting" => "documentRangeFormattingProvider",
         "textDocument/documentSymbol" => "documentSymbolProvider",
         "textDocument/documentHighlight" => "documentHighlightProvider",
-        "textDocument/semanticTokens/full" => "semanticTokensProvider",
-        "textDocument/inlayHint" => "inlayHintProvider",
+        "textDocument/semanticTokens/full"
+        | "textDocument/semanticTokens/full/delta"
+        | "textDocument/semanticTokens/range" => "semanticTokensProvider",
+        "textDocument/inlayHint" | "inlayHint/resolve" => "inlayHintProvider",
         "workspace/executeCommand" => "executeCommandProvider",
         _ => return None,
     })
@@ -102,6 +104,14 @@ pub fn offers(method: &str, capabilities: &Value) -> bool {
             offered && cap["resolveProvider"].as_bool() == Some(true)
         }
         "textDocument/prepareRename" => offered && cap["prepareProvider"].as_bool() == Some(true),
+        // Brief 0066: the delta and range forms, and resolve, only when the provider says so.
+        "textDocument/semanticTokens/full/delta" => {
+            offered && cap["full"]["delta"].as_bool() == Some(true)
+        }
+        "textDocument/semanticTokens/range" => {
+            offered && (cap["range"].as_bool() == Some(true) || cap["range"].is_object())
+        }
+        "inlayHint/resolve" => offered && cap["resolveProvider"].as_bool() == Some(true),
         _ => offered,
     }
 }
@@ -611,5 +621,25 @@ mod tests {
             &json!({"hoverProvider": false})
         ));
         assert!(offers("textDocument/diagnostic", &eslint));
+    }
+
+    #[test]
+    fn semantic_token_and_inlay_hint_forms_follow_the_provider() {
+        let full_only = json!({"semanticTokensProvider": {"legend": {}, "full": true},
+                               "inlayHintProvider": true});
+        assert!(offers("textDocument/semanticTokens/full", &full_only));
+        assert!(!offers(
+            "textDocument/semanticTokens/full/delta",
+            &full_only
+        ));
+        assert!(!offers("textDocument/semanticTokens/range", &full_only));
+        assert!(offers("textDocument/inlayHint", &full_only));
+        assert!(!offers("inlayHint/resolve", &full_only));
+        let all = json!({"semanticTokensProvider": {"legend": {}, "full": {"delta": true}, "range": true},
+                         "inlayHintProvider": {"resolveProvider": true}});
+        assert!(offers("textDocument/semanticTokens/full/delta", &all));
+        assert!(offers("textDocument/semanticTokens/range", &all));
+        assert!(offers("inlayHint/resolve", &all));
+        assert!(!offers("textDocument/inlayHint", &json!({})));
     }
 }

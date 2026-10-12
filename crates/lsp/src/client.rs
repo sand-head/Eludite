@@ -102,6 +102,27 @@ impl Dialect for HostDialect {
                     Err(_) => Event::Notification(n),
                 }
             }
+            // Brief 0066: Roslyn's `workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh`, relayed. One
+            // for an older generation is moot.
+            methods::SEMANTIC_TOKENS_REFRESH | methods::INLAY_HINT_REFRESH => {
+                match serde_json::from_value::<host::CodeLensRefreshParams>(
+                    n.params.clone().unwrap_or(Value::Null),
+                ) {
+                    Ok(p) if p.generation >= conn.generation() => {
+                        if n.method == methods::SEMANTIC_TOKENS_REFRESH {
+                            Event::SemanticTokensRefresh {
+                                generation: p.generation,
+                            }
+                        } else {
+                            Event::InlayHintRefresh {
+                                generation: p.generation,
+                            }
+                        }
+                    }
+                    Ok(_) => return None,
+                    Err(_) => Event::Notification(n),
+                }
+            }
             _ => Event::Notification(n),
         })
     }

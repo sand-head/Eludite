@@ -35,7 +35,7 @@
 //! Public API boundary: [`Connection`], [`HostClient`], [`ServerClient`], [`ServerSetup`], [`PendingRequest`],
 //! [`HostCommand`] (alias [`ServerCommand`]), [`Connector`] (a server running in this process), [`ClientInfo`],
 //! [`RestartPolicy`], [`StderrMode`], [`Event`], [`HostEvent`], [`Progress`], [`ServerStatus`], [`Error`], the
-//! [`registry`] types, [`fanout`], [`node`], [`codelens`] (what a lens's command does, brief 0052), plus the low-level
+//! [`registry`] types, [`fanout`], [`node`], [`codelens`] (what a lens's command does, brief 0052), [`semantic`] and [`inlay`] (brief 0066), plus the low-level
 //! [`Transport`] / [`FramedTransport`]. Message types live in `eludite-protocol`. With the `fake` feature,
 //! [`fake::FakeHost`] is a scripted in-process host and [`fake_server::FakeServer`] a scripted in-process generic
 //! server, for tests.
@@ -43,6 +43,11 @@
 //! CodeLens (brief 0052): a generic server's `workspace/codeLens/refresh` and the host's `eludite/codeLens/refresh`
 //! both arrive as [`Event::CodeLensRefresh`] and move the connection's lens generation
 //! ([`Connection::code_lens_generation`]).
+//!
+//! Semantic tokens and inlay hints (brief 0066): [`semantic`] decodes a server's tokens with its legend, applies a
+//! `full/delta` answer and classifies tokens whatever names the server uses; [`inlay`] reads a hint's text, kind and
+//! tooltip. A generic server's `workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh`, and the host's
+//! relays of Roslyn's, arrive as [`Event::SemanticTokensRefresh`] and [`Event::InlayHintRefresh`].
 
 mod client;
 pub mod codelens;
@@ -54,10 +59,13 @@ mod fake_nuget;
 #[cfg(feature = "fake")]
 pub mod fake_server;
 pub mod fanout;
+// Brief 0066: inlay hints and semantic tokens.
+pub mod inlay;
 pub mod node;
 pub mod process;
 mod pull;
 pub mod registry;
+pub mod semantic;
 mod server;
 mod transport;
 

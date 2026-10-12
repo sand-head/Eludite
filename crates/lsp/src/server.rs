@@ -63,9 +63,11 @@ pub mod methods_generic {
         "window/workDoneProgress/create",
         "client/registerCapability",
         "client/unregisterCapability",
-        "workspace/semanticTokens/refresh",
-        "workspace/inlayHint/refresh",
     ];
+    /// Answered `null`; the shell asks for the server's documents' semantic tokens again (brief 0066).
+    pub const SEMANTIC_TOKENS_REFRESH: &str = "workspace/semanticTokens/refresh";
+    /// Answered `null`; the shell asks for the server's documents' inlay hints again (brief 0066).
+    pub const INLAY_HINT_REFRESH: &str = "workspace/inlayHint/refresh";
 }
 
 /// What the generic client needs to start one server for one workspace.
@@ -84,6 +86,29 @@ pub struct ServerSetup {
     pub push_settings: bool,
 }
 
+/// `textDocument.semanticTokens` (brief 0066): every request form, the relative format, LSP's standard token types and
+/// modifiers, no overlapping or multiline tokens, and tokens that only add to the client's own (syntax) colors.
+pub fn semantic_tokens_capabilities() -> Value {
+    json!({
+        "dynamicRegistration": false,
+        "requests": {"range": true, "full": {"delta": true}},
+        "tokenTypes": [
+            "namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable",
+            "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment",
+            "string", "number", "regexp", "operator", "decorator"
+        ],
+        "tokenModifiers": [
+            "declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification",
+            "documentation", "defaultLibrary"
+        ],
+        "formats": ["relative"],
+        "overlappingTokenSupport": false,
+        "multilineTokenSupport": false,
+        "serverCancelSupport": true,
+        "augmentsSyntaxTokens": true
+    })
+}
+
 /// The LSP client capabilities the generic client sends: the set `eludite-host` advertises to Roslyn
 /// (host-rpc.md, "LSP client capabilities the host advertises"), plus `workspace.diagnostics.refreshSupport` and
 /// `experimental.serverStatusNotification` for rust-analyzer's status.
@@ -96,6 +121,8 @@ pub fn client_capabilities() -> Value {
             "applyEdit": true,
             "diagnostics": {"refreshSupport": true},
             "codeLens": {"refreshSupport": true},
+            "semanticTokens": {"refreshSupport": true},
+            "inlayHint": {"refreshSupport": true},
             "workspaceEdit": {
                 "documentChanges": true,
                 "resourceOperations": ["create", "rename", "delete"],
@@ -133,7 +160,11 @@ pub fn client_capabilities() -> Value {
             },
             "rename": {"prepareSupport": true},
             "codeLens": {},
-            "publishDiagnostics": {},
+            // Brief 0066: semantic tokens (relative, full with delta, range) and inlay hints with resolve; the
+            // unnecessary and deprecated diagnostic tags.
+            "semanticTokens": semantic_tokens_capabilities(),
+            "inlayHint": {"resolveSupport": {"properties": ["tooltip", "textEdits", "label.tooltip"]}},
+            "publishDiagnostics": {"tagSupport": {"valueSet": [1, 2]}},
             "diagnostic": {"dynamicRegistration": false}
         },
         "window": {"workDoneProgress": true},
@@ -295,6 +326,19 @@ impl Dialect for ServerDialect {
         }
         if r.method == methods_generic::CODE_LENS_REFRESH {
             conn.code_lens_refresh(conn.generation());
+            return Ok(Value::Null);
+        }
+        // Brief 0066: answered `null`, and the shell asks for its documents' tokens or hints again.
+        if r.method == methods_generic::SEMANTIC_TOKENS_REFRESH {
+            conn.emit(Event::SemanticTokensRefresh {
+                generation: conn.generation(),
+            });
+            return Ok(Value::Null);
+        }
+        if r.method == methods_generic::INLAY_HINT_REFRESH {
+            conn.emit(Event::InlayHintRefresh {
+                generation: conn.generation(),
+            });
             return Ok(Value::Null);
         }
         if methods_generic::ANSWERED_NULL.contains(&r.method.as_str()) {
@@ -503,6 +547,18 @@ mod tests {
         assert_eq!(caps["workspace"]["diagnostics"]["refreshSupport"], true);
         assert!(caps["textDocument"].get("diagnostic").is_some());
         assert_eq!(caps["textDocument"]["rename"]["prepareSupport"], true);
+        // Brief 0066.
+        let st = &caps["textDocument"]["semanticTokens"];
+        assert_eq!(st["requests"]["full"]["delta"], true);
+        assert_eq!(st["requests"]["range"], true);
+        assert_eq!(st["formats"], json!(["relative"]));
+        assert_eq!(caps["workspace"]["semanticTokens"]["refreshSupport"], true);
+        assert_eq!(caps["workspace"]["inlayHint"]["refreshSupport"], true);
+        assert!(caps["textDocument"]["inlayHint"]["resolveSupport"].is_object());
+        assert_eq!(
+            caps["textDocument"]["publishDiagnostics"]["tagSupport"]["valueSet"],
+            json!([1, 2])
+        );
     }
 
     /// Every method the generic client sends or answers is documented in host-rpc.md's generic-client section.
@@ -527,6 +583,8 @@ mod tests {
             WORKSPACE_FOLDERS,
             DIAGNOSTIC_REFRESH,
             CODE_LENS_REFRESH,
+            SEMANTIC_TOKENS_REFRESH,
+            INLAY_HINT_REFRESH,
             "textDocument/codeLens",
             "codeLens/resolve",
             "textDocument/diagnostic",

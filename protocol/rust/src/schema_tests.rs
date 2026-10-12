@@ -2210,8 +2210,14 @@ fn semantic_token_and_inlay_hint_messages_conform_to_their_schemas() {
     use crate::typed::{NotificationType, RequestType};
     for (file, method) in [
         ("semantic-tokens.json", lsp::SemanticTokensFull::METHOD),
-        ("semantic-tokens-delta.json", lsp::SemanticTokensFullDelta::METHOD),
-        ("semantic-tokens-range.json", lsp::SemanticTokensRange::METHOD),
+        (
+            "semantic-tokens-delta.json",
+            lsp::SemanticTokensFullDelta::METHOD,
+        ),
+        (
+            "semantic-tokens-range.json",
+            lsp::SemanticTokensRange::METHOD,
+        ),
         ("inlay-hint.json", lsp::InlayHintRequest::METHOD),
         ("inlay-hint-resolve.json", lsp::ResolveInlayHint::METHOD),
     ] {
@@ -2232,7 +2238,11 @@ fn semantic_token_and_inlay_hint_messages_conform_to_their_schemas() {
         assert_eq!(load(file)["x-eludite-method"], method, "{file}");
         assert!(methods::HOST_TO_SHELL.contains(&method));
         assert!(!methods::HOST_TO_SHELL_REQUESTS.contains(&method));
-        conforms(file, "params", &host::CodeLensRefreshParams { generation: 3 });
+        conforms(
+            file,
+            "params",
+            &host::CodeLensRefreshParams { generation: 3 },
+        );
         rejects(file, "params", json!({}));
     }
     let doc = lsp::TextDocumentIdentifier {
@@ -2259,7 +2269,11 @@ fn semantic_token_and_inlay_hint_messages_conform_to_their_schemas() {
             text_document: doc.clone(),
         }),
     );
-    rejects("semantic-tokens.json", "params", json!({"eluditeGeneration": 2}));
+    rejects(
+        "semantic-tokens.json",
+        "params",
+        json!({"eluditeGeneration": 2}),
+    );
     let tokens: <lsp::SemanticTokensFull as RequestType>::Result = Some(lsp::SemanticTokens {
         result_id: Some("1".into()),
         data: vec![0, 0, 5, 15, 0, 0, 6, 7, 2, 0],
@@ -2277,15 +2291,16 @@ fn semantic_token_and_inlay_hint_messages_conform_to_their_schemas() {
             generation: 2,
         },
     );
-    let delta: <lsp::SemanticTokensFullDelta as RequestType>::Result =
-        Some(lsp::SemanticTokensDeltaResult::Delta(lsp::SemanticTokensDelta {
+    let delta: <lsp::SemanticTokensFullDelta as RequestType>::Result = Some(
+        lsp::SemanticTokensDeltaResult::Delta(lsp::SemanticTokensDelta {
             result_id: Some("2".into()),
             edits: vec![lsp::SemanticTokensEdit {
                 start: 5,
                 delete_count: 5,
                 data: Some(vec![0, 6, 9, 7, 2]),
             }],
-        }));
+        }),
+    );
     conforms("semantic-tokens-delta.json", "result", &delta);
     conforms(
         "semantic-tokens-range.json",

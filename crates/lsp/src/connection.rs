@@ -245,6 +245,16 @@ pub enum Event {
         generation: Generation,
         lens_generation: u64,
     },
+    /// The server asked for fresh semantic tokens (brief 0066): a generic server's `workspace/semanticTokens/refresh`,
+    /// or the host's `eludite/semanticTokens/refresh` (under `generation`).
+    SemanticTokensRefresh {
+        generation: Generation,
+    },
+    /// The server asked for fresh inlay hints (brief 0066): a generic server's `workspace/inlayHint/refresh`, or the
+    /// host's `eludite/inlayHint/refresh` (under `generation`).
+    InlayHintRefresh {
+        generation: Generation,
+    },
 }
 
 #[derive(Debug)]

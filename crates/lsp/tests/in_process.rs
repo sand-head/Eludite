@@ -979,3 +979,50 @@ fn typed_code_lens_and_the_relayed_refresh() {
     assert_eq!((g, lens_generation), (generation, 1));
     assert_eq!(client.connection().code_lens_generation(), 1);
 }
+
+/// Brief 0066: the host's `eludite/semanticTokens/refresh` and `eludite/inlayHint/refresh` become events (one for an
+/// older generation is dropped), and the typed requests carry the generation.
+#[test]
+fn semantic_tokens_inlay_hints_and_the_relayed_refreshes() {
+    use eludite_lsp::fake::FakeReply;
+    let fake = FakeHost::new();
+    fake.respond("textDocument/semanticTokens/full", |_| {
+        FakeReply::Result(json!({"resultId": "7", "data": [0, 0, 5, 1, 0]}))
+    });
+    let (client, rx) = start(&fake, 0);
+    let generation = client.open_solution("/src/App.slnx", T).unwrap();
+    let tokens = client
+        .request::<lsp::SemanticTokensFull>(lsp::SemanticTokensParams {
+            text_document: lsp::TextDocumentIdentifier {
+                uri: "file:///a.cs".into(),
+            },
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("tokens");
+    assert_eq!(tokens.result_id.as_deref(), Some("7"));
+    assert_eq!(
+        fake.received_params("textDocument/semanticTokens/full")[0]["eluditeGeneration"],
+        generation
+    );
+    for method in [
+        host::methods::SEMANTIC_TOKENS_REFRESH,
+        host::methods::INLAY_HINT_REFRESH,
+    ] {
+        fake.notify(method, json!({"eluditeGeneration": generation - 1}));
+        fake.notify(method, json!({"eluditeGeneration": generation}));
+    }
+    let Event::SemanticTokensRefresh { generation: g } =
+        next(&rx, |e| matches!(e, Event::SemanticTokensRefresh { .. }))
+    else {
+        unreachable!()
+    };
+    assert_eq!(g, generation);
+    let Event::InlayHintRefresh { generation: g } =
+        next(&rx, |e| matches!(e, Event::InlayHintRefresh { .. }))
+    else {
+        unreachable!()
+    };
+    assert_eq!(g, generation);
+}

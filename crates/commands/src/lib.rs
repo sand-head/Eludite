@@ -58,8 +58,8 @@ pub mod files;
 pub mod forge;
 pub mod git;
 // Brief 0066: `eludite.editor.toggle_inlay_hints`.
-pub mod inlay_hints;
 mod id;
+pub mod inlay_hints;
 pub mod nuget;
 pub mod policy;
 pub mod project;
