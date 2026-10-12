@@ -44,8 +44,10 @@ pub mod forge;
 mod forge_tests;
 pub mod format;
 pub mod git;
+// Brief 0066: inlay hints and semantic highlighting from the language servers.
 #[cfg(test)]
 mod git_tests;
+pub mod inlay_hints;
 pub mod intellisense;
 #[cfg(test)]
 mod intellisense_tests;
@@ -72,6 +74,9 @@ mod rust_tests;
 pub mod search;
 #[cfg(test)]
 mod search_tests;
+pub mod semantic;
+#[cfg(test)]
+mod semantic_inlay_tests;
 pub mod servers;
 pub mod session;
 pub mod settings;
@@ -224,6 +229,8 @@ pub struct Services {
     pub update: Arc<update::UpdateService>,
     pub update_jobs: UnboundedReceiver<update::UpdateJob>,
     pub update_setup: update::UpdateSetup,
+    /// `eludite.editor.toggle_inlay_hints` from other threads (brief 0066).
+    pub inlay_jobs: UnboundedReceiver<inlay_hints::InlayJob>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -334,6 +341,7 @@ pub fn register_workspace(
     let properties_jobs = project_properties::register(commands);
     let resx_jobs = resx::register(commands);
     let (update, update_jobs) = update::register(commands);
+    let inlay_jobs = inlay_hints::register(commands);
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -384,6 +392,7 @@ pub fn register_workspace(
         update,
         update_jobs,
         update_setup: update::UpdateSetup::detect(),
+        inlay_jobs,
     }
 }
 
@@ -457,6 +466,9 @@ pub struct Shell {
     references: References,
     /// CodeLens: the documents' lenses, their requests and the References popup (brief 0052).
     code_lens: codelens::CodeLensState,
+    /// Semantic highlighting and inlay hints (brief 0066).
+    semantic: semantic::SemanticState,
+    inlay_hints: inlay_hints::InlayHintsState,
     /// Rename and its dialog (brief 0015).
     rename: rename::Rename,
     /// The light bulb and its menu (brief 0015).
@@ -761,6 +773,7 @@ impl Shell {
             update,
             update_jobs,
             update_setup,
+            inlay_jobs,
         } = services;
         let update = update::UpdateUi::new(update);
         let nuget = nuget::NuGetUi::new(nuget, theme, cx);
@@ -1125,6 +1138,8 @@ impl Shell {
             navigation: Navigation::default(),
             references: References::default(),
             code_lens: codelens::CodeLensState::default(),
+            semantic: semantic::SemanticState::default(),
+            inlay_hints: inlay_hints::InlayHintsState::default(),
             rename: rename::Rename::default(),
             code_actions: code_actions::CodeActions::default(),
             formatting: format::Formatting::default(),
@@ -1189,6 +1204,7 @@ impl Shell {
         this.properties_install(properties_jobs, window, cx);
         this.resx_install(resx_jobs, window, cx);
         this.update_install(update_setup, update_jobs, window, cx);
+        this.inlay_install(inlay_jobs, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1447,6 +1463,13 @@ impl Shell {
         {
             let outcome = self.apply_properties(request, None, window, cx);
             project_properties::stage(outcome);
+        }
+        // Brief 0066: Edit > IntelliSense > Toggle Inline Hints (Alt+F1).
+        if command == eludite_commands::inlay_hints::TOGGLE
+            && let Ok(request) = eludite_commands::inlay_hints::parse(args.clone())
+        {
+            let outcome = self.toggle_inlay_hints(request, cx);
+            inlay_hints::stage(outcome);
         }
         if eludite_commands::resx::ALL.contains(&command)
             && let Ok(request) = eludite_commands::resx::parse(command, args.clone())
@@ -1786,6 +1809,11 @@ impl Shell {
                     self.features = intellisense::ServerFeatures::from_capabilities(caps);
                     // Whether Roslyn serves lenses is known now (brief 0052).
                     self.code_lens_server_changed(&ServerKey::Host, cx);
+                    // Its semantic token legend and inlay hints (brief 0066).
+                    self.semantic_host_capabilities(caps);
+                    self.inlay_host_capabilities(caps);
+                    self.semantic_server_changed(&ServerKey::Host, cx);
+                    self.inlay_server_changed(&ServerKey::Host, cx);
                 }
                 let text = match s.state {
                     LanguageServerState::Starting => "C#: starting\u{2026}".to_owned(),
@@ -1845,6 +1873,9 @@ impl Shell {
                     self.refresh_fallback_lists(cx);
                     // Reference counts and test lenses need the loaded projects (brief 0052).
                     self.code_lens_server_changed(&ServerKey::Host, cx);
+                    // So do classifications and hints (brief 0066).
+                    self.semantic_server_changed(&ServerKey::Host, cx);
+                    self.inlay_server_changed(&ServerKey::Host, cx);
                 }
                 let name = Path::new(&status.path)
                     .file_name()
@@ -1996,6 +2027,17 @@ impl Shell {
             SessionEvent::CodeLensRefresh { generation } => {
                 if generation == self.generation {
                     self.code_lens_server_changed(&ServerKey::Host, cx);
+                }
+            }
+            // Roslyn's `workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh`, relayed (brief 0066).
+            SessionEvent::SemanticTokensRefresh { generation } => {
+                if generation == self.generation {
+                    self.semantic_server_changed(&ServerKey::Host, cx);
+                }
+            }
+            SessionEvent::InlayHintRefresh { generation } => {
+                if generation == self.generation {
+                    self.inlay_server_changed(&ServerKey::Host, cx);
                 }
             }
             SessionEvent::Progress(_)

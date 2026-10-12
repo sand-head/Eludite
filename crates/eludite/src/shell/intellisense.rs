@@ -842,6 +842,16 @@ impl Shell {
             EditorEvent::CodeLensActivated { id: lens, keyboard } => {
                 self.activate_code_lens(id, *lens, *keyboard, window, cx)
             }
+            // Semantic highlighting and inlay hints (brief 0066).
+            EditorEvent::SemanticTokensRequested { id: request } => {
+                self.request_semantic_tokens(id, *request, cx)
+            }
+            EditorEvent::InlayHintsRequested { id: request, rows } => {
+                self.request_inlay_hints(id, *request, rows.clone(), cx)
+            }
+            EditorEvent::InlayHintHovered { id: hint, offset } => {
+                self.inlay_hint_hovered(id, *hint, *offset, cx)
+            }
             // Ctrl+click: Go To Definition, through the same command as F12.
             EditorEvent::GoToDefinition { offset } => {
                 let Some(doc) = self.documents.get(id) else {

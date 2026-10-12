@@ -283,6 +283,9 @@ impl Shell {
         self.terminal_apply_settings(cx);
         self.search_apply_settings();
         self.code_lens_apply_settings(cx);
+        // Brief 0066.
+        self.semantic_apply_settings(cx);
+        self.inlay_apply_settings(cx);
         self.forge_apply_settings(cx);
         // Brief 0055: `updates.channel` and `updates.mode`.
         self.update_apply_settings();

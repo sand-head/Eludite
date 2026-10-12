@@ -266,6 +266,14 @@ pub enum SessionEvent {
     CodeLensRefresh {
         generation: Generation,
     },
+    /// Brief 0066: the server asked for fresh semantic tokens or inlay hints (a generic server's
+    /// `workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh`, or the host's relays under `generation`).
+    SemanticTokensRefresh {
+        generation: Generation,
+    },
+    InlayHintRefresh {
+        generation: Generation,
+    },
 }
 
 enum Cmd {
@@ -1562,6 +1570,13 @@ impl Pump {
                 }
                 Event::CodeLensRefresh { generation, .. } => {
                     SessionEvent::CodeLensRefresh { generation }
+                }
+                // Brief 0066.
+                Event::SemanticTokensRefresh { generation } => {
+                    SessionEvent::SemanticTokensRefresh { generation }
+                }
+                Event::InlayHintRefresh { generation } => {
+                    SessionEvent::InlayHintRefresh { generation }
                 }
                 Event::BuildFinished(f) => SessionEvent::BuildFinished {
                     finished: Box::new(f),

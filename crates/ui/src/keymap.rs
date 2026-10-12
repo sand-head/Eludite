@@ -112,6 +112,8 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             "eludite.editor.signature_help",
         ),
         command("ctrl-k ctrl-i", "Ctrl+K, Ctrl+I", "eludite.editor.hover"),
+        // Edit.ToggleInlineHints (brief 0066): Visual Studio shows them while Alt+F1 is held; here it toggles.
+        command("alt-f1", "Alt+F1", "eludite.editor.toggle_inlay_hints"),
         // Edit.FormatDocument (brief 0050).
         command(
             "ctrl-k ctrl-d",

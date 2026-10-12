@@ -170,6 +170,8 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Complete Word", "eludite.editor.complete"),
                 item("Parameter Info", "eludite.editor.signature_help"),
                 item("Quick Info", "eludite.editor.hover"),
+                // Brief 0066.
+                item("Toggle Inline Hints", "eludite.editor.toggle_inlay_hints"),
             ],
         ),
         menu(

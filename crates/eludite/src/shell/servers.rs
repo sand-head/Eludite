@@ -466,8 +466,10 @@ impl Shell {
                 server.status = Some(s);
                 if server.ready() && !was_ready {
                     self.refresh_fallback_lists(cx);
-                    // Lenses asked for while it indexed are partial (brief 0052).
+                    // Lenses asked for while it indexed are partial (brief 0052); tokens and hints too (brief 0066).
                     self.code_lens_server_changed(&ServerKey::Generic(key.to_owned()), cx);
+                    self.semantic_server_changed(&ServerKey::Generic(key.to_owned()), cx);
+                    self.inlay_server_changed(&ServerKey::Generic(key.to_owned()), cx);
                 }
             }
             SessionEvent::ServerModules(modules) => {
@@ -512,6 +514,13 @@ impl Shell {
             SessionEvent::CodeLensRefresh { .. } => {
                 self.code_lens_server_changed(&ServerKey::Generic(key.to_owned()), cx)
             }
+            // `workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh` (brief 0066).
+            SessionEvent::SemanticTokensRefresh { .. } => {
+                self.semantic_server_changed(&ServerKey::Generic(key.to_owned()), cx)
+            }
+            SessionEvent::InlayHintRefresh { .. } => {
+                self.inlay_server_changed(&ServerKey::Generic(key.to_owned()), cx)
+            }
             // Host-only events never come from a generic session.
             _ => {}
         }
@@ -549,6 +558,9 @@ impl Shell {
         if features_known {
             // Whether it serves lenses is known now (brief 0052).
             self.code_lens_server_changed(&ServerKey::Generic(key.to_owned()), cx);
+            // And semantic tokens and inlay hints (brief 0066).
+            self.semantic_server_changed(&ServerKey::Generic(key.to_owned()), cx);
+            self.inlay_server_changed(&ServerKey::Generic(key.to_owned()), cx);
         }
     }
 
@@ -591,8 +603,10 @@ impl Shell {
             }
         }
         self.update_error_list(cx);
-        // Lenses from the old instance are stale (brief 0052).
+        // Lenses from the old instance are stale (brief 0052); tokens and hints too (brief 0066).
         self.code_lens_server_changed(&generic, cx);
+        self.semantic_server_changed(&generic, cx);
+        self.inlay_server_changed(&generic, cx);
     }
 
     /// The generation of the servers document `id` belongs to (the solution generation for the host; the sum of its

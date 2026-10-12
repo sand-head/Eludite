@@ -69,15 +69,21 @@ pub struct Document {
 
 impl Document {
     pub fn clear_diagnostics(&self, cx: &mut gpui::App) {
-        self.view
-            .update(cx, |v, cx| v.clear_decorations(DIAGNOSTICS_LAYER, cx));
+        self.view.update(cx, |v, cx| {
+            v.clear_decorations(DIAGNOSTICS_LAYER, cx);
+            // Brief 0066: unnecessary code.
+            v.clear_decorations(super::semantic::UNNECESSARY_LAYER, cx);
+        });
     }
 
     /// Draw `diagnostics` (computed on the text of `lsp_version`) as squiggles.
     pub fn show_diagnostics(&self, diagnostics: &[lsp::Diagnostic], cx: &mut gpui::App) {
         let decorations = decorations(&self.sent, diagnostics);
+        // Brief 0066: unnecessary code (an unused using, an unread assignment) faded.
+        let faded = super::semantic::unnecessary_decorations(&self.sent, diagnostics);
         self.view.update(cx, |v, cx| {
-            v.set_decorations(DIAGNOSTICS_LAYER, decorations, cx)
+            v.set_decorations(DIAGNOSTICS_LAYER, decorations, cx);
+            v.set_decorations(super::semantic::UNNECESSARY_LAYER, faded, cx);
         });
     }
 }
@@ -463,6 +469,9 @@ impl Shell {
         self.git_document_opened(&id, cx);
         // CodeLens rows, when the settings show any for the document's language (brief 0052).
         self.code_lens_document_opened(&id, cx);
+        // Semantic highlighting and inlay hints, when the settings say so (brief 0066).
+        self.semantic_document_opened(&id, cx);
+        self.inlay_document_opened(&id, cx);
         if self.timings.editable.is_none() {
             // Editable once the frame that shows the editor has been drawn.
             let this = cx.entity().downgrade();
@@ -690,6 +699,8 @@ impl Shell {
         let closed = self.controller.close_document(&id) || had;
         self.git_document_closed(&id);
         self.code_lens_document_closed(&id);
+        self.semantic_document_closed(&id);
+        self.inlay_document_closed(&id);
         self.update_error_list(cx);
         cx.notify();
         Ok(WorkspaceOutput::FileClose(FileCloseOutput {
