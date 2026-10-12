@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-add-existing.json",
+  "title": "eludite/project/addExisting",
+  "description": "Add existing files to a project (Add > Existing Item..., brief 0072; host-rpc.md, \"Templates and items\"). Without `link` each file is copied into the folder (a file already there is refused; a file already in the folder is left as it is) and a legacy project gets a `Compile` or `Content` item per copy. With `link` nothing is copied: the project gains `<Compile Include=\"<path relative to the project>\" Link=\"<folder>\\<name>\" />` (`None` for other files). Project edits keep formatting; when the project file changed the solution reloads.",
+  "x-eludite-method": "eludite/project/addExisting",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "project",
+        "folder",
+        "files"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "link": {
+          "type": "boolean"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "files",
+        "projectWritten",
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "description": "The files as the project now sees them: the copies, or the linked originals.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "projectWritten": {
+          "type": "boolean"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

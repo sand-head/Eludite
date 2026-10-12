@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-recent.output.json",
+  "title": "eludite.workspace.recent output",
+  "description": "The lists, most recent first; pinned workspaces first.",
+  "type": "object",
+  "required": [
+    "workspaces",
+    "files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "workspaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "name",
+          "kind",
+          "pinned",
+          "exists"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Absolute path: a folder, or a .sln, .slnx, .slnf or project file.",
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "description": "What the list shows: the folder's or file's name.",
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "description": "folder, solution or project.",
+            "enum": [
+              "folder",
+              "solution",
+              "project"
+            ]
+          },
+          "pinned": {
+            "description": "Pinned entries come first and are never dropped.",
+            "type": "boolean"
+          },
+          "exists": {
+            "description": "False when the path is gone (the Welcome page draws it muted).",
+            "type": "boolean"
+          },
+          "opened": {
+            "description": "When it was last opened, in seconds since the Unix epoch.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "name",
+          "exists"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Absolute path of the file.",
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "description": "The file's name.",
+            "type": "string",
+            "minLength": 1
+          },
+          "exists": {
+            "description": "False when the file is gone.",
+            "type": "boolean"
+          },
+          "opened": {
+            "description": "When it was last opened, in seconds since the Unix epoch.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

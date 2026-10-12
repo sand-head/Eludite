@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-add-item.input.json",
+  "title": "eludite.project.add_item input",
+  "description": "Add a new item from an item template (Add > New Item..., Ctrl+Shift+A) or existing files (Add > Existing Item..., Shift+Alt+A) to a .NET project's folder (brief 0072). A new item gets the namespace Visual Studio gives it (the project's RootNamespace plus the folder path) and opens; Eludite's built-in templates (eludite.cs.class, eludite.cs.interface, eludite.cs.record, eludite.cs.enum, eludite.cs.struct and Visual Basic's eludite.vb.*) are preferred for the short names class, interface, record, enum, struct, module and structure. Existing files are copied into the folder, or linked with `link`. A legacy (non-SDK) project gets the Compile or Content items written, keeping its formatting. From the UI without arguments it shows the Add New Item dialog for the Workspace window's selected project or folder; with `existing` empty it shows a file dialog.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project file (absolute, or a project name of the workspace).",
+      "type": "string",
+      "minLength": 1
+    },
+    "folder": {
+      "description": "Absolute folder in the project (default: the project's folder).",
+      "type": "string",
+      "minLength": 1
+    },
+    "template": {
+      "description": "An item template's identity or short name (class, interface, record, enum, struct, razorcomponent, page, view, mvccontroller, apicontroller, resx, editorconfig, gitignore, globaljson, nugetconfig, webconfig, buildprops, packagesprops, ...).",
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "description": "The new item's name, with or without its extension.",
+      "type": "string",
+      "minLength": 1
+    },
+    "existing": {
+      "description": "Absolute paths of existing files to add instead of a template.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "link": {
+      "description": "With `existing`: link the files where they are instead of copying them.",
+      "type": "boolean"
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -123,6 +123,10 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/resx/designer` | request | [resx-designer.json](host/resx-designer.json) | `{ generation, path, action, modifier? }` | `{ generation, path, designer?, status, modifier, projectWritten?, className?, namespace? }` |
 | `eludite/solution/configurations` | request | [solution-configurations.json](host/solution-configurations.json) | none | `{ generation, path, format, configurations, platforms, active, projects: [{ name, path, configurations, platforms, mappings }] }` |
 | `eludite/solution/setConfiguration` | request | [solution-set-configuration.json](host/solution-set-configuration.json) | `{ generation, select?, mappings? }` | `{ generation, path, written, active }` |
+| `eludite/templates/list` | request | [templates-list.json](host/templates-list.json) | `{ type?, refresh? }` | `{ templatesFolder?, templates: [{ identity, groupIdentity?, name, shortNames, language?, type, classifications?, author?, description?, defaultName?, source, parameters: [{ name, displayName?, description?, dataType, defaultValue?, choices?, required? }] }], skipped? }` |
+| `eludite/templates/create` | request | [templates-create.json](host/templates-create.json) | `{ shortName, language?, name, output, parameters?, solution?, newSolution? }` | `{ exitCode, files, project?, primaryFile?, solution?, output, commandLines }` |
+| `eludite/project/addItem` | request | [project-add-item.json](host/project-add-item.json) | `{ project, folder, template, name, parameters? }` | `{ files, namespace, projectWritten, generation, output? }` |
+| `eludite/project/addExisting` | request | [project-add-existing.json](host/project-add-existing.json) | `{ project, folder, files, link? }` | `{ files, projectWritten, generation }` |
 
 #### `eludite/host/initialize`
 
@@ -152,7 +156,10 @@ as `exit` without `shutdown`.
 
 #### `eludite/solution/open`
 
-`path` is an absolute or host-relative path to a `.sln`, `.slnx` or project file (`.csproj`, `.vbproj`, `.fsproj`). The host:
+`path` is an absolute or host-relative path to a `.sln`, `.slnx`, `.slnf` or project file (`.csproj`, `.vbproj`, `.fsproj`).
+A `.slnf` (solution filter, brief 0072) stands for the projects it names of its solution: `SolutionProjects.Read` returns
+those the solution lists, in the filter's order, Roslyn gets `project/open` with them, and MSBuild builds the filter
+itself. The host:
 
 1. Increments the generation and replies `{ generation }` at once. Requests in flight under the old generation
    fail with -32801.
@@ -558,6 +565,33 @@ itself.
   project writes.
 - **Errors:** -32002 before `eludite/host/initialize`; -32602 when no solution is open, `path` is not absolute or
   not a `.resx`, or `modifier` is missing for `setModifier`.
+
+#### Templates and items (brief 0072)
+
+New Project and Add > New Item / Existing Item. None of these needs an open solution; the host starts without one
+when the shell asks for templates.
+
+- **The list.** `eludite/templates/list` reads the template packages (zip files) of the SDK the host uses
+  (`<dotnet root>/templates/<highest version folder>/*.nupkg`) and the user's (`~/.templateengine/packages/*.nupkg`):
+  every `content/**/.template.config/template.json` gives a template with its `parameter` symbols. It adds Eludite's
+  built-in item templates (`source` `eludite`, identities `eludite.<language>.<kind>`: C#'s class, interface, record,
+  enum and struct; Visual Basic's class, interface, module, enum and structure), which the SDK's own versions cannot
+  replace because they bind the namespace to `RootNamespace` alone. The answer is cached per package set (each
+  package's path, size and time) until `refresh`. A package that cannot be read is in `skipped`.
+- **A project.** `eludite/templates/create` runs `dotnet new sln` (with `newSolution`), `dotnet new <shortName>`
+  and `dotnet sln add` (with `solution` or `newSolution`) one after the other, out of process, with
+  `DOTNET_CLI_TELEMETRY_OPTOUT=1`, `DOTNET_NOLOGO=1` and `--no-update-check`; a step failing stops the rest and its
+  exit code is the result's. `files` are the files under `output` that were not there before. Canceling kills the
+  running step.
+- **An item.** `eludite/project/addItem` computes the namespace (`RootNamespace`, else the project file's name, plus
+  each folder below the project, every segment made an identifier: characters other than letters, digits and `_` to
+  `_`, a leading digit prefixed with `_`), writes a built-in template's file itself or runs `dotnet new <shortName>
+  --name <name> --output <folder> --project <project>`, and for a legacy project adds a `Compile` (`.cs`, `.vb`, `.fs`)
+  or `Content` item per new file with the construction model, preserving formatting. `eludite/project/addExisting`
+  copies files into the folder or links them (`Link` metadata). When a project file changed, the open solution
+  reloads and the result carries the new generation.
+- **Errors:** -32002 before `eludite/host/initialize`; -32602 for a relative path, a folder outside the project's
+  folder, an unknown template, or a file that exists.
 
 ### Forwarded LSP methods, typed
 

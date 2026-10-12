@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-recent.input.json",
+  "title": "eludite.workspace.recent input",
+  "description": "The recent workspaces and files (brief 0072): what the Welcome page's Open recent list and File > Recent Workspaces show, kept per user in recent.json in the config directory and written whenever a workspace or file opens. Read only; open one with eludite.workspace.open_folder (a workspace) or eludite.file.open (a file).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "description": "Only entries whose name or path contains this, ignoring case.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

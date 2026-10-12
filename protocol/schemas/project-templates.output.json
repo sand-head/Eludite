@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-templates.output.json",
+  "title": "eludite.project.templates output",
+  "description": "The matching templates, sorted by name.",
+  "type": "object",
+  "required": [
+    "templates"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "templates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "identity",
+          "name",
+          "short_name",
+          "type",
+          "source",
+          "parameters"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "description": "Unique; eludite.project.new and eludite.project.add_item take it (or the short name) as `template`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "description": "The template's name (Console App, Class Library, Class).",
+            "type": "string",
+            "minLength": 1
+          },
+          "short_name": {
+            "description": "The `dotnet new` short name (console, classlib, class).",
+            "type": "string",
+            "minLength": 1
+          },
+          "language": {
+            "description": "C#, F#, VB; absent for language-neutral templates.",
+            "type": "string"
+          },
+          "type": {
+            "description": "project, item, solution or other.",
+            "type": "string",
+            "minLength": 1
+          },
+          "classifications": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "default_name": {
+            "type": "string"
+          },
+          "source": {
+            "description": "sdk, user (installed with dotnet new install) or eludite (built in).",
+            "enum": [
+              "sdk",
+              "user",
+              "eludite"
+            ]
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "data_type"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "description": "The parameter's name, as `parameters` of eludite.project.new takes it.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "data_type": {
+                  "description": "choice, bool, text, string, int, ...",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "default_value": {
+                  "type": "string"
+                },
+                "choices": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

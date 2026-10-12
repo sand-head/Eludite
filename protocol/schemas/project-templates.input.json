@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-templates.input.json",
+  "title": "eludite.project.templates input",
+  "description": "The installed `dotnet new` templates (brief 0072): the SDK's template packages, the user's installed ones and Eludite's built-in item templates, read by eludite-host (which starts if no workspace is open). Use it to find the `template` for eludite.project.new (type project) or eludite.project.add_item (type item). The list is cached per SDK; `refresh` reads it again.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "description": "project, item or solution; all when omitted.",
+      "enum": [
+        "project",
+        "item",
+        "solution"
+      ]
+    },
+    "language": {
+      "description": "Only templates in this language (C#, F#, VB) or language-neutral ones.",
+      "type": "string",
+      "minLength": 1
+    },
+    "query": {
+      "description": "Only templates whose name, short name, description or classifications contain this, ignoring case.",
+      "type": "string",
+      "minLength": 1
+    },
+    "refresh": {
+      "description": "Read the template packages again.",
+      "type": "boolean"
+    }
+  }
+}

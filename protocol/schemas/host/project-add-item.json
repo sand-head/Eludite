@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-add-item.json",
+  "title": "eludite/project/addItem",
+  "description": "Add a new item to a project from an item template (Add > New Item..., brief 0072; host-rpc.md, \"Templates and items\"). The namespace is the project's `RootNamespace` (else its file name) plus the folder's path below the project, each segment made an identifier. Eludite's built-in templates (`eludite.*` identities) write the file themselves with that namespace; any other runs `dotnet new <shortName> --name <name> --output <folder> --project <project>`. A legacy (explicit-include) project gets a `Compile` item per new `.cs`/`.vb`/`.fs` file and a `Content` item per other file, with the construction model preserving formatting, and the solution reloads (a new generation); an SDK project is not written. A file that exists is refused.",
+  "x-eludite-method": "eludite/project/addItem",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "project",
+        "folder",
+        "template",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "The project file (absolute).",
+          "type": "string",
+          "minLength": 1
+        },
+        "folder": {
+          "description": "The folder the item goes in (absolute; the project's folder or below it).",
+          "type": "string",
+          "minLength": 1
+        },
+        "template": {
+          "description": "The template's identity or short name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "The item's name, with or without its extension (`Customer` or `Customer.cs`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "files",
+        "namespace",
+        "projectWritten",
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "description": "The files created, absolute; the first is the one to open.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "projectWritten": {
+          "description": "True when the project file gained items.",
+          "type": "boolean"
+        },
+        "generation": {
+          "description": "The solution generation after the change.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "output": {
+          "description": "`dotnet new`'s output when it ran.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-add-item.output.json",
+  "title": "eludite.project.add_item output",
+  "description": "The files added, or that a dialog is showing.",
+  "type": "object",
+  "required": [
+    "state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "added, or dialog (the Add New Item dialog or the file dialog is showing).",
+      "enum": [
+        "added",
+        "dialog"
+      ]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "namespace": {
+      "description": "The new item's namespace.",
+      "type": "string",
+      "minLength": 1
+    },
+    "project_written": {
+      "description": "True when the project file changed (a legacy project's items, a link).",
+      "type": "boolean"
+    }
+  }
+}

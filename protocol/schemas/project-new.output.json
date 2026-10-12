@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-new.output.json",
+  "title": "eludite.project.new output",
+  "description": "What was created, or that the dialog is showing.",
+  "type": "object",
+  "required": [
+    "state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "created; failed (dotnet new or dotnet sln failed: see output); dialog (the New Project dialog is showing).",
+      "enum": [
+        "created",
+        "failed",
+        "dialog"
+      ]
+    },
+    "project": {
+      "description": "The new project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "solution": {
+      "description": "The solution the project was added to.",
+      "type": "string",
+      "minLength": 1
+    },
+    "primary_file": {
+      "description": "The file opened (Program.cs, Class1.cs).",
+      "type": "string",
+      "minLength": 1
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "output": {
+      "description": "The output of dotnet new and dotnet sln.",
+      "type": "string"
+    }
+  }
+}

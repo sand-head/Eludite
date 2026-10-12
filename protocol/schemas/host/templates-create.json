@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/templates-create.json",
+  "title": "eludite/templates/create",
+  "description": "Create a project from a `dotnet new` template (brief 0072; host-rpc.md, \"Templates and items\"): optionally `dotnet new sln` first (`newSolution`), then `dotnet new <shortName> --name <name> --output <output>` with the language and parameters, then `dotnet sln <solution> add <project>` when a solution is given or created. Each step runs out of process with telemetry and the first-run banner off; a failing step stops the rest. Needs no open solution.",
+  "x-eludite-method": "eludite/templates/create",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "shortName",
+        "name",
+        "output"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "shortName": {
+          "description": "The template's short name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "description": "`--language` (`C#`, `F#`, `VB`) for a template offered in several.",
+          "type": "string"
+        },
+        "name": {
+          "description": "`--name`: the project's name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "output": {
+          "description": "`--output`: the absolute folder the project is created in.",
+          "type": "string",
+          "minLength": 1
+        },
+        "parameters": {
+          "description": "The template's parameters, `--<name> <value>` each.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "solution": {
+          "description": "An existing `.sln` or `.slnx` to add the new project to.",
+          "type": "string"
+        },
+        "newSolution": {
+          "description": "An `.slnx` to create first (`dotnet new sln --name <its name> --output <its folder>`), then add the project to.",
+          "type": "string"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "exitCode",
+        "files",
+        "output",
+        "commandLines"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "exitCode": {
+          "description": "0 when every step succeeded, else the failing step's exit code.",
+          "type": "integer"
+        },
+        "files": {
+          "description": "The files under `output` that did not exist before, absolute, sorted.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "project": {
+          "description": "The created project file, when there is one.",
+          "type": "string"
+        },
+        "primaryFile": {
+          "description": "The file to open: the template's first non-project primary output (`Program.cs`, `Class1.cs`), else the project file.",
+          "type": "string"
+        },
+        "solution": {
+          "description": "The solution the project was added to.",
+          "type": "string"
+        },
+        "output": {
+          "description": "The steps' standard output and error, in order.",
+          "type": "string"
+        },
+        "commandLines": {
+          "description": "The command lines run, in order.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

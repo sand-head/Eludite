@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-recent-edit.output.json",
+  "title": "eludite.workspace.recent_edit output",
+  "description": "The entry after the change.",
+  "type": "object",
+  "required": [
+    "path",
+    "pinned",
+    "removed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The entry's path.",
+      "type": "string",
+      "minLength": 1
+    },
+    "pinned": {
+      "description": "Whether it is pinned now.",
+      "type": "boolean"
+    },
+    "removed": {
+      "description": "True when it was removed.",
+      "type": "boolean"
+    }
+  }
+}

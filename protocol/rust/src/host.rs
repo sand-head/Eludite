@@ -91,6 +91,14 @@ pub mod methods {
     pub const RESX_SETS: &str = "eludite/resx/sets";
     /// Generate, delete or change the access modifier of a `.resx` file's designer code file (proposal 0005).
     pub const RESX_DESIGNER: &str = "eludite/resx/designer";
+    /// The installed `dotnet new` templates (brief 0072).
+    pub const TEMPLATES_LIST: &str = "eludite/templates/list";
+    /// Create a project from a template, optionally with a new solution and `dotnet sln add` (brief 0072).
+    pub const TEMPLATES_CREATE: &str = "eludite/templates/create";
+    /// Add a new item from an item template (brief 0072).
+    pub const PROJECT_ADD_ITEM: &str = "eludite/project/addItem";
+    /// Add existing files, copied or linked (brief 0072).
+    pub const PROJECT_ADD_EXISTING: &str = "eludite/project/addExisting";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -125,6 +133,10 @@ pub mod methods {
         SOLUTION_SET_CONFIGURATION,
         RESX_SETS,
         RESX_DESIGNER,
+        TEMPLATES_LIST,
+        TEMPLATES_CREATE,
+        PROJECT_ADD_ITEM,
+        PROJECT_ADD_EXISTING,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -2552,6 +2564,199 @@ request!(
     methods::RESX_DESIGNER,
     ResxDesignerParams,
     ResxDesignerResult
+);
+
+// Templates and items (brief 0072): `eludite/templates/*`, `eludite/project/addItem` and `addExisting`, see
+// host-rpc.md "Templates and items".
+
+/// `eludite/templates/list` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplatesListParams {
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub refresh: bool,
+}
+
+/// A choice of a template's `choice` parameter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateChoice {
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// A `parameter` symbol of a template.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateParameter {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub data_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choices: Option<Vec<TemplateChoice>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+}
+
+/// Where a template comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TemplateSource {
+    Sdk,
+    User,
+    Eludite,
+}
+
+/// An installed template.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateInfo {
+    pub identity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_identity: Option<String>,
+    pub name: String,
+    pub short_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub classifications: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_name: Option<String>,
+    pub source: TemplateSource,
+    pub parameters: Vec<TemplateParameter>,
+}
+
+/// `eludite/templates/list` result.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplatesListResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub templates_folder: Option<String>,
+    pub templates: Vec<TemplateInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<Vec<String>>,
+}
+
+/// `eludite/templates/create` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplatesCreateParams {
+    pub short_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    pub name: String,
+    pub output: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub parameters: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solution: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_solution: Option<String>,
+}
+
+/// `eludite/templates/create` result.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplatesCreateResult {
+    pub exit_code: i32,
+    pub files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solution: Option<String>,
+    pub output: String,
+    pub command_lines: Vec<String>,
+}
+
+/// `eludite/project/addItem` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAddItemParams {
+    pub project: String,
+    pub folder: String,
+    pub template: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub parameters: std::collections::BTreeMap<String, String>,
+}
+
+/// `eludite/project/addItem` result.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAddItemResult {
+    pub files: Vec<String>,
+    pub namespace: String,
+    pub project_written: bool,
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+}
+
+/// `eludite/project/addExisting` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAddExistingParams {
+    pub project: String,
+    pub folder: String,
+    pub files: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub link: bool,
+}
+
+/// `eludite/project/addExisting` result.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAddExistingResult {
+    pub files: Vec<String>,
+    pub project_written: bool,
+    pub generation: Generation,
+}
+
+request!(
+    /// `eludite/templates/list` (brief 0072).
+    TemplatesList,
+    methods::TEMPLATES_LIST,
+    TemplatesListParams,
+    TemplatesListResult
+);
+request!(
+    /// `eludite/templates/create` (brief 0072).
+    TemplatesCreate,
+    methods::TEMPLATES_CREATE,
+    TemplatesCreateParams,
+    TemplatesCreateResult
+);
+request!(
+    /// `eludite/project/addItem` (brief 0072).
+    ProjectAddItem,
+    methods::PROJECT_ADD_ITEM,
+    ProjectAddItemParams,
+    ProjectAddItemResult
+);
+request!(
+    /// `eludite/project/addExisting` (brief 0072).
+    ProjectAddExisting,
+    methods::PROJECT_ADD_EXISTING,
+    ProjectAddExistingParams,
+    ProjectAddExistingResult
 );
 
 #[cfg(test)]

@@ -20,7 +20,7 @@
       "const": "loading"
     },
     "solution": {
-      "description": "Absolute path of the .NET solution found at the root (or in a folder directly below it) and handed to eludite-host, when there is one.",
+      "description": "Absolute path of the .NET part handed to eludite-host, when there is one: the solution found at the root (or in a folder directly below it), else the only project file, else the generated .eludite/workspace.slnx listing the project files (brief 0072); or the file given as `path`.",
       "type": "string",
       "minLength": 1
     },

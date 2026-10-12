@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-new.input.json",
+  "title": "eludite.project.new input",
+  "description": "Create a project from a template (File > New Project..., Ctrl+Shift+N; brief 0072). eludite-host runs `dotnet new <template> --name <name> --output <location>/<name>` (out of process; the output goes to the Output window's Templates source), creating a solution first when `solution` is new and adding the project to it, or to the workspace's solution when `solution` is add (`dotnet sln add`). Then, unless `open` is false, the workspace opens (the new solution's folder; with add, the workspace refreshes) and the project's main file opens. From the UI without arguments it shows the New Project dialog.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "template": {
+      "description": "A template's identity or short name, from eludite.project.templates (console, classlib, webapi, xunit, ...).",
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "description": "The project's name (and folder name).",
+      "type": "string",
+      "minLength": 1
+    },
+    "location": {
+      "description": "Absolute folder the project's folder is created in. Default: the workspace folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "language": {
+      "description": "C#, F# or VB, for a template offered in several (default: C#).",
+      "type": "string",
+      "minLength": 1
+    },
+    "solution": {
+      "description": "new: create `<location>/<solution_name>.slnx` and add the project to it; add: add it to the workspace's solution (a .sln or .slnx; with no solution open this is new); none: no solution. Default: add when the workspace has a solution, else new.",
+      "enum": [
+        "new",
+        "add",
+        "none"
+      ]
+    },
+    "solution_name": {
+      "description": "The new solution's name (default: the project's name).",
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "description": "The target framework (`--framework`, such as net10.0) when the template has the parameter.",
+      "type": "string",
+      "minLength": 1
+    },
+    "parameters": {
+      "description": "Other template parameters by name (as eludite.project.templates lists them), as strings (`true`/`false` for bool).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "open": {
+      "description": "Open the result in the workspace (default true).",
+      "type": "boolean"
+    }
+  }
+}

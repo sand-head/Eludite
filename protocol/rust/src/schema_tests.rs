@@ -2196,3 +2196,143 @@ fn resx_messages_conform_to_their_schemas() {
         json!({"generation": 4, "path": "x", "status": "none", "modifier": "none"})
     );
 }
+
+#[test]
+fn template_messages_conform_to_their_schemas() {
+    // Brief 0072: `eludite/templates/*`, `eludite/project/addItem` and `addExisting`.
+    use host::*;
+    conforms(
+        "templates-list.json",
+        "params",
+        &TemplatesListParams {
+            kind: Some("project".into()),
+            refresh: true,
+        },
+    );
+    conforms(
+        "templates-list.json",
+        "params",
+        &TemplatesListParams::default(),
+    );
+    rejects("templates-list.json", "params", json!({"kind": "project"}));
+    let console = TemplateInfo {
+        identity: "Microsoft.Common.Console.CSharp.10.0".into(),
+        group_identity: Some("Microsoft.Common.Console".into()),
+        name: "Console App".into(),
+        short_names: vec!["console".into()],
+        language: Some("C#".into()),
+        kind: "project".into(),
+        classifications: vec!["Common".into(), "Console".into()],
+        author: Some("Microsoft".into()),
+        description: Some("A project for creating a command-line application".into()),
+        default_name: Some("ConsoleApp1".into()),
+        source: TemplateSource::Sdk,
+        parameters: vec![TemplateParameter {
+            name: "Framework".into(),
+            display_name: Some("Framework".into()),
+            description: None,
+            data_type: "choice".into(),
+            default_value: Some("net10.0".into()),
+            choices: Some(vec![TemplateChoice {
+                value: "net10.0".into(),
+                display_name: Some(".NET 10.0".into()),
+                description: None,
+            }]),
+            required: None,
+        }],
+    };
+    conforms("templates-list.json", "template", &console);
+    conforms(
+        "templates-list.json",
+        "result",
+        &TemplatesListResult {
+            templates_folder: Some("/usr/share/dotnet/templates/10.0.3".into()),
+            templates: vec![console],
+            skipped: None,
+        },
+    );
+    let mut parameters = std::collections::BTreeMap::new();
+    parameters.insert("Framework".to_owned(), "net10.0".to_owned());
+    conforms(
+        "templates-create.json",
+        "params",
+        &TemplatesCreateParams {
+            short_name: "console".into(),
+            language: Some("C#".into()),
+            name: "App".into(),
+            output: "/w/App".into(),
+            parameters,
+            solution: None,
+            new_solution: Some("/w/App.slnx".into()),
+        },
+    );
+    rejects(
+        "templates-create.json",
+        "params",
+        json!({"shortName": "console", "name": "App"}),
+    );
+    conforms(
+        "templates-create.json",
+        "result",
+        &TemplatesCreateResult {
+            exit_code: 0,
+            files: vec!["/w/App/App.csproj".into(), "/w/App/Program.cs".into()],
+            project: Some("/w/App/App.csproj".into()),
+            primary_file: Some("/w/App/Program.cs".into()),
+            solution: Some("/w/App.slnx".into()),
+            output: "The template \"Console App\" was created successfully.\n".into(),
+            command_lines: vec!["dotnet new console --name App --output /w/App".into()],
+        },
+    );
+    conforms(
+        "project-add-item.json",
+        "params",
+        &ProjectAddItemParams {
+            project: "/w/App/App.csproj".into(),
+            folder: "/w/App/Models".into(),
+            template: "eludite.cs.class".into(),
+            name: "Customer".into(),
+            parameters: Default::default(),
+        },
+    );
+    rejects(
+        "project-add-item.json",
+        "params",
+        json!({"project": "/w/App/App.csproj", "name": "Customer"}),
+    );
+    conforms(
+        "project-add-item.json",
+        "result",
+        &ProjectAddItemResult {
+            files: vec!["/w/App/Models/Customer.cs".into()],
+            namespace: "App.Models".into(),
+            project_written: false,
+            generation: 4,
+            output: None,
+        },
+    );
+    conforms(
+        "project-add-existing.json",
+        "params",
+        &ProjectAddExistingParams {
+            project: "/w/App/App.csproj".into(),
+            folder: "/w/App".into(),
+            files: vec!["/elsewhere/Shared.cs".into()],
+            link: true,
+        },
+    );
+    rejects(
+        "project-add-existing.json",
+        "params",
+        json!({"project": "/w/App/App.csproj", "folder": "/w/App"}),
+    );
+    conforms(
+        "project-add-existing.json",
+        "result",
+        &ProjectAddExistingResult {
+            files: vec!["/elsewhere/Shared.cs".into()],
+            project_written: true,
+            generation: 5,
+        },
+    );
+}

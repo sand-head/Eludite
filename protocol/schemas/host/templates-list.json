@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/templates-list.json",
+  "title": "eludite/templates/list",
+  "description": "The installed `dotnet new` templates (brief 0072; host-rpc.md, \"Templates and items\"): read from the template packages of the SDK in use (`<dotnet root>/templates/<version>/*.nupkg`) and the user's installed packages (`~/.templateengine/packages/*.nupkg`), each package's `content/**/.template.config/template.json`, plus Eludite's built-in item templates (`source` `eludite`). Needs no open solution. Cached per package set; `refresh` reads the packages again.",
+  "x-eludite-method": "eludite/templates/list",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "description": "Only templates whose `tags.type` is this (`project`, `item`, `solution`); all when omitted.",
+          "type": "string",
+          "minLength": 1
+        },
+        "refresh": {
+          "description": "Read the packages again instead of answering from the cache.",
+          "type": "boolean"
+        }
+      }
+    },
+    "choice": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "parameter": {
+      "description": "A `parameter` symbol of the template.",
+      "type": "object",
+      "required": [
+        "name",
+        "dataType"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The symbol's name, as `dotnet new` takes it (`--<name>`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "dataType": {
+          "description": "`choice`, `bool`, `text`, `string`, `int`, `float` or what the template says (lower case); `text` when the template says nothing.",
+          "type": "string",
+          "minLength": 1
+        },
+        "defaultValue": {
+          "type": "string"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/choice"
+          }
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "template": {
+      "type": "object",
+      "required": [
+        "identity",
+        "name",
+        "shortNames",
+        "type",
+        "source",
+        "parameters"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "description": "The template's identity (unique).",
+          "type": "string",
+          "minLength": 1
+        },
+        "groupIdentity": {
+          "description": "Templates sharing it are one template in several languages.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shortNames": {
+          "description": "The short names `dotnet new` takes, the first preferred.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "language": {
+          "description": "`tags.language`: `C#`, `F#`, `VB`, absent for language-neutral templates.",
+          "type": "string"
+        },
+        "type": {
+          "description": "`tags.type`: `project`, `item`, `solution`, or `other` when the template says nothing.",
+          "type": "string",
+          "minLength": 1
+        },
+        "classifications": {
+          "description": "The template's classifications (`Common`, `Console`, `Web`, `Test`, ...): the dialog's Platform and Project type filters.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "author": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "defaultName": {
+          "description": "The template's `defaultName`, else its `sourceName`.",
+          "type": "string"
+        },
+        "source": {
+          "description": "`sdk` (the SDK's packages), `user` (`~/.templateengine/packages`) or `eludite` (built in).",
+          "enum": [
+            "sdk",
+            "user",
+            "eludite"
+          ]
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "templates"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "templatesFolder": {
+          "description": "The SDK's template folder read, when one was found.",
+          "type": "string"
+        },
+        "templates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/template"
+          }
+        },
+        "skipped": {
+          "description": "Packages that could not be read, with why.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

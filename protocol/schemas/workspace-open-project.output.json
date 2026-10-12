@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-open-project.output.json",
+  "title": "eludite.workspace.open_project output",
+  "description": "What eludite.workspace.open_folder started, or that the file dialog is showing.",
+  "type": "object",
+  "required": [
+    "state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "loading: the workspace is opening; dialog: the file dialog is showing (from the UI, without `path`).",
+      "enum": [
+        "loading",
+        "dialog"
+      ]
+    },
+    "root": {
+      "description": "The workspace folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "solution": {
+      "description": "The file handed to eludite-host.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
