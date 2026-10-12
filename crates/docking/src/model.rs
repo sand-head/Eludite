@@ -96,6 +96,11 @@ pub mod ids {
     /// Project > Properties (brief 0049): `view.show` opens it as a document tab, which the shell turns into the
     /// selected project's property pages (`project_properties:<project file>`).
     pub const PROJECT_PROPERTIES: &str = "project_properties";
+    /// The navigation set (brief 0071): View > Other Windows > Document Outline (docked left, as Visual Studio docks
+    /// it), View > Call Hierarchy and View > Type Hierarchy (at the bottom), each closed until shown.
+    pub const DOCUMENT_OUTLINE: &str = "document_outline";
+    pub const CALL_HIERARCHY: &str = "call_hierarchy";
+    pub const TYPE_HIERARCHY: &str = "type_hierarchy";
 }
 
 /// A kind of tool window the shell knows about. Later briefs register more.
@@ -161,6 +166,10 @@ impl ToolWindowRegistry {
             (ids::FIND_RESULTS_2, "Find Results 2", DockSide::Bottom),
             (ids::PULL_REQUESTS, "Pull Requests", DockSide::Right),
             (ids::ISSUES, "Issues", DockSide::Right),
+            // Brief 0071.
+            (ids::DOCUMENT_OUTLINE, "Document Outline", DockSide::Left),
+            (ids::CALL_HIERARCHY, "Call Hierarchy", DockSide::Bottom),
+            (ids::TYPE_HIERARCHY, "Type Hierarchy", DockSide::Bottom),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }

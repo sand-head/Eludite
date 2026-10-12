@@ -86,6 +86,14 @@ fn capability(method: &str) -> Option<&'static str> {
         "textDocument/semanticTokens/full" => "semanticTokensProvider",
         "textDocument/inlayHint" => "inlayHintProvider",
         "workspace/executeCommand" => "executeCommandProvider",
+        // Brief 0071: the navigation set.
+        "workspace/symbol" => "workspaceSymbolProvider",
+        "textDocument/prepareCallHierarchy"
+        | "callHierarchy/incomingCalls"
+        | "callHierarchy/outgoingCalls" => "callHierarchyProvider",
+        "textDocument/prepareTypeHierarchy"
+        | "typeHierarchy/supertypes"
+        | "typeHierarchy/subtypes" => "typeHierarchyProvider",
         _ => return None,
     })
 }

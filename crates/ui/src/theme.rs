@@ -95,6 +95,10 @@ pub struct Theme {
     pub editor_line_number_active: Rgba,
     pub editor_current_line: Rgba,
     pub editor_find_match: Rgba,
+    /// Reference highlighting (brief 0071): the symbol under the caret with its text and read references, and its
+    /// written references (Visual Studio's Highlighted Reference and Highlighted Written Reference).
+    pub reference_highlight_read: Rgba,
+    pub reference_highlight_write: Rgba,
     pub typography: Typography,
 }
 
@@ -155,6 +159,8 @@ impl Theme {
             editor_line_number_active: rgb(0xD6DFDB),
             editor_current_line: rgb(0x25312E),
             editor_find_match: rgb(0x5A4314),
+            reference_highlight_read: rgb(0x2A4A44),
+            reference_highlight_write: rgb(0x5A3A1E),
             typography: Typography::default(),
         }
     }
@@ -215,6 +221,8 @@ impl Theme {
             editor_line_number_active: rgb(0x15201C),
             editor_current_line: rgb(0xE2E1D8),
             editor_find_match: rgb(0xF3D9A4),
+            reference_highlight_read: rgb(0xDCEBF8),
+            reference_highlight_write: rgb(0xF5DCC8),
             typography: Typography::default(),
         }
     }
@@ -276,6 +284,8 @@ impl Theme {
             editor_line_number_active: rgb(0x1E1E1E),
             editor_current_line: rgb(0xEAEAF2),
             editor_find_match: rgb(0xF5CC84),
+            reference_highlight_read: rgb(0xDCEBF8),
+            reference_highlight_write: rgb(0xF5DCC8),
             typography: Typography::default(),
         }
     }

@@ -734,6 +734,9 @@ mod tests {
                 "languageServers.eslint",
                 "editor.formatOnSave.typescript",
                 "editor.formatOnSave.json",
+                // Brief 0071.
+                "editor.highlightReferences",
+                "editor.navigationBar",
                 "resx.rules.placeholders",
                 "resx.rules.punctuation",
                 "resx.rules.whitespace",

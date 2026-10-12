@@ -75,6 +75,14 @@ public sealed class LspProxy : IAsyncDisposable
         "textDocument/semanticTokens/full",
         "textDocument/semanticTokens/range",
         "textDocument/formatting",
+        // Brief 0071: call and type hierarchy (the pinned Roslyn has the handlers) and source-generated documents' text.
+        "textDocument/prepareCallHierarchy",
+        "callHierarchy/incomingCalls",
+        "callHierarchy/outgoingCalls",
+        "textDocument/prepareTypeHierarchy",
+        "typeHierarchy/supertypes",
+        "typeHierarchy/subtypes",
+        "workspace/textDocumentContent",
     ];
 
     /// <summary>All forwarded requests.</summary>
@@ -936,6 +944,8 @@ public sealed class LspProxy : IAsyncDisposable
             },
             // Brief 0052: Roslyn asks for fresh lenses (relayed to the shell as eludite/codeLens/refresh).
             codeLens = new { refreshSupport = true },
+            // Brief 0071: Roslyn registers the roslyn-source-generated scheme for workspace/textDocumentContent.
+            textDocumentContent = new { },
         },
         textDocument = new
         {
@@ -974,6 +984,12 @@ public sealed class LspProxy : IAsyncDisposable
             rename = new { prepareSupport = true },
             // Brief 0052: the references and tests lenses.
             codeLens = new { },
+            // Brief 0071: the navigation set.
+            implementation = new { },
+            typeDefinition = new { },
+            documentHighlight = new { },
+            callHierarchy = new { },
+            typeHierarchy = new { },
             publishDiagnostics = new { },
             diagnostic = new { dynamicRegistration = false },
         },

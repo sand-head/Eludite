@@ -162,6 +162,14 @@ pub mod methods {
         "textDocument/semanticTokens/full",
         "textDocument/semanticTokens/range",
         "textDocument/formatting",
+        // Brief 0071: call and type hierarchy, and source-generated documents' text.
+        "textDocument/prepareCallHierarchy",
+        "callHierarchy/incomingCalls",
+        "callHierarchy/outgoingCalls",
+        "textDocument/prepareTypeHierarchy",
+        "typeHierarchy/supertypes",
+        "typeHierarchy/subtypes",
+        "workspace/textDocumentContent",
     ];
 
     /// Forwarded LSP notifications passed through as raw JSON.

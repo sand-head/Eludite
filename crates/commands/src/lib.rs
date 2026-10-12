@@ -40,6 +40,9 @@
 //! the OpenAI-compatible servers' `eludite.agents.provider_*` commands, registered through an
 //! [`agents::ProviderTarget`]. [`resx`] holds the `.resx` editor's `eludite.resx.*` (proposal 0005), registered by the
 //! shell through a [`resx::ResxCommands`], with the policy's `resx` object applied by `remove`'s escalation hook.
+//! [`navigation`] holds the navigation set's `eludite.navigation.*` (brief 0071: Go To Implementation, Go To All,
+//! reference highlighting, the outline, the navigation bar, the hierarchies, Find All References' toolbar),
+//! registered by the shell through a [`navigation::NavigationCommands`].
 //!
 //! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
 //! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
@@ -58,6 +61,7 @@ pub mod files;
 pub mod forge;
 pub mod git;
 mod id;
+pub mod navigation;
 pub mod nuget;
 pub mod policy;
 pub mod project;

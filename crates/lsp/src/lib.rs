@@ -54,6 +54,8 @@ mod fake_nuget;
 #[cfg(feature = "fake")]
 pub mod fake_server;
 pub mod fanout;
+/// The navigation set's answers (brief 0071).
+pub mod navigation;
 pub mod node;
 pub mod process;
 mod pull;
