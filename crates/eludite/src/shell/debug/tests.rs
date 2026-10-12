@@ -8014,6 +8014,136 @@ fn ncd_line(text: &str, mark: &str) -> u32 {
         + 1
 }
 
+/// Brief 0065: Debug Test's launch under the real netcoredbg. The Test Explorer hands the debugger the test
+/// application's launch (`Debugger::test_launch`, from the host's `launch` update for a Microsoft.Testing.Platform
+/// project); here that is the corpus's MSTest project run whole: a breakpoint in a test method binds and hits with the
+/// test's frame on top and MSTest's own frames external (Just My Code), the failing test stops user-unhandled on its
+/// `AssertFailedException` with the type and message, and F5 runs the tests to the end. Skips
+/// unless netcoredbg is found and `dotnet` builds corpus/tests/Corpus.MSTest.
+#[gpui::test]
+fn debug_test_launches_an_mstest_application_under_netcoredbg(cx: &mut TestAppContext) {
+    let Some(mut d) = ncd_solution(cx) else {
+        return;
+    };
+    let corpus = std::fs::canonicalize(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/Corpus.MSTest"),
+    )
+    .unwrap();
+    // corpus/tests/build.sh builds it (CI does, before the tests); built here only when it was not.
+    if !corpus.join("bin/Debug/net10.0/Corpus.MSTest.dll").is_file() {
+        let built = std::process::Command::new("dotnet")
+            .args([
+                "build",
+                "Corpus.MSTest.csproj",
+                "--configuration",
+                "Debug",
+                "--nologo",
+            ])
+            .current_dir(&corpus)
+            .env("DOTNET_NOLOGO", "1")
+            .output();
+        match built {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => {
+                eprintln!(
+                    "skipped: Corpus.MSTest did not build:\n{}",
+                    String::from_utf8_lossy(&o.stdout)
+                );
+                return;
+            }
+            Err(e) => {
+                eprintln!("skipped: dotnet: {e}");
+                return;
+            }
+        }
+    }
+    d.w.open_solution();
+    let source = corpus.join("ParserTests.cs");
+    let text = std::fs::read_to_string(&source).unwrap();
+    let line = text
+        .lines()
+        .position(|l| l.contains("int.Parse(\"42\")"))
+        .unwrap() as u32
+        + 1;
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": source.to_string_lossy(), "line": line}),
+    )
+    .unwrap();
+    let project = d.w.path("src/App/App.csproj");
+    let bin = corpus.join("bin/Debug/net10.0");
+    d.w.shell.update(&mut d.w.vcx, |s, _| {
+        s.debug.test_launch = Some(eludite_dap::launch::LaunchConfig {
+            project: corpus.join("Corpus.MSTest.csproj"),
+            program: bin.join("Corpus.MSTest.dll"),
+            kind: eludite_dap::launch::FrameworkKind::CoreClr,
+            args: Vec::new(),
+            cwd: bin.clone(),
+            env: Default::default(),
+            profile: None,
+        });
+    });
+    let started = Instant::now();
+    let s = agent_call(
+        &mut d,
+        cmds::START,
+        json!({"project": project.to_string_lossy(), "build": false}),
+    );
+    assert!(s.get("error").is_none(), "{s}");
+    let s = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 30000}),
+    );
+    eprintln!(
+        "timing: Debug Test (MSTest, netcoredbg) to the first stop: {:.0} ms",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(s["stopped"]["reason"], "breakpoint", "{s}");
+    assert_eq!(s["stopped"]["location"]["line"], line, "{s}");
+    let st = agent_call(&mut d, cmds::STACK, json!({}));
+    let frames = st["threads"][0]["frames"].as_array().unwrap().clone();
+    assert_eq!(
+        frames[0]["name"], "Corpus.MSTest.ParserTests.ParsesNumbers()",
+        "{st}"
+    );
+    // Just My Code: below the test, MSTest's and the runtime's frames are external.
+    assert!(
+        frames[1..]
+            .iter()
+            .all(|f| f["external"] == true || f["path"].is_null()),
+        "{st}"
+    );
+    // The failing test: Just My Code stops where MSTest's assertion leaves user code unhandled, as Visual Studio does,
+    // with the exception's type and message.
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 30000}));
+    assert_eq!(s["stopped"]["reason"], "exception", "{s}");
+    assert_eq!(
+        s["stopped"]["location"]["function"], "Corpus.MSTest.ParserTests.ParsesNegatives()",
+        "{s}"
+    );
+    let x = &s["stopped"]["exception"];
+    assert_eq!(x["break_mode"], "userUnhandled", "{s}");
+    assert!(
+        x["type"]
+            .as_str()
+            .unwrap()
+            .ends_with("Microsoft.VisualStudio.TestTools.UnitTesting.AssertFailedException")
+            && x["message"].as_str().unwrap().contains("expected: 7"),
+        "{s}"
+    );
+    // F5 through the other failing tests to the end.
+    let mut s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 30000}));
+    for _ in 0..10 {
+        if s["mode"] == "design" {
+            break;
+        }
+        assert_eq!(s["stopped"]["reason"], "exception", "{s}");
+        s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 30000}));
+    }
+    assert_eq!(s["mode"], "design", "{s}");
+}
+
 /// Brief 0065: F5 on a .NET 5+ project with netcoredbg nowhere (not beside Eludite, not in `ELUDITE_NETCOREDBG`, not on
 /// `PATH`, not in the fetch script's cache) ends the launch with one message naming tools/netcoredbg/fetch.sh, in the
 /// status bar and once in the Output window's Debug source, instead of a failure to start a process.

@@ -180,3 +180,22 @@ Everything you do is audited and shown in the Agents window.
   name `session` by adapter. Frames keep the source-mapped `.ts` path (`source.generated`: the served `.js`). A click
   that hits a breakpoint answers `paused`; read the stop with `wait`.
 - `stop` without `session` ends every session; with one, that session only. Breakpoints, exception settings and watch expressions are shared by all sessions; the stop counter, `allow_agents` and `interrupted_by` are per session.
+
+## 8. What netcoredbg (.NET 5 and later) does and does not do
+
+.NET 5 and later is debugged with netcoredbg 3.2.0-1092 (brief 0065 measured all of this against it):
+
+- `eludite.debug.state`'s `capabilities` says so: function breakpoints, exception types, `set_variable`, `pause` and
+  `terminate` are the adapter's; tracepoints and hit counts are the shell's (each hit is a stop, the evaluations and a
+  resume: about 4 ms a hit); `set_next_statement` is refused (netcoredbg has no `gotoTargets`); there is no `restart`
+  in the adapter, so `restart` stops and starts again.
+- Just My Code is on: a failing assertion in a test, or any exception your code leaves unhandled into a framework,
+  stops at your line with `break_mode: "userUnhandled"`, the exception's type and message in `stopped.exception`.
+- Its evaluator is netcoredbg's own, not C#'s: locals, fields, literals and arithmetic work (`total`, `a + b`,
+  `40 + 2`), but not a string's properties (`name.Length` answers "does not exist") nor `== null` on a string. Read
+  such values with `variables` (expand the object) instead of `evaluate`.
+- Locals come whole (netcoredbg does not page `variables`; the shell pages them for you: `start`/`count` work).
+- A function breakpoint's stop says `reason: "breakpoint"`; the Breakpoints rows still count its hits.
+- Threads keep their names (`Main Thread`, a `Thread.Name` you set); thread ids are the system's.
+- `attach` takes `pid` of a `dotnet` process (any .NET 5+ program the user may debug); `stop` detaches and leaves it
+  running.
