@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/test-discover.json",
   "title": "eludite/test/discover",
-  "description": "Discover the tests of the open solution's test projects, or of the projects named, out of process (brief 0035; host-rpc.md, \"Tests\"). Each test project is found by reading its project file (TestProjectInspector: MTP or VSTest) and becomes one container per target framework. MTP containers run the test application with `--server --client-port <port>` and send `testing/discoverTests`; VSTest containers each by a vstest.console of their own (`TestDiscovery.Start`); containers are discovered side by side. The host answers at once with the discovery's id and its containers, then streams eludite/test/update notifications (`discovered`, `output`, `containerFinished`) and ends with exactly one `finished`. Discovery reads the build outputs as they are: the shell builds first when it wants a fresh build.",
+  "description": "Discover the tests of the open solution's test projects, or of the projects named, out of process (brief 0035; host-rpc.md, \"Tests\"). Each test project is found by evaluating it with MSBuild in the requested configuration and platform (brief 0076: `IsTestProject`, the MTP runner properties and the package references wherever they are declared, the evaluated `TargetPath` per target framework; the project file alone, TestProjectInspector, when MSBuild is not available) and becomes one container per target framework. MTP containers run the test application with `--server --client-port <port>` and send `testing/discoverTests`; VSTest containers each by a vstest.console of their own (`TestDiscovery.Start`); containers are discovered side by side. The host answers at once with the discovery's id and its containers, then streams eludite/test/update notifications (`discovered`, `output`, `containerFinished`) and ends with exactly one `finished`. Discovery reads the build outputs as they are: the shell builds first when it wants a fresh build.",
   "x-eludite-method": "eludite/test/discover",
   "x-eludite-kind": "request",
   "x-eludite-direction": "shellToHost",
@@ -34,6 +34,11 @@
         },
         "vstestConsolePath": {
           "description": "The vstest.console.dll to run (the setting test.vstestConsolePath). Omitted: the one in the .NET SDK `dotnet --list-sdks` lists last (the SDK the host runs on when it has one).",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "Brief 0076: the solution platform whose build outputs hold the tests (`x64`, `Any CPU`); the host evaluates each project with the matching MSBuild `Platform` (`Any CPU` is `AnyCPU`). Omitted: the projects' default platform.",
           "type": "string",
           "minLength": 1
         }
@@ -122,6 +127,15 @@
         "error": {
           "description": "Why the container cannot be discovered or run (`not built: ... does not exist; build the project first`, `.NET Framework tests need Mono off Windows`). Such a container has no tests; its containerFinished update says failed with this message.",
           "type": "string"
+        },
+        "coverage": {
+          "description": "Brief 0076: the coverage collector the project references, from its evaluated package references: `mtp` (Microsoft.Testing.Extensions.CodeCoverage, `--coverage --coverage-output-format cobertura`), `coverlet` (coverlet.collector, VSTest's `XPlat Code Coverage` data collector), `microsoft` (Microsoft.CodeCoverage through Microsoft.NET.Test.Sdk, VSTest's `Code Coverage` data collector), `none`.",
+          "enum": [
+            "mtp",
+            "coverlet",
+            "microsoft",
+            "none"
+          ]
         }
       }
     }

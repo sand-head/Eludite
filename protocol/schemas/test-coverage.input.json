@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-coverage.input.json",
+  "title": "eludite.test.coverage input",
+  "description": "Analyze Code Coverage (Test > Analyze Code Coverage for All Tests, and for the Test Explorer's selection): run the tests as eludite.test.run does, with each .NET test project's coverage collector (Microsoft.Testing.Extensions.CodeCoverage on Microsoft.Testing.Platform, coverlet.collector or Microsoft.CodeCoverage on VSTest) writing Cobertura, merged in eludite-host. The Code Coverage Results window shows the result and the editor colors covered, partially covered and uncovered lines (Show Code Coverage Coloring). Rust tests run without coverage. Refused while another run is going.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ids": {
+      "description": "Test ids, as eludite.test.discover and eludite.test.results list them (`<project>|<runner id>`).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "filter": {
+      "description": "Which tests: a case-insensitive substring of the fully qualified name (`CalculatorTests.Adds`, `tests::adds`), or a trait `Name=Value` (`Category=Math`). The Test Explorer's search box takes the same text after `FullName:` or `Trait:`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "A test project or Cargo package: its name as the Test Explorer shows it (`Corpus.XunitV3`, `Corpus.XunitV3 (net472)` for one target framework of a multi-targeted project, a Cargo package such as `corpus-tests`), or the path of its project file or Cargo.toml (absolute, or relative to the solution or workspace folder). Omitted: every test project and package.",
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "description": "Only the containers of this target framework, for multi-targeted test projects (`net8.0`; brief 0049). Default: the Target Framework list's choice for a multi-targeted project when one was made (eludite.solution.select_configuration), else every framework.",
+      "type": "string",
+      "minLength": 1
+    },
+    "failed_only": {
+      "description": "Run Failed Tests: the tests that failed in the last run.",
+      "type": "boolean"
+    },
+    "selection": {
+      "description": "Run Tests (Ctrl+R, T): Brief 0076: with the editor focused, the caret's scope (the test method it is in; on a test class's declaration line or between its members, the class's tests; elsewhere in a file with tests, the file's tests; never the test above a non-test member); from the Test Explorer (it has focus) the tests under its selected node. When neither gives tests, the other is tried.",
+      "type": "boolean"
+    },
+    "wait_ms": {
+      "description": "How long to wait for the run to finish before answering, in milliseconds. From the UI the command never waits (default 0); from another thread (an agent) the default is 30000. A run still going when the wait ends answers `running` with `timed_out`; eludite.test.results reads it later.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 300000
+    }
+  }
+}

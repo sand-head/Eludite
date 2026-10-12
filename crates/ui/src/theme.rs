@@ -62,6 +62,11 @@ pub struct Theme {
     pub success: Rgba,
     /// A block set off from `panel` (brief 0059): the person's prompts in the Agents transcript.
     pub panel_raised: Rgba,
+    /// Code coverage coloring (brief 0076): the line backgrounds of covered, partially covered and not covered lines,
+    /// translucent so the text and selection stay readable.
+    pub coverage_covered: Rgba,
+    pub coverage_partial: Rgba,
+    pub coverage_uncovered: Rgba,
     /// The icon set's tints (brief 0062, [`crate::icons`]): each reads at 3:1 on `panel`. Folders and solution
     /// folders.
     pub icon_folder: Rgba,
@@ -136,6 +141,18 @@ impl Theme {
             warning: rgb(0xE0A52B),
             success: rgb(0x6CC59A),
             panel_raised: rgb(0x1A2321),
+            coverage_covered: Rgba {
+                a: 0.22,
+                ..rgb(0x3FB37F)
+            },
+            coverage_partial: Rgba {
+                a: 0.26,
+                ..rgb(0xD9A93A)
+            },
+            coverage_uncovered: Rgba {
+                a: 0.22,
+                ..rgb(0xE05A4F)
+            },
             // Visual Studio's dark palette as the eye reads it (brief 0062).
             icon_folder: rgb(0xDCB67A),
             icon_csharp_file: rgb(0xA179DC),
@@ -196,6 +213,18 @@ impl Theme {
             warning: rgb(0x8A5E0B),
             success: rgb(0x1F7A45),
             panel_raised: rgb(0xEAE9E1),
+            coverage_covered: Rgba {
+                a: 0.22,
+                ..rgb(0x2E9B5E)
+            },
+            coverage_partial: Rgba {
+                a: 0.26,
+                ..rgb(0xC28A12)
+            },
+            coverage_uncovered: Rgba {
+                a: 0.22,
+                ..rgb(0xD13B30)
+            },
             // The same hues, darker, so each reads on a light panel (brief 0062).
             icon_folder: rgb(0xA87B1E),
             icon_csharp_file: rgb(0x7B4DB3),
@@ -256,6 +285,18 @@ impl Theme {
             warning: rgb(0x8A5A00),
             success: rgb(0x26722A),
             panel_raised: rgb(0xE6EBF5),
+            coverage_covered: Rgba {
+                a: 0.22,
+                ..rgb(0x3C9E3C)
+            },
+            coverage_partial: Rgba {
+                a: 0.26,
+                ..rgb(0xD0A000)
+            },
+            coverage_uncovered: Rgba {
+                a: 0.22,
+                ..rgb(0xD03030)
+            },
             // The same hues, darker, so each reads on a light panel (brief 0062).
             icon_folder: rgb(0xA87B1E),
             icon_csharp_file: rgb(0x7B4DB3),

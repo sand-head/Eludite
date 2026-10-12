@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-coverage-results.input.json",
+  "title": "eludite.test.coverage_results input",
+  "description": "The last code coverage's rows as the Code Coverage Results window lists them (assembly, namespace, class, method with covered and not covered lines), and with `file` that file's line states.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "file": {
+      "description": "A source file (absolute, or relative to the workspace's folder): its covered, partially covered and uncovered lines.",
+      "type": "string",
+      "minLength": 1
+    },
+    "filter": {
+      "description": "Only rows whose name contains this (case-insensitive).",
+      "type": "string",
+      "minLength": 1
+    },
+    "max_items": {
+      "description": "Rows per page. Default 200.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "cursor": {
+      "description": "`next_cursor` of the previous page.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

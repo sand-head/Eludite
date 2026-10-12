@@ -20,7 +20,13 @@
 //!   its adapter from the host's `launch` update (the debugger's start seam, `Debugger::test_launch`), the VSTest
 //!   testhost attached to from the host's `attach` update, or a Cargo package's test executable (`test: true`). A
 //!   temporary function breakpoint on the first test (`Namespace.Class.Method`, `crate::module::test`) stops it at the
-//!   test's first line.
+//!   test's first line when an agent asks (brief 0076: from the UI the session stops at the person's breakpoints only).
+//! - **Brief 0076.** A build the Test Explorer did not start rediscovers when it succeeds (and, with
+//!   test.runAfterBuild, runs the tests), and a new discovery replaces the tree container by container instead of
+//!   emptying it; a new solution generation keeps the tree, marked stale, until it is rediscovered. Run Tests from the
+//!   editor takes the caret's scope ([`super::test_scope`]). A coverage run (`eludite.test.coverage`) asks the host for
+//!   coverage and hands its `coverage` update to [`super::coverage`]. The .NET tree and outcomes are cached in the
+//!   workspace's `.eludite/tests.json` and shown, stale, at the next start.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -85,6 +91,8 @@ pub enum Ticket {
     Discover(u64),
     Run(u64),
     Debug(u64),
+    /// Brief 0076: a coverage run.
+    Coverage(u64),
 }
 
 /// A call from another thread for the UI thread.
@@ -192,6 +200,11 @@ impl TestCommands for TestBus {
             });
         }
         let started = Instant::now();
+        // Brief 0076: an agent's Debug Tests stops at the first test unless it says otherwise.
+        let mut request = request;
+        if let TestRequest::Debug { break_at_test, .. } = &mut request {
+            break_at_test.get_or_insert(true);
+        }
         let wait = Duration::from_millis(request.agent_wait_ms().unwrap_or(0));
         let (outcome, ticket) = self.post(TestCall::Apply(request.clone()))?;
         let Some(ticket) = ticket.filter(|_| outcome.is_ok() && !wait.is_zero()) else {
@@ -207,7 +220,7 @@ impl TestCommands for TestBus {
                 })?
                 .0
             }
-            Ticket::Run(run) => {
+            Ticket::Run(run) | Ticket::Coverage(run) => {
                 let done = self
                     .shared
                     .wait_for(wait, |s| s.finished_runs.contains(&run));
@@ -390,6 +403,8 @@ pub struct DebugRun {
     pub kind: DebugKind,
     pub project: String,
     pub breakpoint: Option<String>,
+    /// Brief 0076: set the temporary breakpoint on the first test.
+    pub break_at_test: bool,
     /// The session once it started.
     pub session: Option<u32>,
     /// The `attach` update's process, until the shell answered `eludite/test/attached`.
@@ -415,6 +430,21 @@ pub struct RunRecord {
     pub canceled: bool,
     pub message: Option<String>,
     pub debug: Option<DebugRun>,
+    /// Brief 0076: a coverage run.
+    pub coverage: bool,
+    /// Brief 0076: where Run Tests was asked from (`selection`), captured when it was asked.
+    pub scope: ScopeHint,
+}
+
+/// Where a `selection` run was asked from (brief 0076).
+#[derive(Debug, Clone, Default)]
+pub struct ScopeHint {
+    /// The Test Explorer had focus: its selection first.
+    pub explorer_focused: bool,
+    /// The active document's path, text and caret line (1-based).
+    pub caret: Option<(String, Arc<str>, u32)>,
+    /// The Test Explorer's selected tests then.
+    pub picked: Vec<String>,
 }
 
 impl RunRecord {
@@ -508,6 +538,23 @@ pub struct TestRuns {
     /// Updates of a discovery or run whose reply has not arrived yet (the host streams right after answering, and
     /// the reply and the updates reach the UI by different paths): applied once its id is known.
     early: Vec<TestUpdate>,
+    /// Brief 0076: the tree is from before the last generation or session (the cache), until rediscovered.
+    pub stale: bool,
+    /// Brief 0076: per project, the tests of the tree before the discovery going, not yet rediscovered; they stay
+    /// shown until their container finishes discovering.
+    pending_old: HashMap<String, HashSet<String>>,
+    /// Brief 0076: a foreign build ended during a discovery: discover again once it is done.
+    rediscover: bool,
+    /// Brief 0076: run every test once the discovery going is done (test.runAfterBuild).
+    run_after_discovery: bool,
+    /// Brief 0076: the settings test.runAfterBuild, test.groupBy, test.showCoverageColoring.
+    pub run_after_build: bool,
+    pub group_by: String,
+    pub show_coverage: bool,
+    /// Brief 0076: the solution platform the tests are built for.
+    pub platform: Option<String>,
+    /// Brief 0076: a discovery finished since the cache was written.
+    save_cache: bool,
 }
 
 impl TestRuns {
@@ -540,6 +587,15 @@ impl TestRuns {
             dirty: true,
             pending_debug_build: None,
             early: Vec::new(),
+            stale: false,
+            pending_old: HashMap::new(),
+            rediscover: false,
+            run_after_discovery: false,
+            run_after_build: false,
+            group_by: "project".into(),
+            show_coverage: true,
+            platform: None,
+            save_cache: false,
         }
     }
 
@@ -594,8 +650,71 @@ impl TestRuns {
         self.reindex();
     }
 
-    fn add_test(&mut self, node: TestNode) {
+    /// Brief 0076: replace the projects of `cargo` kind with `projects`, keeping the tests of projects that stay (they
+    /// are replaced as their project is rediscovered: [`Self::purge_old`]); a project that went away goes with its tests.
+    fn merge_projects(&mut self, cargo: bool, projects: Vec<ProjectNode>) {
+        let keep: HashSet<String> = projects.iter().map(|p| p.key.clone()).collect();
+        let gone: HashSet<String> = self
+            .projects
+            .iter()
+            .filter(|p| (p.protocol == Proto::Cargo) == cargo && !keep.contains(&p.key))
+            .map(|p| p.key.clone())
+            .collect();
+        self.tests.retain(|t| !gone.contains(&t.project));
+        for key in &keep {
+            let old: HashSet<String> = self
+                .tests
+                .iter()
+                .filter(|t| &t.project == key)
+                .map(|t| t.id.clone())
+                .collect();
+            self.pending_old.insert(key.clone(), old);
+        }
+        self.projects
+            .retain(|p| (p.protocol == Proto::Cargo) != cargo);
+        if cargo {
+            self.projects.extend(projects);
+        } else {
+            let mut list = projects;
+            list.append(&mut self.projects);
+            self.projects = list;
+        }
+        self.reindex();
+    }
+
+    /// Brief 0076: drop the tests of the tree before the discovery that `keys` (or every project of `cargo` kind, with
+    /// `None`) did not report again.
+    fn purge_old(&mut self, keys: Option<&[String]>, cargo: bool) {
+        let chosen: Vec<String> = match keys {
+            Some(k) => k.to_vec(),
+            None => self
+                .projects
+                .iter()
+                .filter(|p| (p.protocol == Proto::Cargo) == cargo)
+                .map(|p| p.key.clone())
+                .collect(),
+        };
+        let mut drop = HashSet::new();
+        for k in chosen {
+            if let Some(old) = self.pending_old.remove(&k) {
+                drop.extend(old);
+            }
+        }
+        if !drop.is_empty() {
+            self.tests.retain(|t| !drop.contains(&t.id));
+            self.reindex();
+        }
+    }
+
+    fn add_test(&mut self, mut node: TestNode) {
+        if let Some(old) = self.pending_old.get_mut(&node.project) {
+            old.remove(&node.id);
+        }
         if let Some(&i) = self.index.get(&node.id) {
+            // Brief 0076: a rediscovered test keeps its last outcome.
+            if node.result.is_none() {
+                node.result = self.tests[i].result.take();
+            }
             self.tests[i] = node;
         } else {
             self.index.insert(node.id.clone(), self.tests.len());
@@ -650,6 +769,8 @@ impl TestRuns {
         let failed =
             !self.projects.is_empty() && self.projects.iter().all(|p| p.state == NodeState::Failed);
         self.phase = if failed { Phase::Failed } else { Phase::Ready };
+        self.stale = false;
+        self.save_cache = true;
         if failed && self.phase_message.is_none() {
             self.phase_message = self.projects.iter().find_map(|p| p.message.clone());
         }
@@ -789,15 +910,28 @@ impl Shell {
 
     /// The settings test.parallel, test.runSettings (relative to the workspace's folder) and test.vstestConsolePath.
     pub(super) fn apply_test_settings(&mut self) {
-        let (parallel, settings, console) = {
+        let (parallel, settings, console, after_build, group_by, coverage) = {
             let s = self.settings.lock();
             (
                 s.bool("test.parallel"),
                 s.string("test.runSettings"),
                 s.path("test.vstestConsolePath"),
+                s.bool("test.runAfterBuild"),
+                s.string("test.groupBy"),
+                s.bool("test.showCoverageColoring"),
             )
         };
         self.tests.parallel = parallel;
+        // Brief 0076.
+        if self.tests.run_after_build != after_build {
+            self.tests.run_after_build = after_build;
+            self.tests.dirty = true;
+        }
+        if self.tests.group_by != group_by && !group_by.is_empty() {
+            self.tests.group_by = group_by;
+            self.tests.dirty = true;
+        }
+        self.tests.show_coverage = coverage;
         self.tests.run_settings = (!settings.trim().is_empty()).then(|| {
             let p = Path::new(settings.trim());
             match self.workspace_root() {
@@ -828,7 +962,8 @@ impl Shell {
                 )
             }
             TestRequest::Run { selection, .. } => {
-                match self.test_run(selection, None, window, cx) {
+                let scope = self.scope_hint(window, cx);
+                match self.test_run_with(selection, None, false, scope, window, cx) {
                     Ok(id) => (
                         Ok(TestOutput::Run(Box::new(self.run_output(id, false)))),
                         Some(Ticket::Run(id)),
@@ -836,7 +971,32 @@ impl Shell {
                     Err(e) => (Err(e), None),
                 }
             }
-            TestRequest::Debug { selection, .. } => match self.test_debug(selection, window, cx) {
+            // Brief 0076: a run with coverage.
+            TestRequest::Coverage { selection, .. } => {
+                let scope = self.scope_hint(window, cx);
+                match self.test_run_with(selection, None, true, scope, window, cx) {
+                    Ok(id) => (
+                        Ok(TestOutput::Coverage(Box::new(
+                            self.coverage_output(id, false),
+                        ))),
+                        Some(Ticket::Coverage(id)),
+                    ),
+                    Err(e) => (Err(e), None),
+                }
+            }
+            TestRequest::CoverageResults { .. } => (self.coverage_results(&request), None),
+            TestRequest::CoverageWindow => (self.show_coverage_window(), None),
+            TestRequest::CoverageColoring { show } => (
+                Ok(TestOutput::CoverageColoring(
+                    self.coverage_coloring(show, cx),
+                )),
+                None,
+            ),
+            TestRequest::Debug {
+                selection,
+                break_at_test,
+                ..
+            } => match self.test_debug(selection, break_at_test.unwrap_or(false), window, cx) {
                 Ok(id) => (
                     Ok(TestOutput::Debug(Box::new(self.debug_output(id, None, cx)))),
                     Some(Ticket::Debug(id)),
@@ -863,6 +1023,13 @@ impl Shell {
                 let _ = request;
                 Ok(TestOutput::Run(Box::new(self.run_output(id, timed_out))))
             }
+            TestCall::Answer {
+                ticket: Ticket::Coverage(id),
+                timed_out,
+                ..
+            } => Ok(TestOutput::Coverage(Box::new(
+                self.coverage_output(id, timed_out),
+            ))),
             TestCall::Answer { request, .. } => Ok(TestOutput::Discover(Box::new(
                 self.discover_output(&request),
             ))),
@@ -984,11 +1151,14 @@ impl Shell {
         });
         if self.solution.is_some() {
             self.tests.host_pending = true;
+            // Brief 0076: the tree before stays shown until each container answers.
+            let platform = self.test_platform();
             let params = host::TestDiscoverParams {
                 projects: None,
                 configuration: Some(self.builds.configuration.clone()),
                 run_settings: self.tests.run_settings.clone(),
                 vstest_console_path: self.tests.vstest_console.clone(),
+                platform,
             };
             let (_, reply) = self.session.request::<host::TestDiscover>(params);
             let generation = self.generation;
@@ -1006,12 +1176,13 @@ impl Shell {
                             if found.generation >= shell.generation {
                                 let projects =
                                     found.containers.iter().map(project_of_container).collect();
-                                shell.tests.replace_projects(false, projects);
+                                shell.tests.merge_projects(false, projects);
                             }
                             shell.replay_early(found.run_id, window, cx);
                         }
                         Ok(Err(e)) => {
                             shell.tests.host_pending = false;
+                            shell.tests.pending_old.clear();
                             shell.tests.replace_projects(false, Vec::new());
                             shell.tests.phase_message =
                                 Some(format!("eludite-host could not discover: {e:?}"));
@@ -1059,7 +1230,7 @@ impl Shell {
                     targets: targets.into_iter().map(|t| (t, Vec::new())).collect(),
                 });
             }
-            self.tests.replace_projects(true, projects);
+            self.tests.merge_projects(true, projects);
             let setup = CargoSetup {
                 program: self.builds.cargo_program.clone(),
                 manifest: ws.manifest.clone(),
@@ -1089,6 +1260,22 @@ impl Shell {
     ) {
         if self.tests.build_ticket != Some(ticket) {
             self.tests.fresh = false;
+            // Brief 0076: a build the Test Explorer did not start rediscovers the outputs (and, with
+            // test.runAfterBuild, runs the tests) once it succeeded, when tests were discovered or cached before.
+            let own_debug = self.tests.pending_debug_build == Some(ticket);
+            if !own_debug
+                && matches!(outcome, PrelaunchBuild::Succeeded)
+                && self.tests.current.is_none()
+                && (!self.tests.projects.is_empty() || self.tests.phase != Phase::Idle)
+            {
+                match self.tests.phase {
+                    Phase::Building | Phase::Discovering => self.tests.rediscover = true,
+                    _ => {
+                        self.tests.run_after_discovery = self.tests.run_after_build;
+                        self.discover_now(window, cx);
+                    }
+                }
+            }
             // A debugged run waiting for its build.
             if let Some(run) = self
                 .tests
@@ -1241,6 +1428,8 @@ impl Shell {
                 }
             }
             TestUpdateKind::ContainerFinished if is_discovery => {
+                self.tests
+                    .purge_old(Some(std::slice::from_ref(&container)), false);
                 let count = self
                     .tests
                     .tests
@@ -1281,6 +1470,7 @@ impl Shell {
             TestUpdateKind::Finished if is_discovery => {
                 self.tests.host_pending = false;
                 self.tests.host_discovery = None;
+                self.tests.purge_old(None, false);
                 for p in self
                     .tests
                     .projects
@@ -1324,13 +1514,38 @@ impl Shell {
                 }
             }
             TestUpdateKind::Discovered => {}
+            // Brief 0076: a coverage run's coverage.
+            TestUpdateKind::Coverage => {
+                if let (Some(run), Some(coverage)) = (run, update.coverage.clone()) {
+                    self.coverage_received(run, coverage, window, cx);
+                }
+            }
         }
         if matches!(self.tests.phase, Phase::Ready | Phase::Failed)
             && let Some(run) = self.tests.waiting.take()
         {
             self.dispatch_run(run, window, cx);
         }
+        self.after_discovery(window, cx);
         self.after_tests_change(cx);
+    }
+
+    /// Brief 0076: once a discovery is done, the rediscovery a build asked for during it, or the run after build.
+    fn after_discovery(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(self.tests.phase, Phase::Ready | Phase::Failed) {
+            return;
+        }
+        if std::mem::take(&mut self.tests.rediscover) {
+            self.tests.run_after_discovery |= self.tests.run_after_build;
+            self.discover_now(window, cx);
+            return;
+        }
+        if std::mem::take(&mut self.tests.run_after_discovery) && self.tests.current.is_none() {
+            let _ = self.test_run(Selection::default(), None, window, cx);
+        }
+        if std::mem::take(&mut self.tests.save_cache) {
+            self.save_test_cache(cx);
+        }
     }
 
     /// Apply the updates of `host_run` that came before its reply, in order.
@@ -1414,7 +1629,26 @@ impl Shell {
 
     /// A new solution generation: the .NET tests are forgotten; a run of them ends.
     pub(super) fn tests_new_generation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.tests.replace_projects(false, Vec::new());
+        // Brief 0076: the tree stays, stale, until the new generation's discovery replaces it (a closed solution's
+        // goes). An empty tree takes the last session's cache.
+        if self.solution.is_some() {
+            if self
+                .tests
+                .projects
+                .iter()
+                .all(|p| p.protocol == Proto::Cargo)
+            {
+                self.load_test_cache();
+            }
+            self.tests.stale = self
+                .tests
+                .projects
+                .iter()
+                .any(|p| p.protocol != Proto::Cargo);
+            self.tests.dirty = true;
+        } else {
+            self.tests.replace_projects(false, Vec::new());
+        }
         self.tests.fresh = false;
         self.tests.generation = self.generation;
         if self.tests.host_pending {
@@ -1505,6 +1739,7 @@ impl Shell {
                 }
                 self.tests.cargo_listing = None;
                 self.tests.cargo_list = None;
+                self.tests.purge_old(None, true);
                 for p in self
                     .tests
                     .projects
@@ -1585,6 +1820,7 @@ impl Shell {
         {
             self.dispatch_run(run, window, cx);
         }
+        self.after_discovery(window, cx);
         self.after_tests_change(cx);
     }
 
@@ -1670,11 +1906,26 @@ impl Shell {
                 .cloned()
                 .collect()
         } else if s.selection {
-            let picked = self.tests_window.read(cx).selected_tests();
-            if picked.is_empty() {
-                self.test_at_caret(cx).into_iter().collect()
+            // Brief 0076: the editor's caret scope first unless the Test Explorer had focus.
+            let hint = self
+                .tests
+                .run(this)
+                .map(|r| r.scope.clone())
+                .unwrap_or_default();
+            let picked = if hint.explorer_focused || hint.caret.is_none() {
+                let live = self.tests_window.read(cx).selected_tests();
+                if live.is_empty() {
+                    hint.picked.clone()
+                } else {
+                    live
+                }
             } else {
-                picked
+                hint.picked.clone()
+            };
+            let caret = self.tests_at_caret(&hint);
+            match (hint.explorer_focused, picked.is_empty(), caret.is_empty()) {
+                (true, false, _) | (false, false, true) => picked,
+                _ => caret,
             }
         } else {
             self.tests
@@ -1691,23 +1942,75 @@ impl Shell {
         Ok(ids)
     }
 
-    /// The test whose declaration is nearest above the active editor's caret.
-    fn test_at_caret(&self, cx: &Context<Self>) -> Option<String> {
-        let active = self.controller.active_document()?;
-        let view = self.views.borrow().get(&active).cloned()?;
-        let line = view.read(cx).editor().primary_head().row + 1;
-        let path = super::documents::normalize_path(Path::new(&active));
-        self.tests
+    /// Brief 0076: where a `selection` request comes from: whether the Test Explorer has focus, the active document's
+    /// caret, and the Test Explorer's selection, captured now (the run may resolve after a discovery).
+    pub(super) fn scope_hint(&self, window: &Window, cx: &Context<Self>) -> ScopeHint {
+        let explorer_focused = self.tests_window.read(cx).contains_focus(window, cx);
+        let caret = self.controller.active_document().and_then(|active| {
+            let view = self.views.borrow().get(&active).cloned()?;
+            let v = view.read(cx);
+            let line = v.editor().primary_head().row + 1;
+            Some((active, Arc::from(v.editor().text()), line))
+        });
+        ScopeHint {
+            explorer_focused,
+            caret,
+            picked: self.tests_window.read(cx).selected_tests(),
+        }
+    }
+
+    /// The tests the caret's scope selects ([`super::test_scope`]); none when the document has no test.
+    fn tests_at_caret(&self, hint: &ScopeHint) -> Vec<String> {
+        let Some((active, text, line)) = &hint.caret else {
+            return Vec::new();
+        };
+        let path = super::documents::normalize_path(Path::new(active));
+        let in_file: Vec<&TestNode> = self
+            .tests
             .tests
             .iter()
             .filter(|t| {
                 t.source
                     .as_deref()
                     .is_some_and(|s| super::documents::normalize_path(Path::new(s)) == path)
-                    && t.line.is_some_and(|l| l <= line + 1)
             })
-            .max_by_key(|t| t.line)
-            .map(|t| t.id.clone())
+            .collect();
+        // Data rows expanded at run time carry no source: they join their method by name.
+        let names: HashSet<&str> = in_file.iter().map(|t| t.full_name.as_str()).collect();
+        let mut scoped: Vec<super::test_scope::ScopeTest> = in_file
+            .iter()
+            .map(|t| super::test_scope::ScopeTest {
+                id: t.id.clone(),
+                line: t.line,
+                full_name: t.full_name.clone(),
+                group: t.group.clone(),
+            })
+            .collect();
+        scoped.extend(
+            self.tests
+                .tests
+                .iter()
+                .filter(|t| t.source.is_none() && names.contains(t.full_name.as_str()))
+                .map(|t| super::test_scope::ScopeTest {
+                    id: t.id.clone(),
+                    line: None,
+                    full_name: t.full_name.clone(),
+                    group: t.group.clone(),
+                }),
+        );
+        if scoped.is_empty() {
+            return Vec::new();
+        }
+        super::test_scope::tests_at_caret(active, text, &scoped, *line)
+    }
+
+    /// Brief 0076: the solution platform for the host (`Any CPU` when none is chosen).
+    pub(super) fn test_platform(&self) -> Option<String> {
+        self.tests
+            .platform
+            .clone()
+            .or_else(|| self.builds.platform.clone())
+            .filter(|p| !p.is_empty())
     }
 
     /// Start a run (discovering first when the tree is out of date). Returns its id.
@@ -1715,6 +2018,20 @@ impl Shell {
         &mut self,
         selection: Selection,
         debug: Option<DebugRun>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<u64, CommandError> {
+        let scope = self.scope_hint(window, cx);
+        self.test_run_with(selection, debug, false, scope, window, cx)
+    }
+
+    /// [`Self::test_run`] with coverage (brief 0076) and the request's [`ScopeHint`].
+    pub(super) fn test_run_with(
+        &mut self,
+        selection: Selection,
+        debug: Option<DebugRun>,
+        coverage: bool,
+        scope: ScopeHint,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<u64, CommandError> {
@@ -1757,6 +2074,8 @@ impl Shell {
             canceled: false,
             message: None,
             debug,
+            coverage,
+            scope,
         };
         self.tests.runs.push_back(record);
         while self.tests.runs.len() > KEPT_RUNS {
@@ -1812,10 +2131,18 @@ impl Shell {
             r.state = RunState::Running;
             r.started = Instant::now();
         }
-        // Results of the tests this run covers start over.
+        // Results of the tests this run covers start over; brief 0076: they show running until their result arrives
+        // (xunit.v3 reports no in-progress state).
         for id in &ids {
             if let Some(&i) = self.tests.index.get(id) {
-                self.tests.tests[i].result = None;
+                self.tests.tests[i].result = Some(ResultData {
+                    outcome: Outcome::Running,
+                    duration_ms: None,
+                    message: None,
+                    stack_trace: None,
+                    output: None,
+                    failure: None,
+                });
             }
         }
         self.tests.dirty = true;
@@ -1949,6 +2276,7 @@ impl Shell {
         if let Some(r) = self.tests.run_mut(run) {
             r.host_pending = true;
         }
+        let coverage = self.tests.run(run).is_some_and(|r| r.coverage);
         let params = host::TestRunParams {
             containers: Some(containers),
             debug: debug.then_some(true),
@@ -1956,6 +2284,9 @@ impl Shell {
             configuration: Some(self.builds.configuration.clone()),
             run_settings: self.tests.run_settings.clone(),
             vstest_console_path: self.tests.vstest_console.clone(),
+            // Brief 0076.
+            platform: self.test_platform(),
+            coverage: coverage.then_some(true),
         };
         let (_, reply) = self.session.request::<host::TestRun>(params);
         cx.spawn_in(window, async move |this, cx| {
@@ -2098,6 +2429,7 @@ impl Shell {
         });
         self.tests.dirty = true;
         self.update_error_list(cx);
+        self.save_test_cache(cx);
         cx.notify();
     }
 
@@ -2225,14 +2557,146 @@ impl Shell {
                 .filter(|r| r.state.done())
                 .map(|r| (summary_text(&r.summary()), r.summary())),
             running: self.tests.current.is_some(),
+            group_by: super::tests_window::GroupBy::parse(&self.tests.group_by),
+            stale: self.tests.stale,
         };
-        self.tests_window.update(cx, |w, cx| w.set_data(data, cx));
+        let after_build = self.tests.run_after_build;
+        self.tests_window.update(cx, |w, cx| {
+            w.set_run_after_build(after_build, cx);
+            w.set_data(data, cx)
+        });
         self.tests.timings.tree_built = Some(started.elapsed());
         if self.tests.timings.first_result_received.is_some()
             && self.tests.timings.first_result_shown.is_none()
         {
             self.tests.timings.first_result_shown = Some(Instant::now());
         }
+    }
+
+    // ---- The cache (brief 0076) -------------------------------------------------------------------------------------
+
+    /// `.eludite/tests.json` in the workspace's folder.
+    fn test_cache_path(&self) -> Option<PathBuf> {
+        self.workspace_root()
+            .map(|r| r.join(".eludite").join("tests.json"))
+    }
+
+    /// Write the .NET tree and its last outcomes to the cache, on a thread of its own.
+    pub(super) fn save_test_cache(&mut self, _cx: &mut Context<Self>) {
+        let Some(path) = self.test_cache_path() else {
+            return;
+        };
+        let projects: Vec<Value> = self
+            .tests
+            .projects
+            .iter()
+            .filter(|p| p.protocol != Proto::Cargo && p.state != NodeState::Failed)
+            .map(|p| {
+                json!({"key": p.key, "name": p.name, "path": p.path, "protocol": p.protocol.as_str(),
+                       "targetFramework": p.target_framework})
+            })
+            .collect();
+        if projects.is_empty() {
+            return;
+        }
+        let tests: Vec<Value> = self
+            .tests
+            .tests
+            .iter()
+            .filter(|t| t.cargo.is_none())
+            .map(|t| {
+                let r = t.result.as_ref().filter(|r| r.outcome != Outcome::Running);
+                json!({"id": t.id, "runnerId": t.runner_id, "project": t.project, "name": t.name,
+                       "fullName": t.full_name, "group": t.group, "source": t.source, "line": t.line,
+                       "traits": t.traits, "outcome": r.map(|r| r.outcome),
+                       "durationMs": r.and_then(|r| r.duration_ms)})
+            })
+            .collect();
+        let text = json!({"version": 1, "projects": projects, "tests": tests}).to_string();
+        let _ = std::thread::Builder::new()
+            .name("eludite-test-cache".into())
+            .spawn(move || {
+                if let Some(dir) = path.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let tmp = path.with_extension("json.tmp");
+                if std::fs::write(&tmp, text).is_ok() {
+                    let _ = std::fs::rename(&tmp, &path);
+                }
+            });
+    }
+
+    /// The cached .NET tree, shown stale until a discovery replaces it.
+    pub(super) fn load_test_cache(&mut self) {
+        let Some(text) = self
+            .test_cache_path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+        else {
+            return;
+        };
+        let Some(v) = serde_json::from_str::<Value>(&text)
+            .ok()
+            .filter(|v| v["version"] == 1)
+        else {
+            return;
+        };
+        let str_of = |v: &Value| v.as_str().unwrap_or_default().to_owned();
+        let projects: Vec<ProjectNode> = v["projects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| ProjectNode {
+                key: str_of(&p["key"]),
+                name: str_of(&p["name"]),
+                path: str_of(&p["path"]),
+                protocol: if p["protocol"] == "vstest" {
+                    Proto::Vstest
+                } else {
+                    Proto::Mtp
+                },
+                target_framework: p["targetFramework"].as_str().map(str::to_owned),
+                runtime: None,
+                program: None,
+                state: NodeState::Ready,
+                message: None,
+                cargo: None,
+            })
+            .collect();
+        let tests: Vec<TestNode> = v["tests"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|t| TestNode {
+                id: str_of(&t["id"]),
+                runner_id: str_of(&t["runnerId"]),
+                project: str_of(&t["project"]),
+                name: str_of(&t["name"]),
+                full_name: str_of(&t["fullName"]),
+                group: serde_json::from_value(t["group"].clone()).unwrap_or_default(),
+                source: t["source"].as_str().map(str::to_owned),
+                line: t["line"].as_u64().map(|l| l as u32),
+                traits: serde_json::from_value(t["traits"].clone()).unwrap_or_default(),
+                result: serde_json::from_value::<Outcome>(t["outcome"].clone())
+                    .ok()
+                    .map(|outcome| ResultData {
+                        outcome,
+                        duration_ms: t["durationMs"].as_f64(),
+                        message: None,
+                        stack_trace: None,
+                        output: None,
+                        failure: None,
+                    }),
+                cargo: None,
+            })
+            .collect();
+        if projects.is_empty() {
+            return;
+        }
+        self.tests.replace_projects(false, projects);
+        for t in tests {
+            self.tests.add_test(t);
+        }
+        self.tests.stale = true;
     }
 
     // ---- Answers -------------------------------------------------------------------------------------------------
@@ -2332,6 +2796,8 @@ impl Shell {
             total: in_tree.len() as u32,
             tests: page,
             message,
+            stale: self.tests.stale
+                || (self.tests.generation != self.generation && !self.tests.projects.is_empty()),
         }
     }
 
@@ -2412,7 +2878,7 @@ impl Shell {
         }
     }
 
-    fn run_output(&self, id: u64, timed_out: bool) -> RunOutput {
+    pub(super) fn run_output(&self, id: u64, timed_out: bool) -> RunOutput {
         let Some(r) = self.tests.run(id) else {
             return RunOutput {
                 run: id,
@@ -2538,6 +3004,7 @@ impl Shell {
     pub(super) fn test_debug(
         &mut self,
         selection: Selection,
+        break_at_test: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<u64, CommandError> {
@@ -2545,6 +3012,7 @@ impl Shell {
             kind: DebugKind::Host,
             project: String::new(),
             breakpoint: None,
+            break_at_test,
             session: None,
             attaching: None,
             output_from: 0,
@@ -2575,15 +3043,37 @@ impl Shell {
         let ids = if all.len() > 1 {
             let plain =
                 selection.ids.is_none() && selection.filter.is_none() && !selection.selection;
+            // Brief 0076: say which projects, and say it when only the first is debugged.
+            let mut names: Vec<String> = Vec::new();
+            for p in &projects {
+                let n = self.tests.project(p).map_or(p.clone(), |p| p.name.clone());
+                if !names.contains(&n) {
+                    names.push(n);
+                }
+            }
             if !plain {
                 return self.end_run(
                     run,
                     RunState::Failed,
-                    Some(
-                        "the tests to debug must be of one project; name it with `project`".into(),
-                    ),
+                    Some(format!(
+                        "the tests to debug are in {} projects ({}): debug one project at a time",
+                        names.len(),
+                        names.join(", ")
+                    )),
                     cx,
                 );
+            }
+            let note = format!(
+                "Debugging only the first test project, {} ({} projects have tests: {}); debug the others one at a time",
+                names[0],
+                names.len(),
+                names.join(", ")
+            );
+            self.output.update(cx, |o, cx| {
+                o.append(OutputSource::Tests, &format!("{note}\n"), cx)
+            });
+            if let Some(r) = self.tests.run_mut(run) {
+                r.message = Some(note);
             }
             let first = projects[0].clone();
             ids.into_iter()
@@ -2631,20 +3121,28 @@ impl Shell {
             },
             None => DebugKind::Host,
         };
+        // Brief 0076: only an agent (or `break_at_test`) gets the temporary breakpoint; a person's session stops at
+        // their own breakpoints and exceptions, as Visual Studio's does.
+        let break_at_test = r_break(self.tests.run(run));
         if let Some(r) = self.tests.run_mut(run) {
             r.tests = ids.clone();
             if let Some(d) = r.debug.as_mut() {
                 d.kind = kind.clone();
                 d.project = project.name.clone();
-                d.breakpoint = Some(breakpoint.clone());
+                d.breakpoint = break_at_test.then(|| breakpoint.clone());
             }
         }
-        let set = self.invoke(
-            eludite_commands::debug::TOGGLE_BREAKPOINT,
-            json!({ "function": breakpoint, "action": "set", "remove_after": true }),
-            window,
-            cx,
-        );
+        let set = if break_at_test {
+            self.invoke(
+                eludite_commands::debug::TOGGLE_BREAKPOINT,
+                json!({ "function": breakpoint, "action": "set", "remove_after": true }),
+                window,
+                cx,
+            )
+            .map(|_| ())
+        } else {
+            Ok(())
+        };
         if let Err(e) = set {
             self.output.update(cx, |o, cx| {
                 o.append(
@@ -3019,6 +3517,12 @@ impl Shell {
         self.after_tests_change(cx);
         true
     }
+}
+
+/// Whether a debugged run sets the temporary breakpoint on its first test (brief 0076).
+fn r_break(run: Option<&RunRecord>) -> bool {
+    run.and_then(|r| r.debug.as_ref())
+        .is_some_and(|d| d.break_at_test)
 }
 
 /// Whether `id` of the run has no final result (never reported, still running, or not run).

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-coverage-coloring.output.json",
+  "title": "eludite.test.coverage_coloring output",
+  "description": "Whether coloring is on, and how many open documents it colors.",
+  "type": "object",
+  "required": [
+    "show",
+    "documents"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "show": {
+      "type": "boolean"
+    },
+    "documents": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

@@ -88,6 +88,12 @@ mod test_runs_tests;
 #[cfg(test)]
 mod tests;
 pub mod tests_window;
+// Brief 0076: the caret's test scope, code coverage and its window.
+pub mod coverage;
+#[cfg(test)]
+mod coverage_tests;
+pub mod coverage_window;
+pub mod test_scope;
 pub mod toolbar;
 pub mod update;
 #[cfg(test)]
@@ -505,6 +511,9 @@ pub struct Shell {
     /// The Test Explorer (brief 0035): its model, its window, and where the cargo test threads report.
     tests: test_runs::TestRuns,
     tests_window: Entity<tests_window::TestExplorer>,
+    /// Brief 0076: the last code coverage and the Code Coverage Results window.
+    coverage: coverage::CoverageState,
+    coverage_window: Entity<coverage_window::CoverageWindow>,
     cargo_test_events: futures::channel::mpsc::UnboundedSender<cargo_tests::CargoTestEvent>,
     /// Git: the Git Changes and Git Repository windows, the glyphs, the margins (brief 0040).
     git: git::GitUi,
@@ -536,7 +545,11 @@ fn tool_body(
     agents: Entity<agents::window::AgentsWindow>,
     output: Entity<OutputWindow>,
     debug: debug::windows::DebugWindows,
-    tests: Entity<tests_window::TestExplorer>,
+    // Brief 0076: the Test Explorer and the Code Coverage Results window.
+    tests: (
+        Entity<tests_window::TestExplorer>,
+        Entity<coverage_window::CoverageWindow>,
+    ),
     git_windows: (
         Entity<git::changes::GitChanges>,
         Entity<git::repository::GitRepositoryWindow>,
@@ -571,6 +584,12 @@ fn tool_body(
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
         ids::TEST_EXPLORER => tests
+            .0
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
+        ids::CODE_COVERAGE_RESULTS => tests
+            .1
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
@@ -717,6 +736,8 @@ impl Shell {
         let references_window = cx.new(|_| ReferencesWindow::new(theme));
         let output = cx.new(|_| OutputWindow::new(theme));
         let tests_window = cx.new(|cx| tests_window::TestExplorer::new(theme, cx));
+        // Brief 0076.
+        let coverage_window = cx.new(|_| coverage_window::CoverageWindow::new(theme));
         let views: Rc<RefCell<HashMap<String, Entity<EditorView>>>> = Rc::default();
         let browser_views: browser_view::Views = Rc::default();
         let Services {
@@ -797,7 +818,7 @@ impl Shell {
                     agents.window.clone(),
                     output.clone(),
                     debugger.windows.clone(),
-                    tests_window.clone(),
+                    (tests_window.clone(), coverage_window.clone()),
                     (git.changes.clone(), git.repository.clone()),
                     terminal.window.clone(),
                     search.windows.clone(),
@@ -827,6 +848,8 @@ impl Shell {
             .detach();
         cx.observe(&output, |_, _, cx| cx.notify()).detach();
         cx.observe(&tests_window, |_, _, cx| cx.notify()).detach();
+        cx.observe(&coverage_window, |_, _, cx| cx.notify())
+            .detach();
         cx.subscribe_in(
             &references_window,
             window,
@@ -1151,6 +1174,8 @@ impl Shell {
             default_startup: None,
             tests,
             tests_window,
+            coverage: coverage::CoverageState::default(),
+            coverage_window,
             cargo_test_events,
             git,
             terminal,

@@ -66,6 +66,8 @@ pub mod ids {
     pub const EXCEPTION_SETTINGS: &str = "exception_settings";
     /// Test > Test Explorer (brief 0035): closed until shown, docked left as Visual Studio docks it.
     pub const TEST_EXPLORER: &str = "test_explorer";
+    /// Test > Windows > Code Coverage Results (brief 0076): closed until shown, tabbed at the bottom.
+    pub const CODE_COVERAGE_RESULTS: &str = "code_coverage_results";
     /// Git > Manage Branches, Ctrl+0, Ctrl+R (brief 0040): the Git Repository window, closed until shown, docked at
     /// the bottom where its history has room.
     pub const GIT_REPOSITORY: &str = "git_repository";
@@ -161,6 +163,12 @@ impl ToolWindowRegistry {
             (ids::FIND_RESULTS_2, "Find Results 2", DockSide::Bottom),
             (ids::PULL_REQUESTS, "Pull Requests", DockSide::Right),
             (ids::ISSUES, "Issues", DockSide::Right),
+            // Brief 0076.
+            (
+                ids::CODE_COVERAGE_RESULTS,
+                "Code Coverage Results",
+                DockSide::Bottom,
+            ),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -1355,7 +1363,8 @@ mod tests {
                 ids::FIND_RESULTS_1,
                 ids::FIND_RESULTS_2,
                 ids::PULL_REQUESTS,
-                ids::ISSUES
+                ids::ISSUES,
+                ids::CODE_COVERAGE_RESULTS
             ]
         );
         // The Test Explorer (brief 0035) and the Toolbox open docked left, Properties and the Pull Requests and

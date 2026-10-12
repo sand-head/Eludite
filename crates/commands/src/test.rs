@@ -1,5 +1,7 @@
 //! The Test Explorer's commands (brief 0035): `eludite.test.explorer` (the window), `eludite.test.discover`,
-//! `eludite.test.run`, `eludite.test.debug`, `eludite.test.results` and `eludite.test.cancel`.
+//! `eludite.test.run`, `eludite.test.debug`, `eludite.test.results` and `eludite.test.cancel`; brief 0076 adds code
+//! coverage: `eludite.test.coverage` (a run with coverage), `eludite.test.coverage_results` (read), and the view
+//! commands `eludite.test.coverage_window` and `eludite.test.coverage_coloring`.
 //!
 //! The schemas are the files in `protocol/schemas/test-*.json` (checked in first, CLAUDE.md invariant 4). This module
 //! parses input into a typed [`TestRequest`] and serializes the typed outputs; the shell implements [`TestCommands`].
@@ -21,7 +23,27 @@ pub const DEBUG: &str = "eludite.test.debug";
 pub const RESULTS: &str = "eludite.test.results";
 pub const CANCEL: &str = "eludite.test.cancel";
 
-pub const ALL: [&str; 6] = [EXPLORER, DISCOVER, RUN, DEBUG, RESULTS, CANCEL];
+// Brief 0076: code coverage.
+pub const COVERAGE: &str = "eludite.test.coverage";
+pub const COVERAGE_RESULTS: &str = "eludite.test.coverage_results";
+pub const COVERAGE_WINDOW: &str = "eludite.test.coverage_window";
+pub const COVERAGE_COLORING: &str = "eludite.test.coverage_coloring";
+
+pub const ALL: [&str; 10] = [
+    EXPLORER,
+    DISCOVER,
+    RUN,
+    DEBUG,
+    RESULTS,
+    CANCEL,
+    COVERAGE,
+    COVERAGE_RESULTS,
+    COVERAGE_WINDOW,
+    COVERAGE_COLORING,
+];
+
+/// Coverage rows a page lists by default (brief 0076).
+pub const DEFAULT_COVERAGE_PAGE: usize = 200;
 
 /// The longest wait any test command takes.
 pub const MAX_WAIT_MS: u64 = 300_000;
@@ -94,6 +116,35 @@ fn schemas(
             Execute,
             true,
         ),
+        // Brief 0076.
+        COVERAGE => (
+            "Test: Analyze Code Coverage",
+            include_str!("../../../protocol/schemas/test-coverage.input.json"),
+            include_str!("../../../protocol/schemas/test-coverage.output.json"),
+            Execute,
+            true,
+        ),
+        COVERAGE_RESULTS => (
+            "Test: Code Coverage Results",
+            include_str!("../../../protocol/schemas/test-coverage-results.input.json"),
+            include_str!("../../../protocol/schemas/test-coverage-results.output.json"),
+            Read,
+            true,
+        ),
+        COVERAGE_WINDOW => (
+            "Test: Code Coverage Results Window",
+            include_str!("../../../protocol/schemas/test-coverage-window.input.json"),
+            crate::view::TOOL_WINDOW_OUTPUT_SCHEMA,
+            Read,
+            false,
+        ),
+        COVERAGE_COLORING => (
+            "Test: Show Code Coverage Coloring",
+            include_str!("../../../protocol/schemas/test-coverage-coloring.input.json"),
+            include_str!("../../../protocol/schemas/test-coverage-coloring.output.json"),
+            Read,
+            false,
+        ),
         other => unreachable!("not a test command: {other}"),
     }
 }
@@ -162,6 +213,8 @@ pub enum TestRequest {
         wait_ms: Option<u64>,
         /// The stop summary's budget parameters, as given (`depth`, `max_variables`, ...), for `eludite.debug.wait`.
         budget: serde_json::Map<String, Value>,
+        /// Brief 0076: the temporary breakpoint on the first test (default: an agent's call only).
+        break_at_test: Option<bool>,
     },
     Results {
         run: Option<u64>,
@@ -174,6 +227,21 @@ pub enum TestRequest {
     Cancel {
         run: Option<u64>,
     },
+    /// Brief 0076: a run with code coverage.
+    Coverage {
+        selection: Selection,
+        wait_ms: Option<u64>,
+    },
+    CoverageResults {
+        file: Option<String>,
+        filter: Option<String>,
+        max_items: usize,
+        cursor: Option<String>,
+    },
+    CoverageWindow,
+    CoverageColoring {
+        show: Option<bool>,
+    },
 }
 
 impl TestRequest {
@@ -185,6 +253,10 @@ impl TestRequest {
             TestRequest::Debug { .. } => DEBUG,
             TestRequest::Results { .. } => RESULTS,
             TestRequest::Cancel { .. } => CANCEL,
+            TestRequest::Coverage { .. } => COVERAGE,
+            TestRequest::CoverageResults { .. } => COVERAGE_RESULTS,
+            TestRequest::CoverageWindow => COVERAGE_WINDOW,
+            TestRequest::CoverageColoring { .. } => COVERAGE_COLORING,
         }
     }
 
@@ -194,9 +266,9 @@ impl TestRequest {
             TestRequest::Discover { wait_ms, .. } => {
                 Some(wait_ms.unwrap_or(AGENT_DISCOVER_WAIT_MS))
             }
-            TestRequest::Run { wait_ms, .. } | TestRequest::Debug { wait_ms, .. } => {
-                Some(wait_ms.unwrap_or(AGENT_RUN_WAIT_MS))
-            }
+            TestRequest::Run { wait_ms, .. }
+            | TestRequest::Debug { wait_ms, .. }
+            | TestRequest::Coverage { wait_ms, .. } => Some(wait_ms.unwrap_or(AGENT_RUN_WAIT_MS)),
             _ => None,
         }
     }
@@ -261,6 +333,9 @@ pub struct DiscoverOutput {
     pub truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Brief 0076: the tree is from before the last build or generation, or from the last session's cache.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
 }
 
 /// `summary` of the run and results outputs.
@@ -354,6 +429,103 @@ pub struct CancelOutput {
     pub run: Option<u64>,
 }
 
+/// An assembly of [`CoverageSummary`] (brief 0076).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageModuleSummary {
+    pub name: String,
+    pub lines_covered: u32,
+    pub lines_valid: u32,
+    pub percent: f64,
+}
+
+/// A coverage's totals (`test-coverage.output.json`'s `coverage`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageSummary {
+    pub lines_covered: u32,
+    pub lines_valid: u32,
+    pub percent: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_covered: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_valid: Option<u32>,
+    pub modules: Vec<CoverageModuleSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<String>,
+}
+
+/// `covered` of `lines_valid` in percent, one decimal.
+pub fn percent(covered: u32, valid: u32) -> f64 {
+    if valid == 0 {
+        0.
+    } else {
+        (f64::from(covered) * 1000. / f64::from(valid)).round() / 10.
+    }
+}
+
+/// `test-coverage.output.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageOutput {
+    #[serde(flatten)]
+    pub run: RunOutput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<CoverageSummary>,
+}
+
+/// A row of `test-coverage-results.output.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageRow {
+    /// `assembly`, `namespace`, `class` or `method`.
+    pub kind: String,
+    pub name: String,
+    pub depth: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    pub covered: u32,
+    pub not_covered: u32,
+    pub percent: f64,
+}
+
+/// `file` of `test-coverage-results.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageFileLines {
+    pub path: String,
+    pub covered: Vec<u32>,
+    pub partial: Vec<u32>,
+    pub uncovered: Vec<u32>,
+}
+
+/// `test-coverage-results.output.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageResultsOutput {
+    pub run: u64,
+    pub summary: CoverageSummary,
+    pub rows: Vec<CoverageRow>,
+    pub total: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    pub truncated: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<CoverageFileLines>,
+}
+
+/// `test-coverage-coloring.output.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ColoringOutput {
+    pub show: bool,
+    pub documents: u32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TestOutput {
     /// `eludite.test.explorer`: the window's place (view-tool-window.output.json).
@@ -363,6 +535,11 @@ pub enum TestOutput {
     Debug(Box<DebugOutput>),
     Results(Box<ResultsOutput>),
     Cancel(CancelOutput),
+    /// Brief 0076.
+    Coverage(Box<CoverageOutput>),
+    CoverageResults(Box<CoverageResultsOutput>),
+    CoverageWindow(Value),
+    CoverageColoring(ColoringOutput),
 }
 
 impl TestOutput {
@@ -374,6 +551,10 @@ impl TestOutput {
             TestOutput::Debug(o) => serde_json::to_value(o),
             TestOutput::Results(o) => serde_json::to_value(o),
             TestOutput::Cancel(o) => serde_json::to_value(o),
+            TestOutput::Coverage(o) => serde_json::to_value(o),
+            TestOutput::CoverageResults(o) => serde_json::to_value(o),
+            TestOutput::CoverageWindow(v) => Ok(v.clone()),
+            TestOutput::CoverageColoring(o) => serde_json::to_value(o),
         }
         .expect("test outputs serialize")
     }
@@ -427,6 +608,38 @@ struct DebugIn {
     max_value_chars: Option<u64>,
     max_frames: Option<u64>,
     max_output_lines: Option<u64>,
+    break_at_test: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct CoverageIn {
+    ids: Option<Vec<String>>,
+    filter: Option<String>,
+    project: Option<String>,
+    framework: Option<String>,
+    failed_only: Option<bool>,
+    selection: Option<bool>,
+    wait_ms: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct CoverageResultsIn {
+    file: Option<String>,
+    filter: Option<String>,
+    max_items: Option<u64>,
+    cursor: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct EmptyIn {}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct ColoringIn {
+    show: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -553,7 +766,40 @@ pub fn parse(id: &str, value: Value) -> Result<TestRequest, CommandError> {
                 },
                 wait_ms: wait(i.wait_ms)?,
                 budget,
+                break_at_test: i.break_at_test,
             }
+        }
+        COVERAGE => {
+            let i: CoverageIn = input(value)?;
+            TestRequest::Coverage {
+                selection: Selection {
+                    ids: ids(i.ids)?,
+                    filter: non_empty("filter", i.filter)?,
+                    project: non_empty("project", i.project)?,
+                    framework: non_empty("framework", i.framework)?,
+                    failed_only: i.failed_only.unwrap_or(false),
+                    selection: i.selection.unwrap_or(false),
+                    ..Selection::default()
+                },
+                wait_ms: wait(i.wait_ms)?,
+            }
+        }
+        COVERAGE_RESULTS => {
+            let i: CoverageResultsIn = input(value)?;
+            TestRequest::CoverageResults {
+                file: non_empty("file", i.file)?,
+                filter: non_empty("filter", i.filter)?,
+                max_items: bounded("max_items", i.max_items, DEFAULT_COVERAGE_PAGE, 1, MAX_PAGE)?,
+                cursor: non_empty("cursor", i.cursor)?,
+            }
+        }
+        COVERAGE_WINDOW => {
+            let _: EmptyIn = input(value)?;
+            TestRequest::CoverageWindow
+        }
+        COVERAGE_COLORING => {
+            let i: ColoringIn = input(value)?;
+            TestRequest::CoverageColoring { show: i.show }
         }
         RESULTS => {
             let i: ResultsIn = input(value)?;
@@ -718,6 +964,36 @@ mod tests {
         );
         assert!(parse(CANCEL, json!({"run": 0, "x": 1})).is_err());
         assert!(parse("eludite.test.nope", json!({})).is_err());
+        // Brief 0076.
+        let TestRequest::Debug { break_at_test, .. } =
+            parse(DEBUG, json!({"break_at_test": false})).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(break_at_test, Some(false));
+        let cov = parse(COVERAGE, json!({"project": "P", "wait_ms": 5})).unwrap();
+        assert_eq!(cov.agent_wait_ms(), Some(5));
+        assert!(parse(COVERAGE, json!({"repeat_last": true})).is_err());
+        assert_eq!(
+            parse(COVERAGE_RESULTS, json!({"file": "a.cs"})).unwrap(),
+            TestRequest::CoverageResults {
+                file: Some("a.cs".into()),
+                filter: None,
+                max_items: DEFAULT_COVERAGE_PAGE,
+                cursor: None
+            }
+        );
+        assert_eq!(
+            parse(COVERAGE_WINDOW, Value::Null).unwrap(),
+            TestRequest::CoverageWindow
+        );
+        assert!(parse(COVERAGE_WINDOW, json!({"x": 1})).is_err());
+        assert_eq!(
+            parse(COVERAGE_COLORING, json!({"show": false})).unwrap(),
+            TestRequest::CoverageColoring { show: Some(false) }
+        );
+        assert_eq!(percent(1, 3), 33.3);
+        assert_eq!(percent(0, 0), 0.);
     }
 
     #[test]
@@ -801,6 +1077,7 @@ mod tests {
             next_cursor: None,
             truncated: false,
             message: None,
+            stale: false,
         }))
         .to_json();
         let s = schema(schemas(DISCOVER).2);
@@ -837,6 +1114,78 @@ mod tests {
         })
         .to_json();
         fits(&cancel, &schema(schemas(CANCEL).2));
+        // Brief 0076.
+        let summary = CoverageSummary {
+            lines_covered: 3,
+            lines_valid: 4,
+            percent: 75.,
+            branches_covered: None,
+            branches_valid: None,
+            modules: vec![CoverageModuleSummary {
+                name: "Corpus".into(),
+                lines_covered: 3,
+                lines_valid: 4,
+                percent: 75.,
+            }],
+            missing: vec!["Corpus.NUnit: no collector".into()],
+        };
+        let cov = TestOutput::Coverage(Box::new(CoverageOutput {
+            run: RunOutput {
+                run: 2,
+                state: "passed".into(),
+                tests: 1,
+                summary: None,
+                failed: vec![],
+                timed_out: false,
+                message: None,
+            },
+            coverage: Some(summary.clone()),
+        }))
+        .to_json();
+        let s = schema(schemas(COVERAGE).2);
+        fits(&cov, &s);
+        fits(&cov["coverage"], &s["properties"]["coverage"]);
+        fits(
+            &cov["coverage"]["modules"][0],
+            &s["properties"]["coverage"]["properties"]["modules"]["items"],
+        );
+        let results = TestOutput::CoverageResults(Box::new(CoverageResultsOutput {
+            run: 2,
+            summary,
+            rows: vec![CoverageRow {
+                kind: "class".into(),
+                name: "Calculator".into(),
+                depth: 2,
+                file: Some("/s/C.cs".into()),
+                line: Some(3),
+                covered: 3,
+                not_covered: 1,
+                percent: 75.,
+            }],
+            total: 1,
+            next_cursor: None,
+            truncated: false,
+            stale: true,
+            file: Some(CoverageFileLines {
+                path: "/s/C.cs".into(),
+                covered: vec![3],
+                partial: vec![4],
+                uncovered: vec![5],
+            }),
+        }))
+        .to_json();
+        let s = schema(schemas(COVERAGE_RESULTS).2);
+        fits(&results, &s);
+        fits(&results["rows"][0], &s["properties"]["rows"]["items"]);
+        fits(&results["file"], &s["properties"]["file"]);
+        fits(
+            &TestOutput::CoverageColoring(ColoringOutput {
+                show: true,
+                documents: 1,
+            })
+            .to_json(),
+            &schema(schemas(COVERAGE_COLORING).2),
+        );
         assert_eq!(cut("abcdé", 4), ("abcd".to_owned(), true));
         assert_eq!(cut("abc", 4), ("abc".to_owned(), false));
     }

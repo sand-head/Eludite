@@ -439,6 +439,8 @@ impl Shell {
 
     /// A document opened: its editor shows lens rows when the settings show any for its language.
     pub(super) fn code_lens_document_opened(&mut self, id: &str, cx: &mut Context<Self>) {
+        // Brief 0076: the coverage coloring of a document that opens.
+        self.coverage_document_opened(id, cx);
         let on = self.lens_filter(id).any();
         if let Some(view) = self.documents.get(id).map(|d| d.view.clone()) {
             view.update(cx, |v, cx| v.set_code_lens_enabled(on, cx));
@@ -446,6 +448,7 @@ impl Shell {
     }
 
     pub(super) fn code_lens_document_closed(&mut self, id: &str) {
+        self.coverage_document_closed(id); // Brief 0076.
         if let Some(mut d) = self.code_lens.docs.remove(id) {
             d.cancel();
         }

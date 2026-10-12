@@ -1034,6 +1034,9 @@ pub struct TestContainer {
     /// Why it cannot be discovered or run (not built, no Mono).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Brief 0076: the coverage collector the project references.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<CoverageCollector>,
 }
 
 /// `eludite/test/discover` params.
@@ -1048,6 +1051,9 @@ pub struct TestDiscoverParams {
     pub run_settings: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vstest_console_path: Option<String>,
+    /// Brief 0076: the solution platform (`x64`, `Any CPU`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1083,6 +1089,12 @@ pub struct TestRunParams {
     pub run_settings: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vstest_console_path: Option<String>,
+    /// Brief 0076: the solution platform (`x64`, `Any CPU`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    /// Brief 0076: collect code coverage (a `coverage` update before `finished`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1221,6 +1233,8 @@ pub enum TestUpdateKind {
     Attach,
     ContainerFinished,
     Finished,
+    /// Brief 0076: a coverage run's merged coverage, once before `finished`.
+    Coverage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1271,6 +1285,9 @@ pub struct TestUpdate {
     pub elapsed_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Brief 0076: `coverage` updates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<TestCoverage>,
 }
 
 impl TestUpdate {
@@ -1292,8 +1309,107 @@ impl TestUpdate {
             summary: None,
             elapsed_ms: None,
             message: None,
+            coverage: None,
         }
     }
+}
+
+// Code coverage (brief 0076): the `coverage` update of a run with `coverage`, see host-rpc.md "Tests".
+
+/// The coverage collector a test project references.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CoverageCollector {
+    /// Microsoft.Testing.Extensions.CodeCoverage (`--coverage`).
+    Mtp,
+    /// coverlet.collector (`XPlat Code Coverage`).
+    Coverlet,
+    /// Microsoft.CodeCoverage through Microsoft.NET.Test.Sdk (`Code Coverage`).
+    Microsoft,
+    None,
+}
+
+/// A container's part of a coverage run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageContainer {
+    pub container: String,
+    pub collector: CoverageCollector,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageMethod {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    pub lines_covered: u32,
+    pub lines_valid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_covered: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_valid: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageClass {
+    /// `Namespace.Class`.
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    pub lines_covered: u32,
+    pub lines_valid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_covered: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_valid: Option<u32>,
+    pub methods: Vec<CoverageMethod>,
+}
+
+/// An assembly (Cobertura's package).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageModule {
+    pub name: String,
+    pub lines_covered: u32,
+    pub lines_valid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_covered: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_valid: Option<u32>,
+    pub classes: Vec<CoverageClass>,
+}
+
+/// A source file's coverable lines: `[line, hits]` or `[line, hits, branches covered, branches valid]`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageFile {
+    pub path: String,
+    pub lines: Vec<Vec<u32>>,
+}
+
+/// A coverage run's merged coverage.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestCoverage {
+    pub lines_covered: u32,
+    pub lines_valid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_covered: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches_valid: Option<u32>,
+    pub containers: Vec<CoverageContainer>,
+    pub modules: Vec<CoverageModule>,
+    pub files: Vec<CoverageFile>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

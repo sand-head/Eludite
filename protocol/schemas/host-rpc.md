@@ -103,8 +103,8 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
 | `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
 | `eludite/build/status` | request | [build-status.json](host/build-status.json) | none | `{ running: { buildId, generation, path, target, configuration, platform, toolchain, binlog, commandLine, elapsedMs, progress?, output: { firstSeq, nextSeq, text, truncated } } \| null, last?: { buildId, generation, target, path, result, elapsedMs, summary } }` |
-| `eludite/test/discover` | request | [test-discover.json](host/test-discover.json) | `{ projects?, configuration?, runSettings?, vstestConsolePath? }` | `{ runId, generation, containers: [{ id, name, project, targetFramework, protocol, runtime?, program?, error? }] }` |
-| `eludite/test/run` | request | [test-run.json](host/test-run.json) | `{ containers?: [{ id, tests? }], debug?, parallel?, configuration?, runSettings?, vstestConsolePath? }` | `{ runId, generation, containers, debug? }` |
+| `eludite/test/discover` | request | [test-discover.json](host/test-discover.json) | `{ projects?, configuration?, platform?, runSettings?, vstestConsolePath? }` | `{ runId, generation, containers: [{ id, name, project, targetFramework, protocol, runtime?, program?, error?, coverage? }] }` |
+| `eludite/test/run` | request | [test-run.json](host/test-run.json) | `{ containers?: [{ id, tests? }], debug?, parallel?, configuration?, platform?, coverage?, runSettings?, vstestConsolePath? }` | `{ runId, generation, containers, debug? }` |
 | `eludite/test/cancel` | request | [test-cancel.json](host/test-cancel.json) | `{ runId? }` | `{ canceled, runId? }` |
 | `eludite/test/attached` | request | [test-attached.json](host/test-attached.json) | `{ runId, processId, attached, message? }` | `{ accepted }` |
 | `eludite/test/status` | request | [test-status.json](host/test-status.json) | none | `{ running: [{ runId, kind, generation, debug?, containers, elapsedMs, nextSeq, tests, results }], last?: { runId, kind, generation, state, summary, elapsedMs } }` |
@@ -381,6 +381,19 @@ starts a .NET test runner itself, and runs `cargo test` for Rust through its own
   (doc tests are not listed), and runs them with `cargo test -p <package> --<target kind> [<name>] -- --exact <names>
   --nocapture --test-threads=1`, parsing libtest's `test <name> ... ok|FAILED|ignored` lines and its failure sections
   into the same model (protocol `cargo`).
+- **Projects as MSBuild sees them (brief 0076).** Discovery and runs evaluate each project of the solution with the
+  in-process MSBuild of brief 0049 (`Configuration`, and `Platform` from the request's `platform`, `Any CPU` being
+  `AnyCPU`; `TargetFramework` per framework): `IsTestProject`, the MTP runner properties, `UseVSTest`, the
+  `PackageReference` items wherever they are declared (TUnit is MTP) and the evaluated `TargetPath` decide the
+  container, so Directory.Build.props, `OutputPath`, `RuntimeIdentifier` and the artifacts layout hold. Without MSBuild
+  the project file alone is read, as before. Each container names its coverage `collector`.
+- **Coverage (brief 0076).** A run with `coverage: true` adds each container's collector: MTP with
+  Microsoft.Testing.Extensions.CodeCoverage gets `--coverage --coverage-output-format cobertura --coverage-output
+  <file>`; VSTest gets run settings with the `XPlat Code Coverage` (coverlet.collector) or `Code Coverage`
+  (Microsoft.CodeCoverage) data collector writing Cobertura. After the last container the host reads the reports,
+  merges them (hits summed per file and line) and sends one `coverage` update before `finished`: totals, the
+  containers with their report or why they have none, assembly > class > method counts, and per file its coverable
+  lines as `[line, hits]` or `[line, hits, branchesCovered, branchesValid]`.
 
 #### NuGet (brief 0048)
 
@@ -720,7 +733,7 @@ Any other method returns -32601 (MethodNotFound) and is not forwarded.
 | `eludite/build/output` | notification | [build-output.json](host/build-output.json) | `{ buildId, seq, text }` |
 | `eludite/build/progress` | notification | [build-progress.json](host/build-progress.json) | `{ buildId, elapsedMs, projectsTotal, projectsCompleted, errors, warnings, currentProject? }` |
 | `eludite/build/finished` | notification | [build-finished.json](host/build-finished.json) | `{ buildId, generation, target, path, result, exitCode, elapsedMs, summary, projects, diagnostics, binlog?, message? }` |
-| `eludite/test/update` | notification | [test-update.json](host/test-update.json) | `{ runId, generation, seq, kind, container?, tests?, results?, text?, launch?, processId?, state?, count?, summary?, elapsedMs?, message? }` |
+| `eludite/test/update` | notification | [test-update.json](host/test-update.json) | `{ runId, generation, seq, kind, container?, tests?, results?, text?, launch?, processId?, state?, count?, summary?, elapsedMs?, message?, coverage? }` |
 | `eludite/codeLens/refresh` | notification | [code-lens-refresh.json](host/code-lens-refresh.json) | `{ eluditeGeneration }`: the language server sent `workspace/codeLens/refresh` (brief 0052) |
 | `eludite/nuget/update` | notification | [nuget-update.json](host/nuget-update.json) | `{ operation, generation, seq, kind, text?, message?, packages? }` |
 | `eludite/nuget/credentials` | request | [nuget-credentials.json](host/nuget-credentials.json) | `{ operation?, source, url, host, proxy, isRetry, message? }`; result `{ username?, password?, remember?, canceled? }` or `null` |

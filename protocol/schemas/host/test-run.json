@@ -62,6 +62,15 @@
           "description": "The vstest.console.dll to run (the setting test.vstestConsolePath). Omitted: the one in the .NET SDK `dotnet --list-sdks` lists last (the SDK the host runs on when it has one).",
           "type": "string",
           "minLength": 1
+        },
+        "platform": {
+          "description": "Brief 0076: the solution platform whose build outputs hold the tests (`x64`, `Any CPU`); the host evaluates each project with the matching MSBuild `Platform` (`Any CPU` is `AnyCPU`). Omitted: the projects' default platform.",
+          "type": "string",
+          "minLength": 1
+        },
+        "coverage": {
+          "description": "Brief 0076: collect code coverage (Test > Analyze Code Coverage): each container with its collector (its `coverage` in eludite/test/discover's answer) writes a Cobertura report; the host parses and merges them and sends one `coverage` update before `finished`. A container without a collector runs without coverage and is listed in the update with its message. Not with `debug`. Default false.",
+          "type": "boolean"
         }
       }
     },

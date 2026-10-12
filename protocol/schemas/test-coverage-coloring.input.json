@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-coverage-coloring.input.json",
+  "title": "eludite.test.coverage_coloring input",
+  "description": "Show Code Coverage Coloring (the Code Coverage Results window's toolbar, Test menu): color the editor's covered, partially covered and uncovered lines from the last coverage, or stop. Sets test.showCoverageColoring.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "show": {
+      "description": "Omitted: toggle.",
+      "type": "boolean"
+    }
+  }
+}

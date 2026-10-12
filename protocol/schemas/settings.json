@@ -355,6 +355,36 @@
       "x-eludite-section": "Test > General",
       "x-eludite-label": "Run tests in parallel"
     },
+    "test.groupBy": {
+      "description": "Brief 0076: how the Test Explorer groups its tree (its toolbar's Group By): `project` (project > namespace > class), `namespace`, `class`, `outcome`, `duration` (Fast under 100 ms, Medium under 1 s, Slow), `traits`, `target_framework`; each then project > namespace > class where it applies.",
+      "type": "string",
+      "enum": [
+        "project",
+        "namespace",
+        "class",
+        "outcome",
+        "duration",
+        "traits",
+        "target_framework"
+      ],
+      "default": "project",
+      "x-eludite-section": "Test > General",
+      "x-eludite-label": "Group tests by"
+    },
+    "test.runAfterBuild": {
+      "description": "Brief 0076: Run Tests After Build (Visual Studio's Test Explorer toggle): after a successful build the Test Explorer did not start, rediscover and run the tests.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Test > General",
+      "x-eludite-label": "Run tests after build"
+    },
+    "test.showCoverageColoring": {
+      "description": "Brief 0076: Show Code Coverage Coloring: the editor colors the lines of the last code coverage (covered, partially covered, not covered).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Test > General",
+      "x-eludite-label": "Show code coverage coloring"
+    },
     "test.vstestConsolePath": {
       "description": "The vstest.console.dll that discovers and runs VSTest projects (xunit 2, NUnit and MSTest projects that have not moved to Microsoft.Testing.Platform), run with `dotnet`. Empty: the one in the newest .NET SDK `dotnet --list-sdks` lists.",
       "type": "string",

@@ -1229,6 +1229,7 @@ fn test_messages_conform_to_their_schemas() {
         runtime: Some(TestRuntime::Dotnet),
         program: Some("/s/T/bin/Debug/net10.0/T.dll".into()),
         error: None,
+        coverage: Some(CoverageCollector::Mtp),
     };
     conforms("test-discover.json", "container", &container);
     conforms(
@@ -1239,6 +1240,7 @@ fn test_messages_conform_to_their_schemas() {
             configuration: Some("Debug".into()),
             run_settings: None,
             vstest_console_path: Some("/sdk/vstest.console.dll".into()),
+            platform: Some("x64".into()),
         },
     );
     conforms(
@@ -1274,6 +1276,67 @@ fn test_messages_conform_to_their_schemas() {
             ..Default::default()
         },
     );
+    // Brief 0076: a coverage run and its coverage update.
+    conforms(
+        "test-run.json",
+        "params",
+        &TestRunParams {
+            platform: Some("Any CPU".into()),
+            coverage: Some(true),
+            ..Default::default()
+        },
+    );
+    let mut coverage = TestUpdate::new(3, 2, 9, TestUpdateKind::Coverage);
+    coverage.coverage = Some(TestCoverage {
+        lines_covered: 3,
+        lines_valid: 4,
+        branches_covered: Some(1),
+        branches_valid: Some(2),
+        containers: vec![
+            CoverageContainer {
+                container: container.id.clone(),
+                collector: CoverageCollector::Mtp,
+                report: Some("/tmp/c.cobertura.xml".into()),
+                message: None,
+            },
+            CoverageContainer {
+                container: "/s/U/U.csproj|net10.0".into(),
+                collector: CoverageCollector::None,
+                report: None,
+                message: Some("no collector".into()),
+            },
+        ],
+        modules: vec![CoverageModule {
+            name: "T".into(),
+            lines_covered: 3,
+            lines_valid: 4,
+            branches_covered: None,
+            branches_valid: None,
+            classes: vec![CoverageClass {
+                name: "N.Calculator".into(),
+                namespace: Some("N".into()),
+                file: Some("/s/T/Calculator.cs".into()),
+                lines_covered: 3,
+                lines_valid: 4,
+                branches_covered: None,
+                branches_valid: None,
+                methods: vec![CoverageMethod {
+                    name: "Add".into(),
+                    signature: Some("(System.Int32,System.Int32)".into()),
+                    line: Some(5),
+                    lines_covered: 3,
+                    lines_valid: 4,
+                    branches_covered: Some(1),
+                    branches_valid: Some(2),
+                }],
+            }],
+        }],
+        files: vec![CoverageFile {
+            path: "/s/T/Calculator.cs".into(),
+            lines: vec![vec![5, 1], vec![6, 2, 1, 2], vec![7, 0]],
+        }],
+    });
+    conforms("test-update.json", "params", &coverage);
     conforms(
         "test-run.json",
         "result",

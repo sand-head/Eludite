@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/test-update.json",
   "title": "eludite/test/update",
-  "description": "Host-to-shell notification: the next piece of a discovery or run, in order (`seq` 0, 1, 2, ... per run). `kind` says which members are present: discovered (`container`, `tests`), results (`container`, `results`), output (`text`, `container` when it is one container's), launch (`container`, `launch`), attach (`container`, `processId`), containerFinished (`container`, `state`, `count`, `message`), finished (`state`, `summary`, `message`). A burst of tests or results is sent as one update (flushed every 16 ms). Every update carries the generation its discovery or run started under; the shell drops one whose generation is not current (CLAUDE.md invariant 12).",
+  "description": "Host-to-shell notification: the next piece of a discovery or run, in order (`seq` 0, 1, 2, ... per run). `kind` says which members are present: discovered (`container`, `tests`), results (`container`, `results`), output (`text`, `container` when it is one container's), launch (`container`, `launch`), attach (`container`, `processId`), containerFinished (`container`, `state`, `count`, `message`), finished (`state`, `summary`, `message`), coverage (`coverage`, brief 0076: once, before `finished`, for a run with `coverage`). A burst of tests or results is sent as one update (flushed every 16 ms). Every update carries the generation its discovery or run started under; the shell drops one whose generation is not current (CLAUDE.md invariant 12).",
   "x-eludite-method": "eludite/test/update",
   "x-eludite-kind": "notification",
   "x-eludite-direction": "hostToShell",
@@ -40,7 +40,8 @@
             "launch",
             "attach",
             "containerFinished",
-            "finished"
+            "finished",
+            "coverage"
           ]
         },
         "container": {
@@ -279,6 +280,219 @@
         },
         "message": {
           "type": "string"
+        },
+        "coverage": {
+          "description": "coverage (brief 0076): the run's merged Cobertura coverage, sent once before `finished` by a run with `coverage`.",
+          "type": "object",
+          "required": [
+            "linesCovered",
+            "linesValid",
+            "containers",
+            "modules",
+            "files"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "linesCovered": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "linesValid": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "branchesCovered": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "branchesValid": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "containers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "container",
+                  "collector"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "container": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "collector": {
+                    "enum": [
+                      "mtp",
+                      "coverlet",
+                      "microsoft",
+                      "none"
+                    ]
+                  },
+                  "report": {
+                    "description": "The Cobertura file it wrote.",
+                    "type": "string"
+                  },
+                  "message": {
+                    "description": "Why it has no coverage (no collector, no report written, a report that could not be read).",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "modules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "linesCovered",
+                  "linesValid",
+                  "classes"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "The assembly (Cobertura's package).",
+                    "type": "string"
+                  },
+                  "linesCovered": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "linesValid": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "branchesCovered": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "branchesValid": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "classes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "linesCovered",
+                        "linesValid",
+                        "methods"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "description": "The class's full name (`Namespace.Class`, nested classes with `/` or `+` as the collector writes them).",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "type": "string"
+                        },
+                        "file": {
+                          "description": "Absolute path of its source file.",
+                          "type": "string"
+                        },
+                        "linesCovered": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "linesValid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "branchesCovered": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "branchesValid": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "methods": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "name",
+                              "linesCovered",
+                              "linesValid"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "name": {
+                                "description": "The method name.",
+                                "type": "string"
+                              },
+                              "signature": {
+                                "description": "Its signature as Cobertura gives it.",
+                                "type": "string"
+                              },
+                              "line": {
+                                "description": "Its first coverable line.",
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              "linesCovered": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "linesValid": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "branchesCovered": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "branchesValid": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "path",
+                  "lines"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "description": "Absolute path of a source file.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "lines": {
+                    "description": "Its coverable lines in order: `[line, hits]`, or `[line, hits, branchesCovered, branchesValid]` for a line with branches.",
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "maxItems": 4
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

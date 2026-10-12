@@ -265,7 +265,8 @@ fn the_window_opens_with_the_tree_and_run_all_streams_results_into_rows_the_erro
             "  Corpus.Tests NotRun",
             "    CalculatorTests NotRun",
             "      Adds NotRun",
-            "      AddsPairs(a: 1) NotRun",
+            "      AddsPairs NotRun",
+            "        AddsPairs(a: 1) NotRun",
             "      Subtracts NotRun",
             "Legacy.Tests NotRun",
             "  Legacy.Tests NotRun",
@@ -300,7 +301,8 @@ fn the_window_opens_with_the_tree_and_run_all_streams_results_into_rows_the_erro
             "  Corpus.Tests Failed",
             "    CalculatorTests Failed",
             "      Adds Passed",
-            "      AddsPairs(a: 1) Skipped",
+            "      AddsPairs Skipped",
+            "        AddsPairs(a: 1) Skipped",
             "      Subtracts Failed",
             "Legacy.Tests Passed",
             "  Legacy.Tests Passed",
@@ -383,9 +385,9 @@ fn the_window_opens_with_the_tree_and_run_all_streams_results_into_rows_the_erro
     assert_eq!(t.rows().len(), 4);
     t.cmd(cmds::EXPLORER, json!({"filter": "Trait:Category=Math"}))
         .unwrap();
-    assert_eq!(t.rows().last().unwrap(), "      AddsPairs(a: 1) Skipped");
+    assert_eq!(t.rows().last().unwrap(), "        AddsPairs(a: 1) Skipped");
     t.cmd(cmds::EXPLORER, json!({"filter": ""})).unwrap();
-    assert_eq!(t.rows().len(), 10);
+    assert_eq!(t.rows().len(), 11);
     // The Output window's Tests source has the runs.
     assert!(
         t.tests_output()

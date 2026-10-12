@@ -173,6 +173,10 @@
     },
     "message": {
       "type": "string"
+    },
+    "stale": {
+      "description": "Brief 0076: the tree shown is from before the last build or solution generation (or the cache of the last session) and is being, or will be, replaced by the next discovery.",
+      "type": "boolean"
     }
   }
 }

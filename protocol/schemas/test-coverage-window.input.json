@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-coverage-window.input.json",
+  "title": "eludite.test.coverage_window input",
+  "description": "Test > Windows > Code Coverage Results: show the window.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

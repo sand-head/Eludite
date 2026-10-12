@@ -489,7 +489,14 @@ fn run_test_from_a_lens_discovers_first_runs_through_the_test_explorer_and_shows
             .any(|l| l.0 == 2 && l.3 == Some(TestGlyph::Failed) && l.1 == "Run All Tests (15 ms)")
     });
 
-    // Debug Test starts a session, as brief 0035's does: the fake adapter breaks in Adds.
+    // Debug Test starts a session, as brief 0035's does: the fake adapter breaks in Adds, at the person's own
+    // breakpoint (brief 0076: a lens sets no breakpoint of its own).
+    let source = t.w.dir.path().join("tests/Corpus.Tests/CalculatorTests.cs");
+    t.cmd(
+        eludite_commands::debug::TOGGLE_BREAKPOINT,
+        json!({"path": source.to_string_lossy(), "line": 8, "action": "set"}),
+    )
+    .unwrap();
     let debug = lens_id(&t.w, &view, 4, "Debug Test");
     click_lens(&mut t.w, &view, debug);
     t.w.wait("the debugged test", |w| {

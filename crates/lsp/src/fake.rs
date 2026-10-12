@@ -132,6 +132,8 @@ struct FakeTests {
     running: Option<FakeTestRun>,
     last: Option<Value>,
     discoveries: u64,
+    /// Brief 0076: the `coverage` member a run with `coverage: true` sends before `finished`.
+    coverage: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -568,6 +570,11 @@ impl FakeHost {
         self.lock().tests.catalogue = catalogue.as_array().cloned().unwrap_or_default();
     }
 
+    /// Brief 0076: the coverage (test-update.json's `coverage`) a run with `coverage: true` sends before it finishes.
+    pub fn set_test_coverage(&self, coverage: Value) {
+        self.lock().tests.coverage = Some(coverage);
+    }
+
     /// Result members by test id for the runs that are not held (`{"t1": {"outcome": "failed", "message": ...}}`).
     pub fn set_test_outcomes(&self, outcomes: Value) {
         self.lock().tests.outcomes = outcomes.as_object().cloned().unwrap_or_default();
@@ -938,6 +945,13 @@ impl FakeHost {
                 })
                 .collect();
             self.test_results(container, json!(results));
+        }
+        // Brief 0076: a coverage run's coverage update.
+        let coverage = self.lock().tests.coverage.clone();
+        if params["coverage"] == json!(true)
+            && let Some(c) = coverage
+        {
+            self.test_update(json!({"kind": "coverage", "coverage": c}), true);
         }
         self.finish_test_run("completed");
     }

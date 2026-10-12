@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-coverage-results.output.json",
+  "title": "eludite.test.coverage_results output",
+  "description": "The last coverage's rows (tree order), paged, and the file's lines.",
+  "type": "object",
+  "required": [
+    "run",
+    "summary",
+    "rows",
+    "total",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "run": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "summary": {
+      "description": "The coverage's totals and its assemblies.",
+      "type": "object",
+      "required": [
+        "lines_covered",
+        "lines_valid",
+        "percent",
+        "modules"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lines_covered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lines_valid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "percent": {
+          "description": "Covered lines in percent (0 to 100), one decimal.",
+          "type": "number",
+          "minimum": 0
+        },
+        "branches_covered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "branches_valid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "lines_covered",
+              "lines_valid",
+              "percent"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "lines_covered": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "lines_valid": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "percent": {
+                "description": "Covered lines in percent (0 to 100), one decimal.",
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "missing": {
+          "description": "Projects that collected no coverage, with why (`Corpus.NUnit: add the ... package`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "name",
+          "depth",
+          "covered",
+          "not_covered",
+          "percent"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "assembly",
+              "namespace",
+              "class",
+              "method"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "covered": {
+            "description": "Covered (Lines).",
+            "type": "integer",
+            "minimum": 0
+          },
+          "not_covered": {
+            "description": "Not Covered (Lines).",
+            "type": "integer",
+            "minimum": 0
+          },
+          "percent": {
+            "description": "Covered lines in percent (0 to 100), one decimal.",
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "next_cursor": {
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "stale": {
+      "description": "Documents were edited since the coverage ran.",
+      "type": "boolean"
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "path",
+        "covered",
+        "partial",
+        "uncovered"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "covered": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "partial": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "uncovered": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}

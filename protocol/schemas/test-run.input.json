@@ -39,7 +39,7 @@
       "type": "boolean"
     },
     "selection": {
-      "description": "Run Tests (Ctrl+R, T): the tests under the Test Explorer's selected node, else the test whose declaration is nearest above the active editor's caret.",
+      "description": "Run Tests (Ctrl+R, T): Brief 0076: with the editor focused, the caret's scope (the test method it is in; on a test class's declaration line or between its members, the class's tests; elsewhere in a file with tests, the file's tests; never the test above a non-test member); from the Test Explorer (it has focus) the tests under its selected node. When neither gives tests, the other is tried.",
       "type": "boolean"
     },
     "wait_ms": {
