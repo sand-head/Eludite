@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-set-unloaded.json",
+  "title": "eludite/project/setUnloaded",
+  "description": "Brief 0081: Unload Project and Reload Project. The host keeps the set of unloaded project files of the open solution (the shell persists it per workspace and sends it again after an open). An unloaded project is left out of Roslyn's workspace (the host opens the solution's other projects with project/open instead of solution/open), out of the tree's evaluation (it is listed with unloaded true), out of builds of the solution only as Visual Studio does (it still builds when the solution file builds it; the build is MSBuild's). Reload Project of a loaded project (one that failed to load) re-evaluates it. Every call reloads the solution: the generation moves on.",
+  "x-eludite-method": "eludite/project/setUnloaded",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "projects",
+        "unloaded"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "projects": {
+          "description": "Absolute paths of project files of the open solution.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "unloaded": {
+          "description": "True to unload, false to reload.",
+          "type": "boolean"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "unloaded"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation after the call: one more than the request's when a file was written (the host reloaded the solution), else the same.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "unloaded": {
+          "description": "The unloaded set after the call.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

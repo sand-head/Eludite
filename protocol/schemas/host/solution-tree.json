@@ -38,10 +38,25 @@
           ]
         },
         "projects": {
-          "description": "C# projects in solution order.",
+          "description": "MSBuild projects (.csproj, .vbproj, .fsproj) in solution order.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/project"
+          }
+        },
+        "folders": {
+          "description": "Brief 0081: the solution folders (.slnx <Folder>, .sln solution folder entries nested by NestedProjects), in solution order, each with its solution items. A folder's projects name it in their solutionFolder. Omitted or empty for a project file opened alone.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/solutionFolder"
+          }
+        },
+        "unloaded": {
+          "description": "Brief 0081: project files the person unloaded in this workspace (Unload Project); each is also in projects with unloaded true.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }
@@ -98,7 +113,7 @@
           "type": "string"
         },
         "dependencies": {
-          "description": "Visual Studio's Dependencies node (brief 0048): Packages, Projects and Frameworks, from the evaluation and the assets file; read from disk only (nothing contacts a source).",
+          "description": "Visual Studio's Dependencies node (brief 0048): Packages, Projects and Frameworks, from the evaluation and the assets file; read from disk only (nothing contacts a source). Brief 0081 adds Analyzers and Assemblies, a group per target framework for a multi-targeted project, and gives legacy projects the node too (Workspace calls it References there: assembly references, project references and packages.config packages).",
           "type": "object",
           "required": [
             "restored",
@@ -239,8 +254,118 @@
                   }
                 }
               }
+            },
+            "analyzers": {
+              "description": "Brief 0081: Analyzer items and the analyzers (source generators among them) of the restored packages.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "The assembly name (file name without extension, or the Include's simple name).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "description": "Absolute path of the assembly when known (HintPath, an analyzer's file).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "include": {
+                    "description": "The item's Include as written (System.Xml, ..\\lib\\Foo.dll); what Remove names.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "package": {
+                    "description": "An analyzer's package id, when it came from a package (the assets file).",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "assemblies": {
+              "description": "Brief 0081: direct Reference items (assembly references).",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "The assembly name (file name without extension, or the Include's simple name).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "description": "Absolute path of the assembly when known (HintPath, an analyzer's file).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "include": {
+                    "description": "The item's Include as written (System.Xml, ..\\lib\\Foo.dll); what Remove names.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "package": {
+                    "description": "An analyzer's package id, when it came from a package (the assets file).",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "frameworkGroups": {
+              "description": "Brief 0081: for a multi-targeted project, the same lists per target framework (Visual Studio's Dependencies > net8.0 > ...), in TargetFrameworks order; the top-level lists are then the first framework's.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "targetFramework",
+                  "packages",
+                  "projects",
+                  "frameworks"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "targetFramework": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "packages": {
+                    "$ref": "#/$defs/project/properties/dependencies/properties/packages"
+                  },
+                  "projects": {
+                    "$ref": "#/$defs/project/properties/dependencies/properties/projects"
+                  },
+                  "frameworks": {
+                    "$ref": "#/$defs/project/properties/dependencies/properties/frameworks"
+                  },
+                  "analyzers": {
+                    "$ref": "#/$defs/project/properties/dependencies/properties/analyzers"
+                  },
+                  "assemblies": {
+                    "$ref": "#/$defs/project/properties/dependencies/properties/assemblies"
+                  }
+                }
+              }
             }
           }
+        },
+        "solutionFolder": {
+          "description": "Brief 0081: the solution folder holding the project, as a folder path (/src/tests/); omitted at the solution's root.",
+          "type": "string",
+          "minLength": 1
+        },
+        "unloaded": {
+          "description": "Brief 0081: the person unloaded the project (Unload Project): files and dependencies are empty, Roslyn does not load it, and Workspace shows it as Name (unloaded) with Reload Project.",
+          "type": "boolean"
         }
       }
     },
@@ -273,6 +398,35 @@
           "description": "The Link metadata (project-relative display path) for a file outside the project directory, when set.",
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "solutionFolder": {
+      "type": "object",
+      "required": [
+        "path",
+        "name",
+        "files"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "The folder's path from the solution root, slash-led and slash-ended (/src/, /src/tests/), the .slnx Name; for a .sln, the names of the folder and its parents. Its parent is the path without its last segment.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "The last segment, as Workspace shows it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "description": "Solution items (.slnx <File>, .sln ProjectSection(SolutionItems)) as absolute paths, in file order.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     }

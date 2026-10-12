@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-set-item-properties.json",
+  "title": "eludite/project/setItemProperties",
+  "description": "Brief 0081: change a file's Build Action (item type) and metadata (Copy to Output Directory, Custom Tool, Custom Tool Namespace) in its project file, preserving formatting as eludite/project/setProperty does (Microsoft.Build.Construction): an item included by name is changed in place (its element renamed for a new item type, its metadata elements added, changed or removed); a file of the SDK's default globs gets an Update item (<None Update=\"x\" CopyToOutputDirectory=\"...\"/> style metadata elements) for metadata, and for a new item type a Remove from the old type plus an Include of the new type, in an item group of their own. A value equal to the default removes the metadata element. The host then reloads the solution.",
+  "x-eludite-method": "eludite/project/setItemProperties",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the shell read the tree under. Not the current generation: -32801 (ContentModified), nothing written.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "itemType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The new item type."
+        },
+        "copyToOutputDirectory": {
+          "enum": [
+            "never",
+            "always",
+            "preserveNewest"
+          ]
+        },
+        "customTool": {
+          "description": "Empty removes it.",
+          "type": "string"
+        },
+        "customToolNamespace": {
+          "description": "Empty removes it.",
+          "type": "string"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "written"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation after the call: one more than the request's when a file was written (the host reloaded the solution), else the same.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "written": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

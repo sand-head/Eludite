@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-item-properties.json",
+  "title": "eludite/project/itemProperties",
+  "description": "Brief 0081: Visual Studio's File Properties for one file of a project (the Properties window, F4): its item type (Build Action), Copy to Output Directory, Custom Tool and Custom Tool Namespace, from the project's evaluation (SDK default items included). A file the project does not list answers with itemType None and listed false.",
+  "x-eludite-method": "eludite/project/itemProperties",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the shell read the tree under. Not the current generation: -32801 (ContentModified), nothing written.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the project file."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the file."
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "path",
+        "listed",
+        "itemType",
+        "itemTypes",
+        "copyToOutputDirectory"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "listed": {
+          "description": "The evaluation lists the file as an item.",
+          "type": "boolean"
+        },
+        "itemType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The MSBuild item type (Compile, Content, None, EmbeddedResource, AdditionalFiles, Page, ...); None when not listed."
+        },
+        "itemTypes": {
+          "description": "The Build Action choices for this project, Visual Studio's list (the project's own item types added).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "copyToOutputDirectory": {
+          "description": "never (Do not copy), always (Copy always), preserveNewest (Copy if newer).",
+          "enum": [
+            "never",
+            "always",
+            "preserveNewest"
+          ]
+        },
+        "customTool": {
+          "description": "The Generator metadata.",
+          "type": "string"
+        },
+        "customToolNamespace": {
+          "description": "The CustomToolNamespace metadata.",
+          "type": "string"
+        },
+        "implicit": {
+          "description": "The item comes from the SDK's default globs (no element of the project file includes it by name): an edit writes an Update item.",
+          "type": "boolean"
+        },
+        "line": {
+          "description": "1-based line of the element that includes the file, when it is in the project file.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

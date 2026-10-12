@@ -99,7 +99,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/host/exit` | notification | [host-exit.json](host/host-exit.json) | none | (none) |
 | `eludite/solution/open` | request | [solution-open.json](host/solution-open.json) | `{ path }` | `{ generation }` |
 | `eludite/solution/close` | request | [solution-close.json](host/solution-close.json) | none | `{ generation }` |
-| `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], dependencies?, error? }] }` |
+| `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], dependencies?, error?, solutionFolder?, unloaded? }], folders?: [{ path, name, files }], unloaded? }` |
 | `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
 | `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
 | `eludite/build/status` | request | [build-status.json](host/build-status.json) | none | `{ running: { buildId, generation, path, target, configuration, platform, toolchain, binlog, commandLine, elapsedMs, progress?, output: { firstSeq, nextSeq, text, truncated } } \| null, last?: { buildId, generation, target, path, result, elapsedMs, summary } }` |
@@ -123,6 +123,11 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/resx/designer` | request | [resx-designer.json](host/resx-designer.json) | `{ generation, path, action, modifier? }` | `{ generation, path, designer?, status, modifier, projectWritten?, className?, namespace? }` |
 | `eludite/solution/configurations` | request | [solution-configurations.json](host/solution-configurations.json) | none | `{ generation, path, format, configurations, platforms, active, projects: [{ name, path, configurations, platforms, mappings }] }` |
 | `eludite/solution/setConfiguration` | request | [solution-set-configuration.json](host/solution-set-configuration.json) | `{ generation, select?, mappings? }` | `{ generation, path, written, active }` |
+| `eludite/solution/edit` | request | [solution-edit.json](host/solution-edit.json) | `{ generation, action, project?, folder?, name?, file?, dependsOn? }` | `{ generation, path, written, folder?, message? }` |
+| `eludite/project/itemProperties` | request | [project-item-properties.json](host/project-item-properties.json) | `{ generation, project, path }` | `{ generation, project, path, listed, itemType, itemTypes, copyToOutputDirectory, customTool?, customToolNamespace?, implicit?, line? }` |
+| `eludite/project/setItemProperties` | request | [project-set-item-properties.json](host/project-set-item-properties.json) | `{ generation, project, path, itemType?, copyToOutputDirectory?, customTool?, customToolNamespace? }` | `{ generation, project, written }` |
+| `eludite/project/editReferences` | request | [project-edit-references.json](host/project-edit-references.json) | `{ generation, project, add?: [{ kind, reference }], remove?: [{ kind, reference }] }` | `{ generation, project, written, refused: [{ reference, reason }] }` |
+| `eludite/project/setUnloaded` | request | [project-set-unloaded.json](host/project-set-unloaded.json) | `{ projects, unloaded }` | `{ generation, unloaded }` |
 
 #### `eludite/host/initialize`
 
@@ -558,6 +563,20 @@ itself.
   project writes.
 - **Errors:** -32002 before `eludite/host/initialize`; -32602 when no solution is open, `path` is not absolute or
   not a `.resx`, or `modifier` is missing for `setModifier`.
+
+#### Solution structure, references and item properties (brief 0081)
+
+- **The structure.** `eludite/solution/tree` lists the solution folders (`folders`: a `.slnx`'s `<Folder Name="/src/">`
+  elements, a `.sln`'s solution folder entries nested by `GlobalSection(NestedProjects)`, each with its solution items)
+  and names each project's folder (`solutionFolder`). Folder paths are `.slnx` names for both formats (`/src/tests/`).
+- **Edits.** `eludite/solution/edit` edits the solution file's text in place, every other byte kept;
+  `eludite/project/setItemProperties` and `eludite/project/editReferences` edit a project file with
+  `Microsoft.Build.Construction` as `eludite/project/setProperty` does. Each checks `generation` first (-32801), is
+  serialized with the other project writes, and reloads the solution when it wrote (the generation moves on, the
+  shell asks for the tree again).
+- **Unloaded projects.** `eludite/project/setUnloaded` keeps the host's unloaded set: the tree lists those projects
+  with `unloaded` and nothing else, and the language server is given the other projects (`project/open`) instead of
+  the solution. The set survives reloads and is cleared by `eludite/solution/open` of another path.
 
 ### Forwarded LSP methods, typed
 

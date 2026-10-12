@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-edit.json",
+  "title": "eludite/solution/edit",
+  "description": "Brief 0081: edit the open solution file (.sln or .slnx) as Visual Studio's Workspace window does: add an existing project, remove a project, add, rename and remove a solution folder, add and remove a solution item (a file in a solution folder), and set a project's build dependencies (Project Dependencies). The host edits the text in place: every byte outside the lines it adds, changes or removes stays as it was (encoding, byte order mark, line endings, indentation and comments). In a .sln a new project gets a Project block with the project type of its extension (SDK or legacy) and a new GUID, and a ProjectConfigurationPlatforms line pair per solution configuration (the project's Debug or Release with Any CPU); removing a project removes its block, its configuration lines, its NestedProjects line and every ProjectDependencies line naming it. A .slnx gets <Project Path=\"...\"/> (inside the folder's <Folder> when given) with the indentation of its siblings. When anything was written the host reloads the solution (the generation moves on and eludite/solution/status reports the load). A project file opened alone (no solution) answers -32602.",
+  "x-eludite-method": "eludite/solution/edit",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation",
+        "action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the shell read the tree under. Not the current generation: -32801 (ContentModified), nothing written.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "description": "addProject: project (and folder). removeProject: project. addFolder: name (and folder: the parent). renameFolder: folder, name. removeFolder: folder (with everything in it: its projects leave the solution, as in Visual Studio). addFile: folder, file. removeFile: folder, file. setDependencies: project, dependsOn (the whole list).",
+          "enum": [
+            "addProject",
+            "removeProject",
+            "addFolder",
+            "renameFolder",
+            "removeFolder",
+            "addFile",
+            "removeFile",
+            "setDependencies"
+          ]
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of a project file (.csproj, .vbproj, .fsproj). For addProject it must exist and not be in the solution yet."
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A solution folder's path (/src/, /src/tests/), as eludite/solution/tree's folders give it."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A folder name: no slash, backslash, colon, asterisk, question mark, quote, angle bracket or bar; unique among its siblings, case-insensitively."
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of a file (a solution item)."
+        },
+        "dependsOn": {
+          "description": "setDependencies: absolute paths of the projects of the solution this one builds after.",
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "path",
+        "written"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation after the call: one more than the request's when a file was written (the host reloaded the solution), else the same.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the solution file."
+        },
+        "written": {
+          "description": "True when the file changed on disk.",
+          "type": "boolean"
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "description": "addFolder and renameFolder: the folder's path after the edit."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why nothing was written, when the edit was a no-op (already in the solution, already absent)."
+        }
+      }
+    }
+  }
+}

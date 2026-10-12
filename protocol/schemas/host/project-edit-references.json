@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-edit-references.json",
+  "title": "eludite/project/editReferences",
+  "description": "Brief 0081: the Reference Manager's OK and a reference row's Remove: add and remove ProjectReference items (another project of the solution) and Reference items (an assembly by path, with a HintPath relative to the project, or a framework assembly by name) in one project file, preserving formatting. A project reference that would close a cycle (the referenced project reaches this one through its own ProjectReference items) is refused and listed in refused; so is a reference to the project itself. Added items go to the item group holding the project's other items of that type, else a new item group at the end. The host reloads the solution when it wrote.",
+  "x-eludite-method": "eludite/project/editReferences",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the shell read the tree under. Not the current generation: -32801 (ContentModified), nothing written.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the project file being edited."
+        },
+        "add": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "remove": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "written",
+        "refused"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation after the call: one more than the request's when a file was written (the host reloaded the solution), else the same.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "written": {
+          "type": "boolean"
+        },
+        "refused": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "reference",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "reference": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why: cycle (with the path through the projects), self, missing, notReferenced."
+              }
+            }
+          }
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "required": [
+        "kind",
+        "reference"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "project",
+            "assembly"
+          ]
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "description": "project: the project file's absolute path. assembly: an absolute .dll path, or an assembly name (System.Xml) for a framework assembly; for remove, the Include as eludite/solution/tree lists it also works."
+        }
+      }
+    }
+  }
+}
