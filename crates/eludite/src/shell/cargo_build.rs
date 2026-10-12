@@ -109,6 +109,8 @@ impl CargoBuildSpec {
             BuildKind::Build => line("build"),
             BuildKind::Rebuild => format!("{} && {}", line("clean"), line("build")),
             BuildKind::Clean => line("clean"),
+            // Cargo has no publish (brief 0074 plans publishes on MSBuild only).
+            BuildKind::Publish => line("build"),
         }
     }
 }
@@ -403,6 +405,7 @@ fn run_build(spec: CargoBuildSpec, events: UnboundedSender<SessionEvent>, run: C
         BuildKind::Build => BuildTarget::Build,
         BuildKind::Rebuild => BuildTarget::Rebuild,
         BuildKind::Clean => BuildTarget::Clean,
+        BuildKind::Publish => BuildTarget::Publish,
     };
     let command_line = spec.command_line();
     let _ = events.unbounded_send(SessionEvent::BuildStarted {
@@ -447,6 +450,7 @@ fn run_build(spec: CargoBuildSpec, events: UnboundedSender<SessionEvent>, run: C
         BuildKind::Build => &["build"],
         BuildKind::Rebuild => &["clean", "build"],
         BuildKind::Clean => &["clean"],
+        BuildKind::Publish => &["build"],
     };
     let mut last_progress = Instant::now() - PROGRESS_EVERY;
     for step in steps {
@@ -553,7 +557,7 @@ fn run_build(spec: CargoBuildSpec, events: UnboundedSender<SessionEvent>, run: C
         match spec.kind {
             BuildKind::Clean => "Clean",
             BuildKind::Rebuild => "Rebuild All",
-            BuildKind::Build => "Build",
+            BuildKind::Build | BuildKind::Publish => "Build",
         },
         match spec.kind {
             BuildKind::Clean => "Clean",

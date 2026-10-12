@@ -200,6 +200,7 @@ fn real_host_builds_a_project() {
             project: None,
             configuration: None,
             platform: None,
+            publish_profile: None,
         })
         .unwrap()
         .wait_timeout(T)

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-apply-code-changes.input.json",
+  "title": "eludite.debug.apply_code_changes input",
+  "description": "Debug > Apply Code Changes (Alt+F10, brief 0074): save every changed document so the running Hot Reload watch (eludite.debug.run_watch) applies them. Fails when no watch runs. The answer is eludite.debug.run_watch's output with the state after the save.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/build-publish.input.json",
+  "title": "eludite.build.publish input",
+  "description": "Build > Publish (brief 0074): `dotnet publish` of one SDK-style project of the open solution with one of its folder publish profiles (`Properties/PublishProfiles/*.pubxml`, PublishProtocol FileSystem), run by eludite-host out of process and streamed to the Output window's Build pane like a build, with Error List rows. The profile's Configuration, TargetFramework, RuntimeIdentifier, SelfContained, PublishSingleFile, PublishReadyToRun, PublishTrimmed and PublishDir apply. A project without a profile publishes with a new FolderProfile.pubxml written in Visual Studio's shape (Release, the project's first target framework, framework-dependent, `bin\\Release\\<tfm>\\publish\\`). Refused for a legacy (non-SDK) project, a profile that does not publish to a folder, and while a build runs. The answer is build-result.output.json with target `publish` and `publish_dir`.",
+  "type": "object",
+  "properties": {
+    "project": {
+      "description": "The project to publish: its name as Workspace shows it, or the path of its project file (absolute, or relative to the solution folder). Omitted: the project of the active document, else the startup project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "description": "The publish profile: its name (FolderProfile) or the path of its .pubxml. Omitted: the project's first profile by name, or a new FolderProfile.pubxml when it has none.",
+      "type": "string",
+      "minLength": 1
+    },
+    "wait": {
+      "description": "Wait for the publish to finish and return its result (the default for a caller off the UI thread, such as an agent). false: return as soon as it starts, with state running.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

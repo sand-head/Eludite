@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <AssemblyName>Corpus.$(MSBuildProjectName)</AssemblyName>
+    <RunWorkingDirectory>$(MSBuildThisFileDirectory)work</RunWorkingDirectory>
+  </PropertyGroup>
+</Project>

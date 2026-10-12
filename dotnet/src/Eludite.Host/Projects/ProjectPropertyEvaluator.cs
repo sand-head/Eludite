@@ -63,6 +63,29 @@ public sealed class ProjectPropertyEvaluator : IDisposable
     }
 
     /// <summary>
+    /// Brief 0074: what <c>dotnet run</c> would run for <paramref name="projectPath"/> (<see cref="RunTarget"/>), on the
+    /// same shared collection and under the same lock as <see cref="Evaluate"/>.
+    /// </summary>
+    public RunTargetResult EvaluateRunTarget(string projectPath, string? configuration, string? platform, string? framework, long generation, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(projectPath);
+        Registered();
+        lock (_lock)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Evaluations++;
+            return RunTargetCore(Path.GetFullPath(projectPath), configuration, platform, framework, generation);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private RunTargetResult RunTargetCore(string full, string? configuration, string? platform, string? framework, long generation)
+    {
+        var legacy = SolutionProjects.IsLegacy(full);
+        return RunTarget.Evaluate(Collection(), full, framework, generation, fw => Globals(full, legacy, configuration, platform, fw));
+    }
+
+    /// <summary>
     /// Applies <paramref name="edits"/> to the project file by the condition and inherited rules and writes it when it
     /// changed. Legacy projects are refused (read-only, brief 0049).
     /// </summary>

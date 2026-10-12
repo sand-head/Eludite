@@ -37,7 +37,8 @@
           "enum": [
             "build",
             "rebuild",
-            "clean"
+            "clean",
+            "publish"
           ]
         },
         "path": {

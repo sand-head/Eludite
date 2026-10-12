@@ -6,6 +6,14 @@
 //! `OutputType`, `OutputPath` and the SDK are taken from the project file itself. A property set only in an imported
 //! file (`Directory.Build.props`) other than the target framework is not seen; the report lists that gap.
 //!
+//! - **The evaluated target** (brief 0074, [`launch_plan_in`]): when eludite-host answers `eludite/project/runTarget`,
+//!   the program is its evaluated `TargetPath` and Start Without Debugging runs its `RunCommand` and `RunArguments` in
+//!   its `RunWorkingDirectory` ([`EvaluatedTarget`]), so `Directory.Build.props`, `UseArtifactsOutput` and the rest
+//!   are honored; the text reading above is the fallback when the host does not answer. `Executable` profiles run
+//!   their `executablePath` with Visual Studio's macros expanded ([`expand_macros`]); Docker, WSL and IIS profiles
+//!   are refused naming their kind ([`refuse_profile_kind`]). [`LaunchPlan::console`] marks a console program, which
+//!   the shell runs in a Terminal window tab.
+//!
 //! - **Target frameworks** ([`classify_framework`]): `netcoreapp*`, `netstandard*` (not runnable) and `netN.M` with
 //!   N >= 5 are CoreCLR; `net2*`, `net3*`, `net4*` (SDK-style) and a legacy project's `TargetFrameworkVersion` `v2.0` to
 //!   `v4.8.1` are .NET Framework. A multi-targeted project runs its first target framework, or the one Visual Studio's
@@ -358,6 +366,8 @@ pub struct LaunchProfile {
     pub launch_browser: bool,
     /// The page to open: relative to the application url (`swagger`, `""`), or absolute.
     pub launch_url: Option<String>,
+    /// Executable profiles: the program to run (brief 0074).
+    pub executable_path: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -452,6 +462,10 @@ pub fn launch_config_in(
     configuration: &str,
     framework: Option<&str>,
 ) -> Result<LaunchConfig, String> {
+    // Brief 0074: a profile kind Eludite does not run is refused before anything else.
+    if let Some(p) = choose_profile(project, profile)? {
+        refuse_profile_kind(&p)?;
+    }
     let mut info = read_project(project)?;
     if let Some(f) = framework
         && let Some(ix) = info
@@ -995,6 +1009,399 @@ pub fn probe(url: &str, cap: Duration) -> Option<Option<u16>> {
         .parse()
         .ok()?;
     Some(Some(status))
+}
+
+// ---- the launch target from MSBuild evaluation, Executable profiles and refused kinds (brief 0074) ----
+
+/// The profile a launch uses: `profile` by name (an error when the file lacks it), else the first `Project` profile.
+pub fn choose_profile(
+    project: &Path,
+    profile: Option<&str>,
+) -> Result<Option<LaunchProfile>, String> {
+    let dir = project.parent().unwrap_or(Path::new("."));
+    let profiles = read_launch_settings(dir)?;
+    Ok(match profile {
+        Some(name) => Some(
+            profiles
+                .into_iter()
+                .find(|p| p.name == name)
+                .ok_or_else(|| {
+                    format!(
+                        "no launch profile `{name}` in {}",
+                        dir.join("Properties").join("launchSettings.json").display()
+                    )
+                })?,
+        ),
+        None => profiles.into_iter().find(|p| p.command_name == "Project"),
+    })
+}
+
+/// Where a profile kind Eludite does not run would run, for its refusal: `None` for the kinds it runs (`Project`,
+/// `Executable`) and the unknown ones (they run as `Project` profiles do, like Visual Studio's fallback).
+pub fn refused_kind(command_name: &str) -> Option<&'static str> {
+    match command_name.to_ascii_lowercase().as_str() {
+        "docker" | "dockercompose" | "sdkcontainer" => Some("in a Docker container"),
+        "wsl2" | "wsl" => Some("in WSL"),
+        "iisexpress" => Some("under IIS Express"),
+        "iis" => Some("under IIS"),
+        _ => None,
+    }
+}
+
+/// The refusal of a profile kind Eludite does not run (Docker, WSL, IIS Express, IIS), naming the kind.
+pub fn refuse_profile_kind(profile: &LaunchProfile) -> Result<(), String> {
+    match refused_kind(&profile.command_name) {
+        Some(kind) => Err(format!(
+            "The launch profile '{}' runs {kind}, which Eludite does not run yet; choose a Project or Executable \
+             profile.",
+            profile.name
+        )),
+        None => Ok(()),
+    }
+}
+
+/// `text` with Visual Studio's launch-profile macros expanded: `$(ProjectDir)` and `$(TargetDir)` (with a trailing
+/// separator), `$(TargetPath)`, `$(TargetFileName)`, `$(Configuration)`, and environment variables written `%NAME%`
+/// or `$(NAME)` (from `env`, a parameter so tests choose it). Unknown macros stay as written.
+pub fn expand_macros(
+    text: &str,
+    project_dir: &Path,
+    target_path: Option<&Path>,
+    configuration: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> String {
+    let with_sep = |p: &Path| {
+        let s = p.to_string_lossy().into_owned();
+        if s.ends_with('/') || s.ends_with('\\') {
+            s
+        } else {
+            format!("{s}{}", std::path::MAIN_SEPARATOR)
+        }
+    };
+    let lookup = |name: &str| -> Option<String> {
+        match name {
+            "ProjectDir" => Some(with_sep(project_dir)),
+            "TargetDir" => target_path.and_then(Path::parent).map(with_sep),
+            "TargetPath" => target_path.map(|p| p.to_string_lossy().into_owned()),
+            "TargetFileName" => target_path
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy().into_owned()),
+            "Configuration" => Some(configuration.to_owned()),
+            other => env(other),
+        }
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    loop {
+        let dollar = rest.find("$(");
+        let percent = rest.find('%');
+        let (at, open, close) = match (dollar, percent) {
+            (Some(d), Some(p)) if p < d => (p, 1, "%"),
+            (Some(d), _) => (d, 2, ")"),
+            (None, Some(p)) => (p, 1, "%"),
+            (None, None) => break,
+        };
+        out.push_str(&rest[..at]);
+        let after = &rest[at + open..];
+        match after.find(close) {
+            Some(end)
+                if end > 0
+                    && after[..end]
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+            {
+                match lookup(&after[..end]) {
+                    Some(v) => out.push_str(&v),
+                    None => out.push_str(&rest[at..at + open + end + close.len()]),
+                }
+                rest = &after[end + close.len()..];
+            }
+            _ => {
+                out.push_str(&rest[at..at + open]);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// What `dotnet run` would run for a project, as `eludite/project/runTarget` evaluated it (brief 0074).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EvaluatedTarget {
+    pub configuration: String,
+    /// The built assembly (`TargetPath`).
+    pub target_path: PathBuf,
+    /// `RunCommand`: the app host, `dotnet` or `mono`; empty for a library.
+    pub run_command: String,
+    /// `RunArguments`, one command line.
+    pub run_arguments: String,
+    /// `RunWorkingDirectory`; `None` when the project sets none.
+    pub run_working_directory: Option<PathBuf>,
+    /// `OutputType` (`Exe`, `WinExe`, `Library`).
+    pub output_type: String,
+    /// `TargetFrameworkIdentifier` (`.NETCoreApp`, `.NETFramework`).
+    pub framework_identifier: Option<String>,
+    pub is_web: bool,
+    /// `TargetPath` exists on disk.
+    pub exists: bool,
+}
+
+impl EvaluatedTarget {
+    /// From the host's answer.
+    pub fn from_host(r: &eludite_protocol::host::RunTargetResult) -> Self {
+        Self {
+            configuration: r.configuration.clone(),
+            target_path: PathBuf::from(&r.target_path),
+            run_command: r.run_command.clone(),
+            run_arguments: r.run_arguments.clone(),
+            run_working_directory: (!r.run_working_directory.trim().is_empty())
+                .then(|| PathBuf::from(&r.run_working_directory)),
+            output_type: r.output_type.clone(),
+            framework_identifier: r.target_framework_identifier.clone(),
+            is_web: r.is_web_project,
+            exists: r.exists,
+        }
+    }
+
+    /// The runtime: .NET Framework for `.NETFramework`, else CoreCLR.
+    pub fn kind(&self) -> FrameworkKind {
+        match self.framework_identifier.as_deref() {
+            Some(id) if id.eq_ignore_ascii_case(".NETFramework") => FrameworkKind::NetFramework,
+            _ => FrameworkKind::CoreClr,
+        }
+    }
+
+    /// A console program: `OutputType` `Exe` and not a web project (Visual Studio's console host case).
+    pub fn is_console(&self) -> bool {
+        self.output_type.eq_ignore_ascii_case("exe") && !self.is_web
+    }
+}
+
+/// A launch's configuration plus what brief 0074 adds: the command Start Without Debugging runs, whether it is a
+/// console program (the integrated terminal's case), and why F5 cannot debug it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchPlan {
+    pub config: LaunchConfig,
+    /// Ctrl+F5's command line, when it is not [`LaunchConfig::run_command`]'s (the evaluated `RunCommand`, or an
+    /// Executable profile's program).
+    pub run: Option<(String, Vec<String>)>,
+    /// `OutputType` `Exe` and not a web project.
+    pub console: bool,
+    /// F5's refusal (an Executable profile running a native program).
+    pub no_debug: Option<String>,
+}
+
+/// The launch plan of `project` with `profile` in `configuration` (and `framework`): from `evaluated` (the host's
+/// `eludite/project/runTarget` answer) when given, else from [`launch_config_in`]'s reading of the project file.
+/// Executable profiles run their `executablePath`; Docker, WSL and IIS profiles are refused ([`refuse_profile_kind`]).
+pub fn launch_plan_in(
+    project: &Path,
+    profile: Option<&str>,
+    configuration: &str,
+    framework: Option<&str>,
+    evaluated: Option<&EvaluatedTarget>,
+) -> Result<LaunchPlan, String> {
+    let chosen = choose_profile(project, profile)?;
+    if let Some(p) = &chosen {
+        refuse_profile_kind(p)?;
+    }
+    let dir = project.parent().unwrap_or(Path::new(".")).to_path_buf();
+    let env_lookup = |k: &str| std::env::var(k).ok();
+    let executable = chosen
+        .as_ref()
+        .filter(|p| p.command_name.eq_ignore_ascii_case("Executable"));
+    if let Some(p) = executable {
+        return executable_plan(project, p, configuration, evaluated, &env_lookup);
+    }
+    let Some(t) = evaluated else {
+        let config = launch_config_in(project, profile, configuration, framework)?;
+        let console = read_project(project).is_ok_and(|i| {
+            i.output_type
+                .as_deref()
+                .is_some_and(|o| o.eq_ignore_ascii_case("exe"))
+                && !i
+                    .sdk
+                    .as_deref()
+                    .is_some_and(|s| s.eq_ignore_ascii_case("Microsoft.NET.Sdk.Web"))
+        });
+        return Ok(LaunchPlan {
+            config,
+            run: None,
+            console,
+            no_debug: None,
+        });
+    };
+    let name = project
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !t.exists {
+        return Err(format!(
+            "{name} is not built: {} does not exist. Build the project first (dotnet build {}).",
+            t.target_path.display(),
+            project.display()
+        ));
+    }
+    let mut env = BTreeMap::new();
+    let mut args = Vec::new();
+    let mut cwd = t
+        .run_working_directory
+        .clone()
+        .unwrap_or_else(|| dir.clone());
+    if let Some(p) = &chosen {
+        apply_profile(
+            p,
+            &dir,
+            Some(&t.target_path),
+            &t.configuration,
+            &env_lookup,
+            &mut env,
+            &mut args,
+            &mut cwd,
+        );
+    }
+    let run = (!t.run_command.trim().is_empty()).then(|| {
+        let mut a = split_command_line(&t.run_arguments);
+        a.extend(args.iter().cloned());
+        (t.run_command.clone(), a)
+    });
+    Ok(LaunchPlan {
+        config: LaunchConfig {
+            project: project.to_path_buf(),
+            program: t.target_path.clone(),
+            kind: t.kind(),
+            args,
+            cwd,
+            env,
+            profile: chosen.map(|p| p.name),
+        },
+        run,
+        console: t.is_console(),
+        no_debug: None,
+    })
+}
+
+/// A profile's environment, arguments and working directory, macros expanded.
+#[allow(clippy::too_many_arguments)]
+fn apply_profile(
+    p: &LaunchProfile,
+    dir: &Path,
+    target_path: Option<&Path>,
+    configuration: &str,
+    env_lookup: &dyn Fn(&str) -> Option<String>,
+    env: &mut BTreeMap<String, String>,
+    args: &mut Vec<String>,
+    cwd: &mut PathBuf,
+) {
+    let expand = |s: &str| expand_macros(s, dir, target_path, configuration, env_lookup);
+    env.extend(
+        p.environment_variables
+            .iter()
+            .map(|(k, v)| (k.clone(), expand(v))),
+    );
+    if let Some(url) = &p.application_url
+        && !env.contains_key("ASPNETCORE_URLS")
+    {
+        env.insert("ASPNETCORE_URLS".into(), url.clone());
+    }
+    if let Some(a) = &p.command_line_args {
+        *args = split_command_line(&expand(a));
+    }
+    if let Some(w) = &p.working_directory {
+        *cwd = dir.join(expand(w));
+    }
+}
+
+/// An Executable profile's plan: its `executablePath` (macros expanded, relative to the project folder) with its
+/// arguments, working directory (default: the project folder, as Visual Studio runs it) and environment. F5 debugs a .NET program (`<x>.dll`, or `dotnet <x>.dll ...`) under netcoredbg; any other program
+/// only runs (Ctrl+F5).
+fn executable_plan(
+    project: &Path,
+    p: &LaunchProfile,
+    configuration: &str,
+    evaluated: Option<&EvaluatedTarget>,
+    env_lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<LaunchPlan, String> {
+    let dir = project.parent().unwrap_or(Path::new(".")).to_path_buf();
+    let target = evaluated.map(|t| t.target_path.as_path());
+    let raw = p.executable_path.as_deref().unwrap_or("").trim();
+    if raw.is_empty() {
+        return Err(format!(
+            "The launch profile '{}' is an Executable profile without an executablePath.",
+            p.name
+        ));
+    }
+    let exe = expand_macros(raw, &dir, target, configuration, env_lookup);
+    let exe_path = {
+        let e = Path::new(&exe);
+        if e.is_absolute() || !exe.contains(['/', '\\']) {
+            e.to_path_buf()
+        } else {
+            dir.join(e)
+        }
+    };
+    let mut env = BTreeMap::new();
+    let mut args = Vec::new();
+    let mut cwd = dir.clone();
+    apply_profile(
+        p,
+        &dir,
+        target,
+        configuration,
+        env_lookup,
+        &mut env,
+        &mut args,
+        &mut cwd,
+    );
+    let exe_str = exe_path.to_string_lossy().into_owned();
+    let is_dll = |s: &str| s.to_ascii_lowercase().ends_with(".dll");
+    let stem = exe_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    // The .NET program F5 debugs: the DLL itself, or `dotnet <dll>`'s.
+    let (program, program_args, debuggable) = if is_dll(&exe_str) {
+        (exe_path.clone(), args.clone(), true)
+    } else if stem == "dotnet" && args.first().is_some_and(|a| is_dll(a)) {
+        let dll = Path::new(&args[0]);
+        let dll = if dll.is_absolute() {
+            dll.to_path_buf()
+        } else {
+            cwd.join(dll)
+        };
+        (dll, args[1..].to_vec(), true)
+    } else {
+        (exe_path.clone(), args.clone(), false)
+    };
+    let run = if is_dll(&exe_str) {
+        let mut a = vec![exe_str.clone()];
+        a.extend(args.iter().cloned());
+        ("dotnet".to_owned(), a)
+    } else {
+        (exe_str.clone(), args.clone())
+    };
+    Ok(LaunchPlan {
+        config: LaunchConfig {
+            project: project.to_path_buf(),
+            program,
+            kind: FrameworkKind::CoreClr,
+            args: program_args,
+            cwd,
+            env,
+            profile: Some(p.name.clone()),
+        },
+        run: Some(run),
+        // Visual Studio runs an Executable profile's program in a console window.
+        console: true,
+        no_debug: (!debuggable).then(|| {
+            format!(
+                "The launch profile '{}' runs {}, which is not a .NET program netcoredbg can debug; start it without \
+                 debugging (Ctrl+F5).",
+                p.name, exe_str
+            )
+        }),
+    })
 }
 
 /// The startup project among `projects` (in solution order): the first executable one.
@@ -1718,5 +2125,215 @@ mod tests {
         w.feed(&"x".repeat(200 * 1024));
         w.feed("\n  Now listening on: http://localhost:1\n");
         assert_eq!(w.heard(), ["http://localhost:1"]);
+    }
+
+    // ---- brief 0074 ----
+
+    fn console_project(dir: &Path, settings: Option<&str>) -> PathBuf {
+        let project = dir.join("App").join("App.csproj");
+        write(
+            &project,
+            r#"<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>"#,
+        );
+        if let Some(s) = settings {
+            write(&dir.join("App/Properties/launchSettings.json"), s);
+        }
+        project
+    }
+
+    fn evaluated(dir: &Path) -> EvaluatedTarget {
+        let target = dir.join("artifacts/bin/App/debug/Corpus.App.dll");
+        write(&target, "");
+        EvaluatedTarget {
+            configuration: "Debug".into(),
+            target_path: target,
+            run_command: dir
+                .join("artifacts/bin/App/debug/Corpus.App")
+                .to_string_lossy()
+                .into_owned(),
+            run_arguments: String::new(),
+            run_working_directory: Some(dir.join("work")),
+            output_type: "Exe".into(),
+            framework_identifier: Some(".NETCoreApp".into()),
+            is_web: false,
+            exists: true,
+        }
+    }
+
+    #[test]
+    fn the_evaluated_target_drives_the_launch() {
+        let t = tempfile::tempdir().unwrap();
+        let project = console_project(
+            t.path(),
+            Some(
+                r#"{"profiles": {"App": {"commandName": "Project", "commandLineArgs": "a \"b c\"", "environmentVariables": {"X": "$(Configuration)"}}}}"#,
+            ),
+        );
+        // Not under bin/: the text reading would say the project is not built.
+        assert!(launch_config(&project, None).is_err());
+        let e = evaluated(t.path());
+        let plan = launch_plan_in(&project, None, "Debug", None, Some(&e)).unwrap();
+        assert_eq!(plan.config.program, e.target_path);
+        assert_eq!(plan.config.kind, FrameworkKind::CoreClr);
+        assert_eq!(plan.config.args, ["a", "b c"]);
+        assert_eq!(plan.config.env["X"], "Debug");
+        assert_eq!(plan.config.cwd, t.path().join("work"));
+        assert_eq!(plan.config.profile.as_deref(), Some("App"));
+        assert!(plan.console);
+        assert!(plan.no_debug.is_none());
+        let (cmd, args) = plan.run.unwrap();
+        assert!(cmd.ends_with("Corpus.App"));
+        assert_eq!(args, ["a", "b c"]);
+        // `dotnet exec "<dll>"`-style run arguments come first.
+        let mut d = e.clone();
+        d.run_command = "dotnet".into();
+        d.run_arguments = format!("exec \"{}\"", e.target_path.display());
+        let plan = launch_plan_in(&project, None, "Debug", None, Some(&d)).unwrap();
+        let (cmd, args) = plan.run.unwrap();
+        assert_eq!(cmd, "dotnet");
+        assert_eq!(args[0], "exec");
+        assert_eq!(Path::new(&args[1]), e.target_path);
+        assert_eq!(&args[2..], ["a", "b c"]);
+        // A web project or a WinExe program is not a console program; .NETFramework runs under Mono or directly.
+        let mut w = e.clone();
+        w.is_web = true;
+        assert!(!w.is_console());
+        w.is_web = false;
+        w.output_type = "WinExe".into();
+        assert!(!w.is_console());
+        w.framework_identifier = Some(".NETFramework".into());
+        assert_eq!(w.kind(), FrameworkKind::NetFramework);
+        // Not built: the evaluated path is named.
+        let mut n = e.clone();
+        n.exists = false;
+        let err = launch_plan_in(&project, None, "Debug", None, Some(&n)).unwrap_err();
+        assert!(err.contains("Corpus.App.dll does not exist"), "{err}");
+    }
+
+    #[test]
+    fn without_an_evaluation_the_project_file_is_read() {
+        let t = tempfile::tempdir().unwrap();
+        let project = console_project(t.path(), None);
+        write(&t.path().join("App/bin/Debug/net10.0/App.dll"), "");
+        let plan = launch_plan_in(&project, None, "Debug", None, None).unwrap();
+        assert!(plan.config.program.ends_with("bin/Debug/net10.0/App.dll"));
+        assert!(plan.console);
+        assert!(plan.run.is_none());
+    }
+
+    #[test]
+    fn executable_profiles_run_their_program() {
+        let t = tempfile::tempdir().unwrap();
+        let project = console_project(
+            t.path(),
+            Some(
+                r#"{"profiles": {
+                "Tool": {"commandName": "Executable", "executablePath": "$(ProjectDir)tools/run.sh", "commandLineArgs": "--in $(TargetFileName) %HOME_X%", "workingDirectory": "$(TargetDir)", "environmentVariables": {"A": "1"}},
+                "Dll": {"commandName": "Executable", "executablePath": "$(TargetPath)", "commandLineArgs": "x"},
+                "Host": {"commandName": "Executable", "executablePath": "dotnet", "commandLineArgs": "other/Other.dll y"},
+                "Empty": {"commandName": "Executable"}
+            }}"#,
+            ),
+        );
+        let e = evaluated(t.path());
+        let dir = t.path().join("App");
+        let plan = launch_plan_in(&project, Some("Tool"), "Debug", None, Some(&e)).unwrap();
+        let (cmd, args) = plan.run.clone().unwrap();
+        assert_eq!(Path::new(&cmd), dir.join("tools/run.sh"));
+        assert_eq!(args[0], "--in");
+        assert_eq!(args[1], "Corpus.App.dll");
+        // An unknown variable stays as written.
+        assert_eq!(
+            args[2],
+            std::env::var("HOME_X").unwrap_or_else(|_| "%HOME_X%".into())
+        );
+        assert_eq!(plan.config.cwd, e.target_path.parent().unwrap().join(""));
+        assert_eq!(plan.config.env["A"], "1");
+        assert!(plan.no_debug.as_deref().unwrap().contains("'Tool'"));
+        // A DLL runs under dotnet and is debugged.
+        let plan = launch_plan_in(&project, Some("Dll"), "Debug", None, Some(&e)).unwrap();
+        assert_eq!(plan.config.program, e.target_path);
+        assert!(plan.no_debug.is_none());
+        let (cmd, args) = plan.run.unwrap();
+        assert_eq!(cmd, "dotnet");
+        assert_eq!(Path::new(&args[0]), e.target_path);
+        assert_eq!(args[1], "x");
+        // `dotnet <dll>`: the DLL is the program F5 debugs, relative to the working directory.
+        let plan = launch_plan_in(&project, Some("Host"), "Debug", None, Some(&e)).unwrap();
+        assert_eq!(plan.config.program, dir.join("other/Other.dll"));
+        assert_eq!(plan.config.args, ["y"]);
+        assert!(plan.no_debug.is_none());
+        // Without the host's answer an Executable profile still runs (no build output is needed).
+        let plan = launch_plan_in(&project, Some("Tool"), "Debug", None, None).unwrap();
+        assert!(plan.run.is_some());
+        let err = launch_plan_in(&project, Some("Empty"), "Debug", None, None).unwrap_err();
+        assert!(err.contains("without an executablePath"), "{err}");
+    }
+
+    #[test]
+    fn container_wsl_and_iis_profiles_are_refused_by_kind() {
+        let t = tempfile::tempdir().unwrap();
+        let project = console_project(
+            t.path(),
+            Some(
+                r#"{"profiles": {
+                "Container (Dockerfile)": {"commandName": "Docker"},
+                "WSL": {"commandName": "WSL2"},
+                "IIS Express": {"commandName": "IISExpress"},
+                "Compose": {"commandName": "DockerCompose"},
+                "App": {"commandName": "Project"}
+            }}"#,
+            ),
+        );
+        write(&t.path().join("App/bin/Debug/net10.0/App.dll"), "");
+        let e = evaluated(t.path());
+        for (name, kind) in [
+            ("Container (Dockerfile)", "in a Docker container"),
+            ("WSL", "in WSL"),
+            ("IIS Express", "under IIS Express"),
+            ("Compose", "in a Docker container"),
+        ] {
+            let expected = format!(
+                "The launch profile '{name}' runs {kind}, which Eludite does not run yet; choose a Project or \
+                 Executable profile."
+            );
+            assert_eq!(
+                launch_plan_in(&project, Some(name), "Debug", None, Some(&e)).unwrap_err(),
+                expected
+            );
+            assert_eq!(launch_config(&project, Some(name)).unwrap_err(), expected);
+        }
+        assert!(launch_plan_in(&project, Some("App"), "Debug", None, Some(&e)).is_ok());
+        assert!(launch_config(&project, None).is_ok());
+    }
+
+    #[test]
+    fn macros_expand_like_visual_studio() {
+        let env = |k: &str| (k == "USERNAME").then(|| "ada".to_owned());
+        let dir = Path::new("/p/App");
+        let target = Path::new("/p/App/bin/Debug/net10.0/App.dll");
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(
+            expand_macros("$(ProjectDir)x", dir, Some(target), "Debug", &env),
+            format!("/p/App{sep}x")
+        );
+        assert_eq!(
+            expand_macros(
+                "%USERNAME%-$(USERNAME)-$(Configuration)",
+                dir,
+                None,
+                "Release",
+                &env
+            ),
+            "ada-ada-Release"
+        );
+        assert_eq!(
+            expand_macros("100% $(Nope) %Nope% $(", dir, None, "Debug", &env),
+            "100% $(Nope) %Nope% $("
+        );
+        assert_eq!(
+            expand_macros("$(TargetFileName)", dir, Some(target), "Debug", &env),
+            "App.dll"
+        );
     }
 }

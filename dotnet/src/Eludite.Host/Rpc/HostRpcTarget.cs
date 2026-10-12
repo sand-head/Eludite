@@ -296,6 +296,14 @@ public sealed class HostRpcTarget
         return Properties.SetLaunchProfileAsync(parameters, cancellationToken);
     }
 
+    // Brief 0074: the run target.
+    [JsonRpcMethod("eludite/project/runTarget", UseSingleObjectParameterDeserialization = true)]
+    public Task<RunTargetResult> RunTargetAsync(RunTargetParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Properties.RunTargetAsync(parameters, cancellationToken);
+    }
+
     [JsonRpcMethod("eludite/solution/configurations", UseSingleObjectParameterDeserialization = true)]
     public SolutionConfigurationsResult SolutionConfigurations(object? parameters = null)
     {

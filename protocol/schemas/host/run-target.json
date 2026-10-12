@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/run-target.json",
+  "title": "eludite/project/runTarget",
+  "description": "What `dotnet run` would run for a project (brief 0074; host-rpc.md, \"Run target\"): the project evaluated in-process with Configuration, Platform and TargetFramework as global properties, so properties set anywhere (Directory.Build.props, UseArtifactsOutput, BaseOutputPath, AssemblyName, RuntimeIdentifier) are honored. RunCommand, RunArguments and RunWorkingDirectory are the evaluated properties Microsoft.NET.Sdk.targets sets (the SDK's ComputeRunArguments target is empty). Cached per generation, project, configuration, platform and framework like eludite/project/properties; a read whose generation moves on fails with -32801. A project that does not evaluate fails with -32602.",
+  "x-eludite-method": "eludite/project/runTarget",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "project"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Absolute path of a project file of the open solution (`.csproj`, `.vbproj`, `.fsproj`), or the project file that is open as the solution.",
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration": {
+          "description": "The project configuration (Debug). Omitted: the active solution configuration's mapping for the project, else the project's default.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "The project platform (AnyCPU, x64). Omitted: the mapping's, else the project's default.",
+          "type": "string",
+          "minLength": 1
+        },
+        "framework": {
+          "description": "The target framework to run (net10.0) when the project lists it. Omitted, or not listed: the project's first target framework.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "configuration",
+        "platform",
+        "targetFrameworks",
+        "outputType",
+        "targetPath",
+        "runCommand",
+        "runArguments",
+        "runWorkingDirectory",
+        "isWebProject",
+        "exists"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the project was evaluated under.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "description": "Absolute path of the project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration": {
+          "description": "The evaluated Configuration.",
+          "type": "string"
+        },
+        "platform": {
+          "description": "The evaluated Platform.",
+          "type": "string"
+        },
+        "framework": {
+          "description": "The target framework evaluated (net10.0). Absent for a legacy project without TargetFramework.",
+          "type": "string",
+          "minLength": 1
+        },
+        "targetFrameworks": {
+          "description": "Every target framework the project lists, in its order.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "targetFrameworkIdentifier": {
+          "description": "The evaluated TargetFrameworkIdentifier (.NETCoreApp, .NETFramework, .NETStandard).",
+          "type": "string",
+          "minLength": 1
+        },
+        "outputType": {
+          "description": "The evaluated OutputType (Exe, WinExe, Library).",
+          "type": "string"
+        },
+        "targetPath": {
+          "description": "The evaluated TargetPath: the absolute path of the built assembly (the DLL netcoredbg runs, or a .NET Framework .exe).",
+          "type": "string"
+        },
+        "runCommand": {
+          "description": "The evaluated RunCommand: the program `dotnet run` starts (the app host, `dotnet`, or `mono`). Empty for a library.",
+          "type": "string"
+        },
+        "runArguments": {
+          "description": "The evaluated RunArguments, one command-line string (for `dotnet exec \"<dll>\"` style commands).",
+          "type": "string"
+        },
+        "runWorkingDirectory": {
+          "description": "The evaluated RunWorkingDirectory, absolute. Empty when the project sets none (`dotnet run` then runs in the current directory; Eludite runs in the project folder like Visual Studio).",
+          "type": "string"
+        },
+        "isWebProject": {
+          "description": "UsingMicrosoftNETSdkWeb is true: an ASP.NET Core project.",
+          "type": "boolean"
+        },
+        "exists": {
+          "description": "Whether targetPath exists on disk (the project is built).",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

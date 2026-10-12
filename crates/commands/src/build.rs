@@ -1,5 +1,6 @@
 //! Build and Output commands (brief 0017): `eludite.build.solution`, `eludite.build.project`, `eludite.build.rebuild`,
-//! `eludite.build.clean`, `eludite.build.cancel`, `eludite.output.show` and `eludite.output.clear`.
+//! `eludite.build.clean`, `eludite.build.cancel`, `eludite.output.show` and `eludite.output.clear`; and (brief 0074)
+//! `eludite.build.publish`, `dotnet publish` of one project with its folder publish profile.
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4). This module parses
 //! input into a typed [`BuildRequest`] and serializes the typed [`BuildCommandOutput`]; the shell implements
@@ -20,11 +21,13 @@ pub const CLEAN: &str = "eludite.build.clean";
 pub const CANCEL: &str = "eludite.build.cancel";
 pub const OUTPUT_SHOW: &str = "eludite.output.show";
 pub const OUTPUT_CLEAR: &str = "eludite.output.clear";
+/// Build > Publish (brief 0074).
+pub const PUBLISH: &str = "eludite.build.publish";
 
 /// The commands that start a build (disabled in the menus while one runs).
-pub const STARTS: [&str; 4] = [SOLUTION, PROJECT, REBUILD, CLEAN];
+pub const STARTS: [&str; 5] = [SOLUTION, PROJECT, REBUILD, CLEAN, PUBLISH];
 
-pub const ALL: [&str; 7] = [
+pub const ALL: [&str; 8] = [
     SOLUTION,
     PROJECT,
     REBUILD,
@@ -32,6 +35,7 @@ pub const ALL: [&str; 7] = [
     CANCEL,
     OUTPUT_SHOW,
     OUTPUT_CLEAR,
+    PUBLISH,
 ];
 
 /// Diagnostics a build command's output lists at most (`build-result.output.json`).
@@ -107,6 +111,14 @@ fn schemas(
             Read,
             false,
         ),
+        // Publishing runs `dotnet publish`: execute, like a build (brief 0074).
+        PUBLISH => (
+            "Build: Publish",
+            include_str!("../../../protocol/schemas/build-publish.input.json"),
+            RESULT,
+            Execute,
+            true,
+        ),
         other => unreachable!("not a build command: {other}"),
     }
 }
@@ -118,6 +130,8 @@ pub enum BuildKind {
     Build,
     Rebuild,
     Clean,
+    /// `dotnet publish` of one project (brief 0074).
+    Publish,
 }
 
 impl BuildKind {
@@ -126,6 +140,7 @@ impl BuildKind {
             BuildKind::Build => "build",
             BuildKind::Rebuild => "rebuild",
             BuildKind::Clean => "clean",
+            BuildKind::Publish => "publish",
         }
     }
 }
@@ -209,6 +224,13 @@ pub enum BuildRequest {
         wait: Option<bool>,
     },
     Cancel,
+    /// `eludite.build.publish` (brief 0074): a project (`None`: the active document's, else the startup project) with
+    /// a publish profile (a name or a `.pubxml` path; `None`: the first, or a new FolderProfile).
+    Publish {
+        project: Option<String>,
+        profile: Option<String>,
+        wait: Option<bool>,
+    },
     OutputShow {
         source: Option<OutputSource>,
         tail: u32,
@@ -234,6 +256,7 @@ impl BuildRequest {
             } => CLEAN,
             BuildRequest::Start { .. } => SOLUTION,
             BuildRequest::Cancel => CANCEL,
+            BuildRequest::Publish { .. } => PUBLISH,
             BuildRequest::OutputShow { .. } => OUTPUT_SHOW,
             BuildRequest::OutputClear { .. } => OUTPUT_CLEAR,
         }
@@ -301,6 +324,9 @@ pub struct BuildResultOutput {
     pub diagnostics: Vec<ResultDiagnostic>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// `publish` only (brief 0074): the folder the program is published to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_dir: Option<String>,
 }
 
 /// `build-cancel.output.json`.
@@ -376,6 +402,14 @@ struct ProjectIn {
 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
+struct PublishIn {
+    project: Option<String>,
+    profile: Option<String>,
+    wait: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 struct Empty {}
 
 #[derive(Deserialize, Default)]
@@ -426,6 +460,13 @@ pub fn parse(id: &str, value: Value) -> Result<BuildRequest, CommandError> {
         CLEAN => solution(BuildKind::Clean, value)?,
         PROJECT => {
             let i: ProjectIn = input(value)?;
+            // Publishing is eludite.build.publish's (brief 0074).
+            if i.target == Some(BuildKind::Publish) {
+                return Err(CommandError::InvalidInput(
+                    "`target` is build, rebuild or clean: publish with eludite.build.publish"
+                        .into(),
+                ));
+            }
             BuildRequest::Start {
                 kind: i.target.unwrap_or(BuildKind::Build),
                 project: Some(non_empty("project", i.project)?),
@@ -438,6 +479,14 @@ pub fn parse(id: &str, value: Value) -> Result<BuildRequest, CommandError> {
         CANCEL => {
             let _: Empty = input(value)?;
             BuildRequest::Cancel
+        }
+        PUBLISH => {
+            let i: PublishIn = input(value)?;
+            BuildRequest::Publish {
+                project: non_empty("project", i.project)?,
+                profile: non_empty("profile", i.profile)?,
+                wait: i.wait,
+            }
         }
         OUTPUT_SHOW => {
             let i: ShowIn = input(value)?;
@@ -554,6 +603,24 @@ mod tests {
         assert!(parse(SOLUTION, json!({"configuration": ""})).is_err());
         assert!(parse(SOLUTION, json!({"project": "A"})).is_err());
         assert!(parse(PROJECT, json!({"target": "publish"})).is_err());
+        // eludite.build.publish (brief 0074).
+        assert_eq!(
+            parse(
+                PUBLISH,
+                json!({"project": "Echo", "profile": "FolderProfile", "wait": false})
+            )
+            .unwrap(),
+            BuildRequest::Publish {
+                project: Some("Echo".into()),
+                profile: Some("FolderProfile".into()),
+                wait: Some(false)
+            }
+        );
+        assert_eq!(parse(PUBLISH, Value::Null).unwrap().command(), PUBLISH);
+        assert!(parse(PUBLISH, json!({"profile": ""})).is_err());
+        assert!(parse(PUBLISH, json!({"target": "build"})).is_err());
+        assert_eq!(BuildKind::Publish.as_str(), "publish");
+        assert_eq!(serde_json::to_value(BuildKind::Publish).unwrap(), "publish");
         assert_eq!(parse(CANCEL, json!({})).unwrap(), BuildRequest::Cancel);
         assert!(parse(CANCEL, json!({"id": 1})).is_err());
         assert_eq!(
@@ -637,6 +704,7 @@ mod tests {
                 project: Some("A".into()),
             }],
             message: None,
+            publish_dir: None,
         }))
         .to_json();
         let schema: Value = serde_json::from_str(RESULT).unwrap();

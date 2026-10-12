@@ -704,6 +704,7 @@ fn build_messages_conform_to_their_schemas() {
             project: None,
             configuration: None,
             platform: None,
+            publish_profile: None,
         },
     );
     conforms(
@@ -715,10 +716,11 @@ fn build_messages_conform_to_their_schemas() {
             project: Some("/s/A/A.csproj".into()),
             configuration: Some("Release".into()),
             platform: Some("Any CPU".into()),
+            publish_profile: None,
         },
     );
     rejects("build-start.json", "params", json!({}));
-    rejects("build-start.json", "params", json!({"target": "publish"}));
+    rejects("build-start.json", "params", json!({"target": "deploy"}));
     rejects(
         "build-start.json",
         "params",
@@ -2195,4 +2197,55 @@ fn resx_messages_conform_to_their_schemas() {
         v,
         json!({"generation": 4, "path": "x", "status": "none", "modifier": "none"})
     );
+}
+
+/// Brief 0074: `eludite/project/runTarget` and the `publish` build target.
+#[test]
+fn run_target_and_publish_conform() {
+    use crate::typed::RequestType;
+    use host::*;
+    assert_eq!(
+        load("run-target.json")["x-eludite-method"],
+        ProjectRunTarget::METHOD
+    );
+    conforms(
+        "run-target.json",
+        "params",
+        &RunTargetParams {
+            project: "/s/App/App.csproj".into(),
+            configuration: Some("Debug".into()),
+            ..RunTargetParams::default()
+        },
+    );
+    let result = RunTargetResult {
+        generation: 2,
+        project: "/s/App/App.csproj".into(),
+        configuration: "Debug".into(),
+        platform: "AnyCPU".into(),
+        framework: Some("net10.0".into()),
+        target_frameworks: vec!["net10.0".into()],
+        target_framework_identifier: Some(".NETCoreApp".into()),
+        output_type: "Exe".into(),
+        target_path: "/s/artifacts/bin/App/debug/App.dll".into(),
+        run_command: "/s/artifacts/bin/App/debug/App".into(),
+        run_arguments: String::new(),
+        run_working_directory: String::new(),
+        is_web_project: false,
+        exists: true,
+    };
+    conforms("run-target.json", "result", &result);
+    let v = serde_json::to_value(&result).unwrap();
+    assert_eq!(v["targetPath"], "/s/artifacts/bin/App/debug/App.dll");
+    assert_eq!(v["isWebProject"], false);
+    rejects("run-target.json", "params", json!({}));
+    let publish = BuildStartParams {
+        target: BuildTarget::Publish,
+        system: None,
+        project: Some("/s/App/App.csproj".into()),
+        configuration: None,
+        platform: None,
+        publish_profile: Some("/s/App/Properties/PublishProfiles/FolderProfile.pubxml".into()),
+    };
+    conforms("build-start.json", "params", &publish);
+    assert_eq!(serde_json::to_value(&publish).unwrap()["target"], "publish");
 }

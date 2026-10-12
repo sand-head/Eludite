@@ -5,14 +5,15 @@ namespace Eludite.Host.Build;
 // Wire shapes of eludite/build/* (protocol/schemas/host/build-*.json, host-rpc.md "Build"). camelCase; null members
 // are omitted.
 
-/// <summary><c>build</c>, <c>rebuild</c> or <c>clean</c>.</summary>
+/// <summary><c>build</c>, <c>rebuild</c>, <c>clean</c> or <c>publish</c> (brief 0074).</summary>
 public static class BuildTargets
 {
     public const string Build = "build";
     public const string Rebuild = "rebuild";
     public const string Clean = "clean";
+    public const string Publish = "publish";
 
-    public static bool IsValid(string? target) => target is Build or Rebuild or Clean;
+    public static bool IsValid(string? target) => target is Build or Rebuild or Clean or Publish;
 }
 
 /// <summary><c>succeeded</c>, <c>failed</c> or <c>canceled</c>.</summary>
@@ -31,6 +32,9 @@ public sealed record BuildStartParams(string? Target)
     public string? Configuration { get; init; }
 
     public string? Platform { get; init; }
+
+    /// <summary><c>publish</c> only (brief 0074): the <c>.pubxml</c> passed as <c>-p:PublishProfile=</c>.</summary>
+    public string? PublishProfile { get; init; }
 }
 
 /// <summary>Which MSBuild runs the build. <see cref="Kind"/> is <c>dotnet</c>, <c>mono</c> or <c>buildTools</c>.</summary>

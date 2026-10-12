@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-run-watch.input.json",
+  "title": "eludite.debug.run_watch input",
+  "description": "Debug > Start Without Debugging with Hot Reload (brief 0074, Visual Studio's Hot Reload button): run `dotnet watch` for the startup project (or `project`) in a Terminal window tab, with the toolbar's configuration, target framework and launch profile, so saved code changes are applied to the running program. The tab is a real terminal: the program's input, colors and prompts work there. Hot Reload's state (watching, applying, applied, errors, restart needed, restarting, exited) shows in the status bar and in eludite.debug.state's `hot_reload`. A rude edit (a change Hot Reload cannot apply) restarts the program per the setting hotReload.restartOnRudeEdit: `prompt` (the default: dotnet watch asks in the tab), `always` or `never`. Debug > Apply Code Changes (Alt+F10, eludite.debug.apply_code_changes) saves every changed document so the watcher applies them; Stop Debugging (Shift+F5, eludite.debug.stop) ends dotnet watch with its process tree. Refused for a Cargo package, a legacy project, a .NET Framework project, while a session runs, and while another watch runs. Hot Reload under the debugger (Edit and Continue) is not available: netcoredbg does not offer it over DAP.",
+  "type": "object",
+  "properties": {
+    "project": {
+      "description": "The project to run: its path (absolute or relative to the solution folder) or its name as the Workspace window shows it. Default: the startup project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "description": "Its launchSettings.json profile (a Project profile). Default: the Debug toolbar's profile, else dotnet watch's own choice (the first Project profile).",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

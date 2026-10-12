@@ -23,6 +23,10 @@ public sealed class ProjectPropertiesService : IDisposable
     private readonly Dictionary<string, Task<ProjectPropertiesResult>> _cache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Selection> _selection = new(StringComparer.Ordinal);
     private long _cacheGeneration = -1;
+
+    // Brief 0074: eludite/project/runTarget's evaluations, for _runTargetGeneration only.
+    private readonly Dictionary<string, Task<RunTargetResult>> _runTargets = new(StringComparer.Ordinal);
+    private long _runTargetGeneration = -1;
     private SolutionConfigurationsResult? _configurations;
 
     /// <param name="current">The current generation, the open solution and a token canceled when the generation moves on.</param>
@@ -90,7 +94,69 @@ public sealed class ProjectPropertiesService : IDisposable
         }
     }
 
-    private ProjectPropertiesResult Evaluate(string project, string? configuration, string? platform, string? framework, long generation, CancellationToken changed)
+    /// <summary>
+    /// <c>eludite/project/runTarget</c> (brief 0074): the evaluation is cached per generation, project, configuration,
+    /// platform and framework like <see cref="PropertiesAsync"/>; <c>exists</c> is checked on every call, so a build in
+    /// the same generation is seen.
+    /// </summary>
+    public async Task<RunTargetResult> RunTargetAsync(RunTargetParams? parameters, CancellationToken cancellationToken)
+    {
+        var (generation, solution, changed) = _current();
+        var project = ProjectOf(solution, parameters?.Project);
+        var configuration = parameters?.Configuration;
+        var platform = parameters?.Platform;
+        if (configuration is null || platform is null)
+        {
+            var mapped = Mapped(generation, solution!, project);
+            configuration ??= mapped?.Configuration;
+            platform ??= mapped?.Platform;
+        }
+
+        var framework = parameters?.Framework;
+        var key = string.Join('|', project, configuration ?? string.Empty, platform is null ? string.Empty : ConfigurationCondition.ProjectPlatform(platform), framework ?? string.Empty);
+        Task<RunTargetResult> task;
+        lock (_lock)
+        {
+            Invalidate(generation);
+            if (_runTargetGeneration != generation)
+            {
+                _runTargets.Clear();
+                _runTargetGeneration = generation;
+            }
+
+            if (!_runTargets.TryGetValue(key, out var cached) || cached.IsFaulted || cached.IsCanceled)
+            {
+                cached = Task.Run(() => EvaluateRunTarget(project, configuration, platform, framework, generation, changed), CancellationToken.None);
+                _runTargets[key] = cached;
+            }
+
+            task = cached;
+        }
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, changed);
+        RunTargetResult result;
+        try
+        {
+            result = await task.WaitAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw HostErrors.Stale(generation, _generation());
+        }
+
+        var exists = result.TargetPath.Length > 0 && File.Exists(result.TargetPath);
+        return exists == result.Exists ? result : result with { Exists = exists };
+    }
+
+    private RunTargetResult EvaluateRunTarget(string project, string? configuration, string? platform, string? framework, long generation, CancellationToken changed)
+    {
+        var sw = Stopwatch.StartNew();
+        var result = _evaluator.EvaluateRunTarget(project, configuration, platform, framework, generation, changed);
+        _log.WriteLine($"[runTarget] {Path.GetFileName(project)} {result.Configuration}|{result.Platform}{(result.Framework is null ? string.Empty : "|" + result.Framework)} evaluated in {sw.ElapsedMilliseconds} ms (generation {generation})");
+        return result;
+    }
+
+    private ProjectPropertiesResult Evaluate(string project,string? configuration, string? platform, string? framework, long generation, CancellationToken changed)
     {
         var sw = Stopwatch.StartNew();
         var result = _evaluator.Evaluate(project, configuration, platform, framework, generation, changed);

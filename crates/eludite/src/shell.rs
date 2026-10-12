@@ -58,8 +58,10 @@ mod nuget_tests;
 pub mod options;
 pub mod output;
 pub mod project_properties;
+// Brief 0074: Publish, the console in the terminal, Hot Reload.
 #[cfg(test)]
 mod project_properties_tests;
+pub mod publish;
 #[cfg(test)]
 mod refactor_tests;
 pub mod references;

@@ -91,6 +91,8 @@ pub mod methods {
     pub const RESX_SETS: &str = "eludite/resx/sets";
     /// Generate, delete or change the access modifier of a `.resx` file's designer code file (proposal 0005).
     pub const RESX_DESIGNER: &str = "eludite/resx/designer";
+    /// What `dotnet run` would run for a project, from MSBuild evaluation (brief 0074).
+    pub const PROJECT_RUN_TARGET: &str = "eludite/project/runTarget";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -125,6 +127,8 @@ pub mod methods {
         SOLUTION_SET_CONFIGURATION,
         RESX_SETS,
         RESX_DESIGNER,
+        // Brief 0074.
+        PROJECT_RUN_TARGET,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -662,15 +666,18 @@ pub enum BuildTarget {
     Build,
     Rebuild,
     Clean,
+    /// `dotnet publish` of one project with its publish profile (brief 0074).
+    Publish,
 }
 
 impl BuildTarget {
-    /// The wire name (`build`, `rebuild`, `clean`).
+    /// The wire name (`build`, `rebuild`, `clean`, `publish`).
     pub fn as_str(self) -> &'static str {
         match self {
             BuildTarget::Build => "build",
             BuildTarget::Rebuild => "rebuild",
             BuildTarget::Clean => "clean",
+            BuildTarget::Publish => "publish",
         }
     }
 }
@@ -699,6 +706,9 @@ pub struct BuildStartParams {
     pub configuration: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform: Option<String>,
+    /// `publish` only (brief 0074): the `.pubxml` passed as `-p:PublishProfile=`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_profile: Option<String>,
 }
 
 /// Which MSBuild runs the build.
@@ -2404,6 +2414,51 @@ request!(
     SetLaunchProfileParams,
     LaunchProfilesResult
 );
+// Run target (brief 0074): `eludite/project/runTarget`, see host-rpc.md "Project properties".
+
+/// `eludite/project/runTarget` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunTargetParams {
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+}
+
+/// `eludite/project/runTarget` result: what `dotnet run` would run, from evaluation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunTargetResult {
+    pub generation: Generation,
+    pub project: String,
+    pub configuration: String,
+    pub platform: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    pub target_frameworks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_framework_identifier: Option<String>,
+    pub output_type: String,
+    pub target_path: String,
+    pub run_command: String,
+    pub run_arguments: String,
+    pub run_working_directory: String,
+    pub is_web_project: bool,
+    pub exists: bool,
+}
+
+request!(
+    /// `eludite/project/runTarget` (brief 0074).
+    ProjectRunTarget,
+    methods::PROJECT_RUN_TARGET,
+    RunTargetParams,
+    RunTargetResult
+);
+
 request!(
     /// `eludite/solution/configurations` (brief 0049).
     SolutionConfigurations,
@@ -2902,6 +2957,7 @@ mod tests {
                 project: Some("/s/App/App.csproj".into()),
                 configuration: Some("Release".into()),
                 platform: None,
+                publish_profile: None,
             },
             json!({"target": "rebuild", "project": "/s/App/App.csproj", "configuration": "Release"}),
         );

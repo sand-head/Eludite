@@ -67,13 +67,19 @@ public sealed class BuildService : IAsyncDisposable
     {
         if (parameters is null || !BuildTargets.IsValid(parameters.Target))
         {
-            throw HostErrors.BadParams("target must be build, rebuild or clean");
+            throw HostErrors.BadParams("target must be build, rebuild, clean or publish");
         }
 
         var (generation, solution, generationChanged) = _currentSolution();
         if (solution is null)
         {
             throw HostErrors.BadParams("no solution is open");
+        }
+
+        var publish = parameters.Target == BuildTargets.Publish;
+        if (publish && parameters.Project is not { Length: > 0 })
+        {
+            throw HostErrors.BadParams("publish needs a project");
         }
 
         var solutionProjects = ReadProjects(solution);
@@ -97,6 +103,14 @@ public sealed class BuildService : IAsyncDisposable
         }
 
         var configuration = parameters.Configuration is { Length: > 0 } c ? c : "Debug";
+
+        // Brief 0074: publish passes a configuration only when the request names one; the profile's applies otherwise.
+        var requestedConfiguration = parameters.Configuration is { Length: > 0 } rc ? rc : null;
+        if (publish && requestedConfiguration is null)
+        {
+            configuration = PublishProfileConfiguration(parameters.PublishProfile) ?? "Release";
+        }
+
         var platform = parameters.Platform is { Length: > 0 } pl ? pl : null;
         var hasLegacy = projects.Any(SolutionProjects.IsLegacy);
         lock (_lock)
@@ -112,7 +126,9 @@ public sealed class BuildService : IAsyncDisposable
 
             var id = ++_nextId;
             var binlog = BinlogPath(id);
-            var plan = BuildPlan.Create(parameters.Target!, path, configuration, platform, binlog, hasLegacy, _toolchains.Value);
+            var plan = publish
+                ? BuildPlan.Create(parameters.Target!, path, requestedConfiguration, platform, binlog, hasLegacy, _toolchains.Value, parameters.PublishProfile)
+                : BuildPlan.Create(parameters.Target!, path, configuration, platform, binlog, hasLegacy, _toolchains.Value);
             var started = new BuildStartResult(id, generation, path, parameters.Target!, configuration, plan.Toolchain, plan.CommandLine)
             {
                 Platform = platform,
@@ -215,6 +231,26 @@ public sealed class BuildService : IAsyncDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _log.WriteLine($"[build] no binary log: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>The <c>&lt;Configuration&gt;</c> a publish profile sets, if it can be read.</summary>
+    private static string? PublishProfileConfiguration(string? profile)
+    {
+        if (profile is not { Length: > 0 } || !File.Exists(profile))
+        {
+            return null;
+        }
+
+        try
+        {
+            var value = System.Xml.Linq.XDocument.Load(profile).Descendants()
+                .FirstOrDefault(e => e.Name.LocalName == "Configuration")?.Value.Trim();
+            return value is { Length: > 0 } ? value : null;
+        }
+        catch (Exception ex) when (ex is IOException or System.Xml.XmlException or UnauthorizedAccessException)
+        {
             return null;
         }
     }
@@ -355,6 +391,7 @@ internal sealed class BuildRun
             {
                 BuildTargets.Rebuild => "Rebuild All",
                 BuildTargets.Clean => "Clean",
+                BuildTargets.Publish => "Publish",
                 _ => "Build",
             };
             await pipe.WriteLineAsync($"{what} started at {now}...").ConfigureAwait(false);
@@ -669,6 +706,7 @@ internal sealed class BuildRun
         {
             BuildTargets.Rebuild => "Rebuild All",
             BuildTargets.Clean => "Clean",
+            BuildTargets.Publish => "Publish",
             _ => "Build",
         };
         await pipe.WriteLineAsync(canceled

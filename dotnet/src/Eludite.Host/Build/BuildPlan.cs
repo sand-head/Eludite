@@ -1,5 +1,6 @@
 using System.Text;
 using Eludite.Host.Legacy;
+using Eludite.Host.Rpc;
 
 namespace Eludite.Host.Build;
 
@@ -38,12 +39,32 @@ public sealed record BuildPlan(BuildToolchain Toolchain, string FileName, IReadO
     /// <summary>
     /// <c>dotnet build</c> (<c>-t:Rebuild</c>; <c>dotnet clean</c>) for SDK-style solutions. For a solution with legacy
     /// projects: Build Tools' MSBuild on Windows, else Mono's, else <c>dotnet build</c> with an
-    /// <see cref="WindowsOnlyTargets.NoLegacyMsBuild"/> note.
+    /// <see cref="WindowsOnlyTargets.NoLegacyMsBuild"/> note. <c>publish</c> (brief 0074): <c>dotnet publish</c> of one
+    /// SDK-style project with <c>-p:PublishProfile=</c>; a solution or a legacy project is refused (-32602).
     /// </summary>
-    public static BuildPlan Create(string target, string path, string configuration, string? platform, string? binlog, bool hasLegacy, BuildToolchains toolchains)
+    /// <param name="configuration">Passed as <c>-p:Configuration=</c> when not null (a publish profile's own applies otherwise).</param>
+    public static BuildPlan Create(string target, string path, string? configuration, string? platform, string? binlog, bool hasLegacy, BuildToolchains toolchains, string? publishProfile = null)
     {
         ArgumentNullException.ThrowIfNull(toolchains);
-        var common = new List<string> { "-nologo", "-v:m", "-nr:false", "-clp:ForceNoAlign", $"-p:Configuration={configuration}" };
+        ArgumentNullException.ThrowIfNull(path);
+        if (target == BuildTargets.Publish)
+        {
+            if (!SolutionProjects.IsProjectFile(path))
+            {
+                throw HostErrors.BadParams("publish needs a project");
+            }
+
+            if (hasLegacy)
+            {
+                throw HostErrors.BadParams($"{path} is a legacy (non-SDK) project: Eludite publishes SDK-style projects only");
+            }
+        }
+
+        var common = new List<string> { "-nologo", "-v:m", "-nr:false", "-clp:ForceNoAlign" };
+        if (configuration is not null)
+        {
+            common.Add($"-p:Configuration={configuration}");
+        }
         if (platform is not null)
         {
             common.Add($"-p:Platform={platform}");
@@ -90,9 +111,12 @@ public sealed record BuildPlan(BuildToolchain Toolchain, string FileName, IReadO
             return new BuildPlan(toolchain, command.FileName, args, env, []);
         }
 
-        var dotnetArgs = target == BuildTargets.Clean
-            ? new List<string> { "clean", path }
-            : new List<string> { "build", path };
+        var dotnetArgs = target switch
+        {
+            BuildTargets.Clean => new List<string> { "clean", path },
+            BuildTargets.Publish => new List<string> { "publish", path },
+            _ => new List<string> { "build", path },
+        };
         if (target == BuildTargets.Rebuild)
         {
             dotnetArgs.Add("-t:Rebuild");
@@ -100,6 +124,10 @@ public sealed record BuildPlan(BuildToolchain Toolchain, string FileName, IReadO
 
         dotnetArgs.Add("-tl:off");
         dotnetArgs.AddRange(common);
+        if (target == BuildTargets.Publish && publishProfile is { Length: > 0 })
+        {
+            dotnetArgs.Add($"-p:PublishProfile={publishProfile}");
+        }
         var notes = new List<BuildDiagnostic>();
         if (hasLegacy)
         {

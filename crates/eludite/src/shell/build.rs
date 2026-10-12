@@ -149,7 +149,9 @@ impl BuildCommands for BuildBus {
                 });
         }
         // Off the UI thread (an agent): wait for the build unless told not to.
-        let wait = matches!(request, BuildRequest::Start { wait, .. } if wait != Some(false));
+        let wait = matches!(request, BuildRequest::Start { wait, .. } if wait != Some(false))
+            // Brief 0074: a publish waits like a build.
+            || matches!(request, BuildRequest::Publish { wait, .. } if wait != Some(false));
         let (reply, rx) = mpsc::sync_channel(1);
         self.jobs
             .unbounded_send(BuildJob { request, reply })
@@ -158,10 +160,16 @@ impl BuildCommands for BuildBus {
             .recv_timeout(UI_TIMEOUT)
             .map_err(|_| CommandError::Failed("the UI did not answer".into()))?;
         match (outcome, ticket) {
-            (Ok(_), Some(ticket)) if wait => self
+            (Ok(started), Some(ticket)) if wait => self
                 .shared
                 .wait(ticket, AGENT_BUILD_TIMEOUT)
-                .map(|r| BuildCommandOutput::Result(Box::new(r)))
+                .map(|mut r| {
+                    // Brief 0074: the publish folder, known at the start.
+                    if let BuildCommandOutput::Result(s) = &started {
+                        r.publish_dir = r.publish_dir.take().or_else(|| s.publish_dir.clone());
+                    }
+                    BuildCommandOutput::Result(Box::new(r))
+                })
                 .ok_or_else(|| CommandError::Failed("the build did not finish in time".into())),
             (outcome, _) => outcome,
         }
@@ -242,6 +250,8 @@ pub struct Builds {
     pub awaiting_status: bool,
     /// The next Cargo build builds the test executables (`cargo test --no-run`; the Test Explorer, brief 0035).
     pub cargo_tests_next: bool,
+    /// Brief 0074: the next MSBuild start is a publish with this `.pubxml` and its configuration.
+    pub publish_next: Option<(String, String)>,
 }
 
 impl Builds {
@@ -267,6 +277,7 @@ impl Builds {
             timings: BuildTimings::default(),
             awaiting_status: false,
             cargo_tests_next: false,
+            publish_next: None,
         }
     }
 
@@ -355,6 +366,7 @@ fn kind_target(kind: BuildKind) -> BuildTarget {
         BuildKind::Build => BuildTarget::Build,
         BuildKind::Rebuild => BuildTarget::Rebuild,
         BuildKind::Clean => BuildTarget::Clean,
+        BuildKind::Publish => BuildTarget::Publish,
     }
 }
 
@@ -363,6 +375,7 @@ fn verb(kind: BuildKind) -> &'static str {
         BuildKind::Build => "Build",
         BuildKind::Rebuild => "Rebuild All",
         BuildKind::Clean => "Clean",
+        BuildKind::Publish => "Publish",
     }
 }
 
@@ -395,6 +408,13 @@ impl Shell {
                 ..
             } => match self.start_build(kind, project, configuration, platform, system, window, cx)
             {
+                Ok((out, ticket)) => (Ok(out), Some(ticket)),
+                Err(e) => (Err(e), None),
+            },
+            // Brief 0074: Build > Publish.
+            BuildRequest::Publish {
+                project, profile, ..
+            } => match self.publish_start(project, profile, window, cx) {
                 Ok((out, ticket)) => (Ok(out), Some(ticket)),
                 Err(e) => (Err(e), None),
             },
@@ -454,7 +474,7 @@ impl Shell {
     }
 
     /// The project file a build command names: a project name or path, or (`None`) the active document's project.
-    fn resolve_project(&self, project: Option<String>) -> Result<PathBuf, CommandError> {
+    pub(super) fn resolve_project(&self, project: Option<String>) -> Result<PathBuf, CommandError> {
         let tree = self.tree.lock().unwrap_or_else(|e| e.into_inner()).clone();
         match project {
             Some(p) => {
@@ -660,7 +680,7 @@ impl Shell {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn start_build(
+    pub(super) fn start_build(
         &mut self,
         kind: BuildKind,
         project: Option<Option<String>>,
@@ -739,6 +759,7 @@ impl Shell {
                 projects: Vec::new(),
                 diagnostics: Vec::new(),
                 message: None,
+                publish_dir: None,
             })),
             ticket,
         ))
@@ -807,6 +828,12 @@ impl Shell {
                     Some((c, p, _)) => (c, (p != "AnyCPU").then_some(p)),
                     None => (configuration.clone(), platform.clone()),
                 };
+                // Brief 0074: a publish runs in its profile's configuration, with the profile.
+                let (configuration, platform, publish_profile) =
+                    match (kind, self.builds.publish_next.take()) {
+                        (BuildKind::Publish, Some((pubxml, c))) => (c, None, Some(pubxml)),
+                        _ => (configuration, platform, None),
+                    };
                 self.session.build_start(
                     ticket,
                     BuildStartParams {
@@ -815,6 +842,7 @@ impl Shell {
                         project: target,
                         configuration: Some(configuration),
                         platform,
+                        publish_profile,
                     },
                 )
             }
@@ -903,6 +931,7 @@ impl Shell {
                 projects: Vec::new(),
                 diagnostics: Vec::new(),
                 message: Some(message.clone()),
+                publish_dir: None,
             },
         );
         self.prelaunch_build_done(
@@ -968,6 +997,7 @@ impl Shell {
             "{}: {} of {} projects",
             match kind {
                 BuildKind::Clean => "Cleaning",
+                BuildKind::Publish => "Publishing",
                 _ => "Building",
             },
             progress.projects_completed,
@@ -1168,6 +1198,7 @@ impl Shell {
             BuildTarget::Build => BuildKind::Build,
             BuildTarget::Rebuild => BuildKind::Rebuild,
             BuildTarget::Clean => BuildKind::Clean,
+            BuildTarget::Publish => BuildKind::Publish,
         };
         let (ticket, choice) = match self.builds.current.take() {
             Some(b) => (b.ticket, b.choice),
@@ -1250,6 +1281,7 @@ impl Shell {
                 projects: Vec::new(),
                 diagnostics: Vec::new(),
                 message: Some(why.to_owned()),
+                publish_dir: None,
             },
         );
         self.prelaunch_build_done(
@@ -1320,6 +1352,7 @@ impl Shell {
                 })
                 .collect(),
             message: f.message.clone(),
+            publish_dir: None,
         }
     }
 
@@ -1475,6 +1508,7 @@ mod tests {
             projects: Vec::new(),
             diagnostics: Vec::new(),
             message: None,
+            publish_dir: None,
         };
         shared.publish(1, result("failed"));
         std::thread::sleep(Duration::from_millis(20));

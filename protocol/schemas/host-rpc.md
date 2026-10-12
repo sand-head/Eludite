@@ -119,6 +119,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/project/setProperty` | request | [project-set-property.json](host/project-set-property.json) | `{ project, generation, edits: [{ name, value, configuration?, platform?, framework?, allConfigurations?, override? }] }` | `{ generation, project, written, results: [{ name, status, condition?, line?, inheritedFrom?, removedConditions? }] }` |
 | `eludite/project/launchProfiles` | request | [launch-profiles.json](host/launch-profiles.json) | `{ project }` | `{ generation, project, file, exists, profiles: [{ name, commandName, environmentVariables, ... }] }` |
 | `eludite/project/setLaunchProfile` | request | [launch-profile-set.json](host/launch-profile-set.json) | `{ project, generation, action, profile, newName?, values? }` | as `eludite/project/launchProfiles` |
+| `eludite/project/runTarget` | request | [run-target.json](host/run-target.json) | `{ project, configuration?, platform?, framework? }` | `{ generation, project, configuration, platform, framework?, targetFrameworks, targetFrameworkIdentifier?, outputType, targetPath, runCommand, runArguments, runWorkingDirectory, isWebProject, exists }` |
 | `eludite/resx/sets` | request | [resx-sets.json](host/resx-sets.json) | `{ generation, projects? }` | `{ generation, sets: [{ project, projectName, kind, path, baseName, neutralLanguage?, rootNamespace, cultures: [{ name, path, item }], generator?, customToolNamespace?, lastGenOutput?, designer?, accessModifier, manifestName, namespace }], skipped?: [{ project, reason }] }` |
 | `eludite/resx/designer` | request | [resx-designer.json](host/resx-designer.json) | `{ generation, path, action, modifier? }` | `{ generation, path, designer?, status, modifier, projectWritten?, className?, namespace? }` |
 | `eludite/solution/configurations` | request | [solution-configurations.json](host/solution-configurations.json) | none | `{ generation, path, format, configurations, platforms, active, projects: [{ name, path, configurations, platforms, mappings }] }` |
@@ -222,7 +223,12 @@ generation changes before the tree is ready; -32800 when canceled.
   shipped: invariant 9). Without either, legacy solutions build with `dotnet build`, and the finished diagnostics say
   so (`ELUDITE0111`). Restore runs as part of the build (`-restore`). Every run gets `-nologo -v:m -nr:false
   -clp:ForceNoAlign` and `-tl:off` (the SDK's terminal logger is never used), `-bl:<file>` for the binary log, and
-  `-p:Configuration=` / `-p:Platform=` when given. Node reuse is off so that cancel can kill every node.
+  `-p:Configuration=` / `-p:Platform=` when given. Node reuse is off so that cancel can kill every node. The
+  `publish` target (brief 0074) runs `dotnet publish <project> -p:PublishProfile=<pubxml>` for one SDK-style project
+  (`project` is required; a solution or a legacy project is refused with -32602), passing `-p:Configuration=` only when
+  the request names a configuration, so the profile's own applies otherwise (the start result reports the profile's
+  `Configuration`, else `Release`); its output, diagnostics and finished notification are a build's, its first line
+  `Publish started at ...`.
 - **Reply at once.** The reply carries the `buildId`, the generation, the toolchain, the binary log path and the
   command line. The build runs in the background; nothing else waits for it.
 - **One build at a time per host.** A second `eludite/build/start` while one runs fails with -32010
@@ -521,6 +527,16 @@ edits them itself.
   solution configuration to itself and `Any CPU`, and builds); a project file opened alone maps to itself. The active
   selection (`select`) is the host's default for `eludite/project/properties`; the shell keeps it per solution.
   `mappings` rewrites only the lines (`.sln`) or the project's rule elements (`.slnx`) it changes.
+- **Run target (brief 0074).** `eludite/project/runTarget` answers what `dotnet run` would run for a project of the
+  open solution: the project evaluated on the same shared collection and lock as the properties, with `Configuration`
+  and `Platform` (default: the active selection's mapping) and `TargetFramework` as global properties (`framework`
+  when the project lists it, else a multi-targeted project's first framework), then its evaluated `TargetPath`,
+  `RunCommand`, `RunArguments`, `RunWorkingDirectory` (made absolute), `OutputType`, `TargetFrameworkIdentifier` and
+  `UsingMicrosoftNETSdkWeb` (`isWebProject`), so `Directory.Build.props`, `UseArtifactsOutput`, `AssemblyName` and
+  `RuntimeIdentifier` set anywhere are honored. The evaluation is cached per generation, project, configuration,
+  platform and framework; `exists` (whether `targetPath` is on disk) is checked on every request, so a build within
+  the generation is seen. A legacy project without `TargetFramework` has no `framework`. Errors: -32602 when the
+  project is not one of the solution or does not evaluate; -32801 when the generation moves on.
 
 #### Resources (proposal 0005)
 

@@ -15,11 +15,12 @@
       "additionalProperties": false,
       "properties": {
         "target": {
-          "description": "build: an incremental build (restore included). rebuild: clean, then build. clean: delete the outputs.",
+          "description": "build: an incremental build (restore included). rebuild: clean, then build. clean: delete the outputs. publish: `dotnet publish` of `project` (required) with `publishProfile` (brief 0074).",
           "enum": [
             "build",
             "rebuild",
-            "clean"
+            "clean",
+            "publish"
           ]
         },
         "system": {
@@ -41,6 +42,11 @@
         },
         "platform": {
           "description": "The solution platform as the solution file lists it, for example Any CPU or x64. Omitted: the solution's default.",
+          "type": "string",
+          "minLength": 1
+        },
+        "publishProfile": {
+          "description": "publish only (brief 0074): absolute path of the project's `.pubxml` publish profile, passed as `-p:PublishProfile=`. Omitted: `dotnet publish` with the project's defaults. A configuration is passed only when `configuration` is given, so the profile's own Configuration applies otherwise.",
           "type": "string",
           "minLength": 1
         }

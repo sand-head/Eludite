@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-run-watch.output.json",
+  "title": "eludite.debug.run_watch output",
+  "description": "The watch that started (brief 0074): its project, the Terminal window tab it runs in (eludite.terminal.read reads its output) and the command line.",
+  "type": "object",
+  "required": [
+    "state",
+    "project",
+    "terminal",
+    "command"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "Hot Reload's state: starting, watching, applying, applied, errors, restart_needed, restarting or exited.",
+      "enum": [
+        "starting",
+        "watching",
+        "applying",
+        "applied",
+        "errors",
+        "restart_needed",
+        "restarting",
+        "exited"
+      ]
+    },
+    "project": {
+      "description": "Absolute path of the project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "terminal": {
+      "description": "The Terminal window tab's id (eludite.terminal.*).",
+      "type": "string",
+      "minLength": 1
+    },
+    "command": {
+      "description": "The command line run in the tab.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

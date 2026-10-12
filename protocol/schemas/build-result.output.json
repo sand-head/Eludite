@@ -37,7 +37,8 @@
       "enum": [
         "build",
         "rebuild",
-        "clean"
+        "clean",
+        "publish"
       ]
     },
     "path": {
@@ -155,6 +156,11 @@
     },
     "message": {
       "type": "string"
+    },
+    "publish_dir": {
+      "description": "publish only (brief 0074): the folder the program was published to (the profile's PublishDir, absolute).",
+      "type": "string",
+      "minLength": 1
     }
   }
 }

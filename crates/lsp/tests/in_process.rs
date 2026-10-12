@@ -481,6 +481,7 @@ fn build_messages_are_typed_and_a_concurrent_build_is_refused() {
                 project: None,
                 configuration: None,
                 platform: None,
+                publish_profile: None,
             })
             .unwrap()
             .wait_timeout(T)
@@ -590,6 +591,7 @@ fn build_status_replays_the_running_build_across_a_restart() {
             project: None,
             configuration: Some("Release".into()),
             platform: None,
+            publish_profile: None,
         })
         .unwrap()
         .wait_timeout(T)
@@ -635,6 +637,7 @@ fn build_status_replays_the_running_build_across_a_restart() {
             project: None,
             configuration: None,
             platform: None,
+            publish_profile: None,
         })
         .unwrap()
         .wait_timeout(T)
