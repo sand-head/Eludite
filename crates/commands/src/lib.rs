@@ -65,7 +65,9 @@ mod registry;
 pub mod resx;
 pub mod search;
 pub mod settings;
+// The start experience and templates (brief 0072).
 pub mod solution;
+pub mod start;
 pub mod terminal;
 pub mod test;
 pub mod update;

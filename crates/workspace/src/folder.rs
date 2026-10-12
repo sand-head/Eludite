@@ -1,5 +1,6 @@
 //! The plain-folder model (brief 0019, File > Open Folder): the folder's files, and what Eludite knows how to load
-//! there (a .NET solution at the root or one folder down, a Cargo workspace at the root). Listing walks the disk, so the shell calls it off the UI thread.
+//! there (a .NET solution at the root or one folder down, else its project files, brief 0072; a Cargo workspace at the
+//! root). Listing walks the disk, so the shell calls it off the UI thread.
 
 use std::path::{Path, PathBuf};
 
@@ -109,6 +110,120 @@ pub fn find_solution(root: &Path) -> Option<PathBuf> {
     candidates.into_iter().next()
 }
 
+/// The project file extensions a folder without a solution falls back to (brief 0072).
+pub const PROJECT_EXTENSIONS: [&str; 3] = ["csproj", "vbproj", "fsproj"];
+
+fn is_project_file(p: &Path) -> bool {
+    p.is_file()
+        && p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| PROJECT_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+}
+
+/// The .NET projects of a folder with no solution (brief 0072, the `dotnet new console` layout): the `.csproj`,
+/// `.vbproj` and `.fsproj` files at `root`, else those in the folders directly below it (hidden folders and
+/// [`SKIPPED_FOLDERS`] are not searched), sorted by path.
+pub fn find_projects(root: &Path) -> Vec<PathBuf> {
+    let files_in = |dir: &Path| -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| is_project_file(p))
+            .collect();
+        found.sort();
+        found
+    };
+    let at_root = files_in(root);
+    if !at_root.is_empty() {
+        return at_root;
+    }
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            e.file_type().is_ok_and(|t| t.is_dir())
+                && !name.starts_with('.')
+                && !SKIPPED_FOLDERS.contains(&name.as_ref())
+        })
+        .map(|e| e.path())
+        .collect();
+    dirs.sort();
+    dirs.iter().flat_map(|d| files_in(d)).collect()
+}
+
+/// Where a folder with several projects and no solution keeps the solution Eludite writes for it (brief 0072).
+pub fn generated_solution_path(root: &Path) -> PathBuf {
+    root.join(".eludite").join("workspace.slnx")
+}
+
+/// The text of the generated `.slnx` listing `projects` (absolute paths under `root`), relative to
+/// [`generated_solution_path`]'s folder with forward slashes, as `dotnet sln` writes them.
+pub fn projects_slnx(root: &Path, projects: &[PathBuf]) -> String {
+    let mut out = String::from("<Solution>\n");
+    for p in projects {
+        let rel = p.strip_prefix(root).unwrap_or(p);
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        let rel = rel
+            .replace('&', "&amp;")
+            .replace('"', "&quot;")
+            .replace('<', "&lt;");
+        out.push_str(&format!("  <Project Path=\"../{rel}\" />\n"));
+    }
+    out.push_str("</Solution>\n");
+    out
+}
+
+/// What a folder's .NET part is (brief 0072): its solution, else its only project, else (several projects) the
+/// generated solution with the text it must hold; `None` without either.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DotnetEntry {
+    Solution(PathBuf),
+    Project(PathBuf),
+    Generated { path: PathBuf, text: String },
+}
+
+impl DotnetEntry {
+    /// The file the host opens.
+    pub fn path(&self) -> &Path {
+        match self {
+            DotnetEntry::Solution(p) | DotnetEntry::Project(p) => p,
+            DotnetEntry::Generated { path, .. } => path,
+        }
+    }
+}
+
+/// [`find_solution`], else [`find_projects`] (brief 0072).
+pub fn find_dotnet_entry(root: &Path) -> Option<DotnetEntry> {
+    if let Some(sln) = find_solution(root) {
+        return Some(DotnetEntry::Solution(sln));
+    }
+    let projects = find_projects(root);
+    match projects.len() {
+        0 => None,
+        1 => projects.into_iter().next().map(DotnetEntry::Project),
+        _ => Some(DotnetEntry::Generated {
+            path: generated_solution_path(root),
+            text: projects_slnx(root, &projects),
+        }),
+    }
+}
+
+/// Write the generated solution when its text differs from what is on disk; blocking, small.
+pub fn write_generated(path: &Path, text: &str) -> std::io::Result<()> {
+    if std::fs::read_to_string(path).is_ok_and(|t| t == text) {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, text)
+}
+
 /// `root/Cargo.toml`, when it exists.
 pub fn find_cargo_manifest(root: &Path) -> Option<PathBuf> {
     let p = root.join("Cargo.toml");
@@ -202,6 +317,70 @@ mod tests {
         assert_eq!(
             find_solution(mixed.path()),
             Some(mixed.path().join("dotnet/Eludite.slnx"))
+        );
+    }
+    #[test]
+    fn falls_back_to_project_files() {
+        // Brief 0072: `dotnet new console` makes a folder with a project file and no solution.
+        let dir = tempfile::tempdir().unwrap();
+        let make = |rel: &str| {
+            let p = dir.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "").unwrap();
+        };
+        assert_eq!(find_dotnet_entry(dir.path()), None);
+        make("App.csproj");
+        make("Program.cs");
+        make("obj/Ghost.csproj");
+        assert_eq!(
+            find_dotnet_entry(dir.path()),
+            Some(DotnetEntry::Project(dir.path().join("App.csproj")))
+        );
+        // Projects one level down when the root has none; not in build outputs or hidden folders, not deeper.
+        let two = tempfile::tempdir().unwrap();
+        for rel in [
+            "src/Web/Web.csproj",
+            "tests/Web.Tests/Web.Tests.fsproj",
+            "Lib/Lib.vbproj",
+            "bin/X/X.csproj",
+            ".hidden/H.csproj",
+            "a/b/Deep.csproj",
+        ] {
+            let p = two.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "").unwrap();
+        }
+        assert_eq!(
+            find_projects(two.path()),
+            vec![two.path().join("Lib/Lib.vbproj")]
+        );
+        std::fs::create_dir_all(two.path().join("App")).unwrap();
+        std::fs::write(two.path().join("App/App.csproj"), "").unwrap();
+        let projects = find_projects(two.path());
+        assert_eq!(
+            projects,
+            vec![
+                two.path().join("App/App.csproj"),
+                two.path().join("Lib/Lib.vbproj")
+            ]
+        );
+        let Some(DotnetEntry::Generated { path, text }) = find_dotnet_entry(two.path()) else {
+            panic!("expected a generated solution");
+        };
+        assert_eq!(path, two.path().join(".eludite/workspace.slnx"));
+        assert_eq!(
+            text,
+            "<Solution>\n  <Project Path=\"../App/App.csproj\" />\n  <Project Path=\"../Lib/Lib.vbproj\" />\n</Solution>\n"
+        );
+        write_generated(&path, &text).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        // The generated solution is in a hidden folder: it is never found as the folder's own solution.
+        assert_eq!(find_solution(two.path()), None);
+        // A real solution wins over the projects.
+        std::fs::write(two.path().join("All.sln"), "").unwrap();
+        assert_eq!(
+            find_dotnet_entry(two.path()),
+            Some(DotnetEntry::Solution(two.path().join("All.sln")))
         );
     }
 }
