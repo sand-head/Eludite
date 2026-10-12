@@ -165,6 +165,7 @@ fn every_schema_file_names_a_documented_method() {
         methods::NUGET_UPDATE,
         methods::NUGET_CREDENTIALS,
         methods::CODE_LENS_REFRESH,
+        methods::RAZOR_HTML,
     ]) {
         assert!(seen.contains(*m), "no schema file for {m}");
     }
@@ -203,6 +204,8 @@ fn host_rpc_md_lists_exactly_the_rust_method_sets() {
         "workspace/diagnostic/refresh",
         "workspace/semanticTokens/refresh",
         "workspace/codeLens/refresh",
+        // Brief 0079: Razor's projections, kept by the host.
+        "razor/updateHtml",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -595,7 +598,11 @@ fn typed_marker_methods_match_the_method_lists() {
     assert!(methods::HOST_TO_SHELL.contains(&lsp::ApplyEdit::METHOD));
     assert_eq!(
         methods::HOST_TO_SHELL_REQUESTS,
-        [lsp::ApplyEdit::METHOD, host::NuGetCredentials::METHOD]
+        [
+            lsp::ApplyEdit::METHOD,
+            host::NuGetCredentials::METHOD,
+            host::RazorHtml::METHOD // Brief 0079.
+        ]
     );
     assert!(methods::HOST_TO_SHELL.contains(&host::NuGetCredentials::METHOD));
     assert!(methods::HOST_TO_SHELL.contains(&host::SolutionStatusNotification::METHOD));
@@ -2195,4 +2202,40 @@ fn resx_messages_conform_to_their_schemas() {
         v,
         json!({"generation": 4, "path": "x", "status": "none", "modifier": "none"})
     );
+}
+
+/// Brief 0079: `eludite/razor/html` (host to shell).
+#[test]
+fn razor_html_conforms_to_its_schema() {
+    let params = host::RazorHtmlParams {
+        method: "textDocument/completion".into(),
+        uri: "file:///w/Components/Pages/Home.razor".into(),
+        checksum: "8A0F".into(),
+        text: "<h1>     </h1>\n".into(),
+        params: json!({
+            "textDocument": {"uri": "file:///w/Components/Pages/Home.razor"},
+            "position": {"line": 0, "character": 1},
+            "context": {"triggerKind": 1}
+        }),
+        generation: 3,
+    };
+    conforms("razor-html.json", "params", &params);
+    let wire = serde_json::to_value(&params).unwrap();
+    assert_eq!(wire["eluditeGeneration"], json!(3));
+    assert_eq!(
+        serde_json::from_value::<host::RazorHtmlParams>(wire).unwrap(),
+        params
+    );
+    rejects(
+        "razor-html.json",
+        "params",
+        json!({"method": "textDocument/hover", "uri": "file:///a.razor", "checksum": "1", "text": ""}),
+    );
+    conforms(
+        "razor-html.json",
+        "result",
+        &json!({"isIncomplete": false, "items": [{"label": "div"}]}),
+    );
+    conforms("razor-html.json", "result", &Value::Null);
+    assert!(host::methods::HOST_TO_SHELL_REQUESTS.contains(&host::methods::RAZOR_HTML));
 }

@@ -91,6 +91,8 @@ pub mod methods {
     pub const RESX_SETS: &str = "eludite/resx/sets";
     /// Generate, delete or change the access modifier of a `.resx` file's designer code file (proposal 0005).
     pub const RESX_DESIGNER: &str = "eludite/resx/designer";
+    /// Host-to-shell request (brief 0079): Razor asks for the HTML part of a Razor document.
+    pub const RAZOR_HTML: &str = "eludite/razor/html";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -162,6 +164,11 @@ pub mod methods {
         "textDocument/semanticTokens/full",
         "textDocument/semanticTokens/range",
         "textDocument/formatting",
+        // Brief 0079: Razor documents' Format Selection, typing, folding and linked tag editing.
+        "textDocument/rangeFormatting",
+        "textDocument/onTypeFormatting",
+        "textDocument/foldingRange",
+        "textDocument/linkedEditingRange",
     ];
 
     /// Forwarded LSP notifications passed through as raw JSON.
@@ -183,10 +190,11 @@ pub mod methods {
         NUGET_UPDATE,
         NUGET_CREDENTIALS,
         CODE_LENS_REFRESH,
+        RAZOR_HTML,
     ];
 
     /// The requests among [`HOST_TO_SHELL`]: the shell answers them.
-    pub const HOST_TO_SHELL_REQUESTS: &[&str] = &[APPLY_EDIT, NUGET_CREDENTIALS];
+    pub const HOST_TO_SHELL_REQUESTS: &[&str] = &[APPLY_EDIT, NUGET_CREDENTIALS, RAZOR_HTML];
 }
 
 /// Error codes the host returns (host-rpc.md, "Error codes").
@@ -2005,6 +2013,31 @@ request!(
     methods::NUGET_CREDENTIALS,
     NuGetCredentialsParams,
     Option<NuGetCredentialsAnswer>
+);
+
+/// `eludite/razor/html` params (host to shell, brief 0079): Razor's HTML-forwarded request with the document's HTML
+/// projection. The result is the HTML server's LSP result for `method` (any JSON), or `null`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RazorHtmlParams {
+    pub method: String,
+    /// The Razor document.
+    pub uri: String,
+    pub checksum: String,
+    /// The whole HTML projection.
+    pub text: String,
+    /// The LSP params of `method`; `textDocument.uri` names the Razor document.
+    pub params: Value,
+    #[serde(rename = "eluditeGeneration")]
+    pub generation: Generation,
+}
+
+request!(
+    /// `eludite/razor/html` (brief 0079): the host asks the shell.
+    RazorHtml,
+    methods::RAZOR_HTML,
+    RazorHtmlParams,
+    Value
 );
 
 /// `eludite/nuget/update` (host to shell).

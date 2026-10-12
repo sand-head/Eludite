@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/razor-html.json",
+  "title": "eludite/razor/html",
+  "description": "Host-to-shell request (brief 0079, ADR-0015): the Razor cohost extension in the Roslyn language server asked for the HTML part of a Razor document (`.razor`, `.cshtml`): HTML completion, hover, formatting and the rest. The host relays it with the document's HTML projection as Razor last published it (`razor/updateHtml`). The shell answers from its HTML language server on a virtual document `<Razor path>__virtual.html` holding `text` (positions in the projection are the Razor document's), with every occurrence of that virtual document's uri in the result mapped back to `uri`; or `null` when no HTML server is available, it does not offer `method`, it fails, or `eluditeGeneration` is not current. The host returns the result to Razor unchanged; an error answer or a lost shell is `null` for Razor.",
+  "x-eludite-method": "eludite/razor/html",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "method",
+        "uri",
+        "checksum",
+        "text",
+        "params",
+        "eluditeGeneration"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "description": "The LSP method Razor asks the HTML server: textDocument/completion, completionItem/resolve, textDocument/hover, textDocument/signatureHelp, textDocument/definition, textDocument/implementation, textDocument/documentHighlight, textDocument/references, textDocument/prepareRename, textDocument/rename, textDocument/formatting, textDocument/rangeFormatting, textDocument/onTypeFormatting, textDocument/foldingRange, textDocument/documentColor, textDocument/colorPresentation, textDocument/codeAction, codeAction/resolve, textDocument/linkedEditingRange, or one of Visual Studio's textDocument/_vs_* extensions (which a standard HTML server does not offer).",
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "description": "The Razor document's uri, as Razor names it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "checksum": {
+          "description": "Razor's checksum of the projection: the shell sends the virtual document's text again only when it changes.",
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "description": "The whole HTML projection: the Razor document with its C# and Razor parts blanked out, the same length and line structure as the document.",
+          "type": "string"
+        },
+        "params": {
+          "description": "The LSP params of `method` as Razor built them; `textDocument.uri` names the Razor document (the shell replaces it with the virtual document's)."
+        },
+        "eluditeGeneration": {
+          "description": "The solution generation current when the host relayed the request.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "The HTML server's LSP result for `method`, or `null`."
+    }
+  }
+}

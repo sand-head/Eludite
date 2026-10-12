@@ -702,6 +702,10 @@ JSON. Requests still require `eluditeGeneration`.
 | `textDocument/semanticTokens/full` | request, forwarded, untyped |
 | `textDocument/semanticTokens/range` | request, forwarded, untyped |
 | `textDocument/formatting` | request, forwarded, untyped |
+| `textDocument/rangeFormatting` | request, forwarded, untyped (brief 0079: Razor documents) |
+| `textDocument/onTypeFormatting` | request, forwarded, untyped (brief 0079) |
+| `textDocument/foldingRange` | request, forwarded, untyped (brief 0079) |
+| `textDocument/linkedEditingRange` | request, forwarded, untyped (brief 0079) |
 | `textDocument/didSave` | notification, forwarded, untyped |
 | `workspace/didChangeWatchedFiles` | notification, forwarded, untyped |
 
@@ -724,9 +728,10 @@ Any other method returns -32601 (MethodNotFound) and is not forwarded.
 | `eludite/codeLens/refresh` | notification | [code-lens-refresh.json](host/code-lens-refresh.json) | `{ eluditeGeneration }`: the language server sent `workspace/codeLens/refresh` (brief 0052) |
 | `eludite/nuget/update` | notification | [nuget-update.json](host/nuget-update.json) | `{ operation, generation, seq, kind, text?, message?, packages? }` |
 | `eludite/nuget/credentials` | request | [nuget-credentials.json](host/nuget-credentials.json) | `{ operation?, source, url, host, proxy, isRetry, message? }`; result `{ username?, password?, remember?, canceled? }` or `null` |
+| `eludite/razor/html` | request | [razor-html.json](host/razor-html.json) | `{ method, uri, checksum, text, params, eluditeGeneration }`; result the HTML server's LSP result or `null` (brief 0079, see "Razor") |
 
-`workspace/applyEdit` and `eludite/nuget/credentials` (brief 0048) are the requests the host sends to the shell. Every
-other request from the host is answered -32601 by the shell.
+`workspace/applyEdit`, `eludite/nuget/credentials` (brief 0048) and `eludite/razor/html` (brief 0079) are the requests
+the host sends to the shell. Every other request from the host is answered -32601 by the shell.
 
 ### `workspace/applyEdit`
 
@@ -804,12 +809,49 @@ Answered by the host, never relayed:
 | `workspace/diagnostic/refresh` | `null`, and the host re-pulls diagnostics for every open document |
 | `workspace/codeLens/refresh` | `null` at once, and the host sends the shell `eludite/codeLens/refresh` with the current generation (brief 0052) |
 | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | `null`; not relayed (no consumer yet) |
+| `razor/updateHtml` | Brief 0079: the projection `{ textDocument, checksum, text }` is kept for the Razor document; `null` at once |
+| Razor's HTML-forwarded requests | Brief 0079: relayed to the shell as `eludite/razor/html` (see "Razor") |
 
 `workspace/applyEdit` is not answered by the host: it is relayed to the shell (see "Messages the host sends").
 
 Language server notifications: `workspace/projectInitializationComplete` becomes `eludite/solution/status` `loaded`;
 `window/logMessage` goes to the host log; `telemetry/event` is dropped; `window/showMessage` and `$/progress` are
 relayed.
+
+## Razor (brief 0079)
+
+Razor runs inside the Roslyn language server: the pinned build composes the Razor cohost extension
+(`Microsoft.VisualStudioCode.RazorExtension`, ADR-0015), so no argument, process or registration is added for it.
+
+- **Documents.** The shell sends `.razor` and `.cshtml` documents to the host like C# ones, with the language id
+  `aspnetcorerazor` (`servers.json`'s `roslyn` entry; Roslyn maps the two extensions to its Razor language either
+  way). Every forwarded request applies to them; diagnostics are pulled and published by the warming rules. On
+  `textDocument/didClose` of a Razor document the host also sends Roslyn `razor/documentClosed` `{ uri }`.
+- **Projections.** Razor publishes each document's HTML projection with `razor/updateHtml`
+  `{ textDocument: { uri }, checksum, text }` (a request; the host answers `null`) and keeps it current itself. The
+  projection is the document with its C# and Razor parts blanked out: the same length and lines, so a position in
+  the document is the same position in the projection. The host keeps the latest one per document, forgets it on
+  close, and forgets them all when the language server restarts.
+- **HTML requests.** For the HTML parts Razor sends the client a request under the LSP method's own name with params
+  `{ textDocument: { uri }, checksum, request }`: `textDocument/completion`, `completionItem/resolve`,
+  `textDocument/hover`, `textDocument/signatureHelp`, `textDocument/definition`, `textDocument/implementation`,
+  `textDocument/documentHighlight`, `textDocument/references`, `textDocument/prepareRename`, `textDocument/rename`,
+  `textDocument/formatting`, `textDocument/rangeFormatting`, `textDocument/onTypeFormatting`,
+  `textDocument/foldingRange`, `textDocument/documentColor`, `textDocument/colorPresentation`,
+  `textDocument/codeAction`, `codeAction/resolve`, `textDocument/linkedEditingRange` and Visual Studio's
+  `textDocument/_vs_onAutoInsert`, `_vs_textPresentation` and `_vs_uriPresentation`. When the host has the projection
+  with that checksum it sends the shell `eludite/razor/html` `{ method, uri, checksum, text, params: request,
+  eluditeGeneration }` and returns the shell's result to Razor unchanged; otherwise, and when the shell answers with
+  an error, is gone or the generation moves on, Razor gets `null` ("no HTML result"). Razor's cancellation cancels the
+  relayed request.
+- **The shell's answer.** The shell keeps one virtual document per Razor document, `<Razor path>__virtual.html`
+  (`languageId` `html`), in the HTML server the `html` registration starts for that path, and sends its text again
+  (one full `didChange`) only when the checksum changes; it closes it with the Razor document. It sends `method` with
+  `params.textDocument.uri` replaced by the virtual document's uri, maps that uri back to the Razor document's in the
+  result, and answers. With no HTML server (not installed: `tools/web-servers/fetch.sh`), one that does not offer
+  `method`, a failure or a stale generation it answers `null` at once; the C# and Razor features keep working.
+- **Configuration.** Razor's `workspace/configuration` sections (`razor.*`, `html.*`) are answered `null`, so Razor
+  uses its defaults.
 
 ## LSP client capabilities the host advertises
 
@@ -932,7 +974,7 @@ Still nothing crosses the host: the web language servers are generic servers lik
 |---|---|---|---|
 | `typescript` | `typescript-language-server --stdio` over TypeScript's tsserver | `*.ts` (`typescript`), `*.tsx` (`typescriptreact`), `*.mts`, `*.cts` (`typescript`), `*.js`, `*.mjs`, `*.cjs` (`javascript`), `*.jsx` (`javascriptreact`) | `tsconfig.json`, `jsconfig.json`, `package.json` |
 | `eslint` | `vscode-eslint-language-server --stdio` (vscode-eslint's server) | the `typescript` entry's files | the same |
-| `html` | `vscode-html-language-server --stdio` | `*.html`, `*.htm` (`html`); `*.cshtml` as `html`, so Razor markup gets HTML completion until the Razor server comes | `package.json` |
+| `html` | `vscode-html-language-server --stdio` | `*.html`, `*.htm` (`html`); since brief 0079 `*.cshtml` and `*.razor` go to the host (Razor), and this server sees only their HTML projections (see "Razor") | `package.json` |
 | `css` | `vscode-css-language-server --stdio` | `*.css` (`css`), `*.scss` (`scss`), `*.less` (`less`) | `package.json` |
 | `json` | `vscode-json-language-server --stdio` | `*.json` (`json`), `*.jsonc` (`jsonc`) | `package.json` |
 
