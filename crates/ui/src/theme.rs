@@ -95,7 +95,120 @@ pub struct Theme {
     pub editor_line_number_active: Rgba,
     pub editor_current_line: Rgba,
     pub editor_find_match: Rgba,
+    /// Brief 0066: the language server's classifications (Visual Studio's C# colors) and the inlay hint chips.
+    pub semantic: SemanticColors,
+    pub inlay_hint_text: Rgba,
+    pub inlay_hint_background: Rgba,
     pub typography: Typography,
+}
+
+/// The colors of the language server's classifications (brief 0066), Visual Studio's for C# (Roslyn's
+/// `ColorSchemes/VisualStudio2019.xml`, the Light and Dark themes). `None` leaves the syntax color; the members
+/// Visual Studio draws in the plain identifier color (fields, properties, events, enum members, constants,
+/// namespaces, labels) are the theme's text color, so a field never keeps a syntax guess's color.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SemanticColors {
+    /// Classes, records, delegates, modules; types the server does not say more about.
+    pub class: Option<Rgba>,
+    pub interface: Option<Rgba>,
+    pub enumeration: Option<Rgba>,
+    /// Structs and record structs.
+    pub structure: Option<Rgba>,
+    pub type_parameter: Option<Rgba>,
+    /// Methods, extension methods, functions.
+    pub method: Option<Rgba>,
+    pub overloaded_operator: Option<Rgba>,
+    /// Locals and parameters.
+    pub local: Option<Rgba>,
+    /// Fields, properties, events, enum members, constants, namespaces, labels.
+    pub identifier: Option<Rgba>,
+    pub keyword: Option<Rgba>,
+    pub control_keyword: Option<Rgba>,
+    pub string: Option<Rgba>,
+    pub verbatim_string: Option<Rgba>,
+    pub string_escape: Option<Rgba>,
+    pub number: Option<Rgba>,
+    pub comment: Option<Rgba>,
+    /// Code a `#if` excludes.
+    pub excluded_code: Option<Rgba>,
+    pub regex_comment: Option<Rgba>,
+    pub regex_character_class: Option<Rgba>,
+    /// Anchors and quantifiers.
+    pub regex_anchor: Option<Rgba>,
+    /// Grouping and alternation.
+    pub regex_grouping: Option<Rgba>,
+    /// Text and self-escaped characters.
+    pub regex_text: Option<Rgba>,
+    pub regex_other_escape: Option<Rgba>,
+    pub json_property: Option<Rgba>,
+    pub xml_doc_comment: Option<Rgba>,
+    pub xml_doc_comment_text: Option<Rgba>,
+}
+
+impl SemanticColors {
+    /// Visual Studio Dark's C# classification colors; `text` is the identifier color.
+    pub fn vs_dark(text: Rgba) -> Self {
+        Self {
+            class: Some(rgb(0x4EC9B0)),
+            interface: Some(rgb(0xB8D7A3)),
+            enumeration: Some(rgb(0xB8D7A3)),
+            structure: Some(rgb(0x86C691)),
+            type_parameter: Some(rgb(0xB8D7A3)),
+            method: Some(rgb(0xDCDCAA)),
+            overloaded_operator: Some(rgb(0xDCDCAA)),
+            local: Some(rgb(0x9CDCFE)),
+            identifier: Some(text),
+            keyword: Some(rgb(0x569CD6)),
+            control_keyword: Some(rgb(0xD8A0DF)),
+            string: Some(rgb(0xD69D85)),
+            verbatim_string: Some(rgb(0xD69D85)),
+            string_escape: Some(rgb(0xFFD68F)),
+            number: Some(rgb(0xB5CEA8)),
+            comment: Some(rgb(0x57A64A)),
+            excluded_code: Some(rgb(0x9B9B9B)),
+            regex_comment: Some(rgb(0x57A64A)),
+            regex_character_class: Some(rgb(0x2EABFE)),
+            regex_anchor: Some(rgb(0xF979AE)),
+            regex_grouping: Some(rgb(0x05C3BA)),
+            regex_text: Some(rgb(0xD69D85)),
+            regex_other_escape: Some(rgb(0xFFD68F)),
+            json_property: Some(rgb(0x9CDCFE)),
+            xml_doc_comment: Some(rgb(0x608B4E)),
+            xml_doc_comment_text: Some(rgb(0x608B4E)),
+        }
+    }
+
+    /// Visual Studio Light's C# classification colors; `text` is the identifier color.
+    pub fn vs_light(text: Rgba) -> Self {
+        Self {
+            class: Some(rgb(0x2B91AF)),
+            interface: Some(rgb(0x2B91AF)),
+            enumeration: Some(rgb(0x2B91AF)),
+            structure: Some(rgb(0x2B91AF)),
+            type_parameter: Some(rgb(0x2B91AF)),
+            method: Some(rgb(0x74531F)),
+            overloaded_operator: Some(rgb(0x74531F)),
+            local: Some(rgb(0x1F377F)),
+            identifier: Some(text),
+            keyword: Some(rgb(0x0000FF)),
+            control_keyword: Some(rgb(0x8F08C4)),
+            string: Some(rgb(0xA31515)),
+            verbatim_string: Some(rgb(0x800000)),
+            string_escape: Some(rgb(0x9E5B71)),
+            number: Some(rgb(0x098658)),
+            comment: Some(rgb(0x008000)),
+            excluded_code: Some(rgb(0x808080)),
+            regex_comment: Some(rgb(0x008000)),
+            regex_character_class: Some(rgb(0x0073FF)),
+            regex_anchor: Some(rgb(0xFF00C1)),
+            regex_grouping: Some(rgb(0x05C3BA)),
+            regex_text: Some(rgb(0x800000)),
+            regex_other_escape: Some(rgb(0x9E5B71)),
+            json_property: Some(rgb(0x0451A5)),
+            xml_doc_comment: Some(rgb(0x808080)),
+            xml_doc_comment_text: Some(rgb(0x008000)),
+        }
+    }
 }
 
 impl Theme {
@@ -155,6 +268,9 @@ impl Theme {
             editor_line_number_active: rgb(0xD6DFDB),
             editor_current_line: rgb(0x25312E),
             editor_find_match: rgb(0x5A4314),
+            semantic: SemanticColors::vs_dark(rgb(0xD6DFDB)),
+            inlay_hint_text: rgb(0xA9A8A7),
+            inlay_hint_background: rgb(0x1C2725),
             typography: Typography::default(),
         }
     }
@@ -215,6 +331,9 @@ impl Theme {
             editor_line_number_active: rgb(0x15201C),
             editor_current_line: rgb(0xE2E1D8),
             editor_find_match: rgb(0xF3D9A4),
+            semantic: SemanticColors::vs_light(rgb(0x15201C)),
+            inlay_hint_text: rgb(0x686868),
+            inlay_hint_background: rgb(0xEBEFED),
             typography: Typography::default(),
         }
     }
@@ -276,6 +395,9 @@ impl Theme {
             editor_line_number_active: rgb(0x1E1E1E),
             editor_current_line: rgb(0xEAEAF2),
             editor_find_match: rgb(0xF5CC84),
+            semantic: SemanticColors::vs_light(rgb(0x1E1E1E)),
+            inlay_hint_text: rgb(0x686868),
+            inlay_hint_background: rgb(0xEBEBEB),
             typography: Typography::default(),
         }
     }
@@ -502,5 +624,31 @@ mod tests {
     fn typography_is_ordered() {
         let ty = Typography::default();
         assert!(ty.small < ty.ui && ty.ui < ty.body);
+    }
+
+    /// Brief 0066: Visual Studio's C# classification colors, and hint chips readable on the editor background.
+    #[test]
+    fn semantic_colors_follow_visual_studio() {
+        let dark = Theme::dark();
+        assert_eq!(dark.semantic.class, Some(rgb(0x4EC9B0)));
+        assert_eq!(dark.semantic.interface, Some(rgb(0xB8D7A3)));
+        assert_eq!(dark.semantic.structure, Some(rgb(0x86C691)));
+        assert_eq!(dark.semantic.method, Some(rgb(0xDCDCAA)));
+        assert_eq!(dark.semantic.local, Some(rgb(0x9CDCFE)));
+        assert_eq!(dark.semantic.identifier, Some(dark.text));
+        for t in [Theme::light(), Theme::classic()] {
+            assert_eq!(t.semantic.class, Some(rgb(0x2B91AF)));
+            assert_eq!(t.semantic.method, Some(rgb(0x74531F)));
+            assert_eq!(t.semantic.local, Some(rgb(0x1F377F)));
+            assert_eq!(t.semantic.identifier, Some(t.text));
+        }
+        for t in Theme::all() {
+            assert!(
+                contrast(t.inlay_hint_text, t.inlay_hint_background) >= 3.0,
+                "{}: inlay hint text on its chip",
+                t.name
+            );
+            assert_ne!(t.inlay_hint_background, t.background, "{}", t.name);
+        }
     }
 }

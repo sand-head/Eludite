@@ -23,7 +23,9 @@ use crate::display::{
     VerticalLayout, byte_for_visual_column, expand_tabs, from_display, to_display, visual_column,
 };
 use crate::editor::{ClickKind, Editor, FindQuery, SelectionRange};
+use crate::inlay::{InlayState, RowInlays};
 use crate::intellisense::{CompletionTrigger, EditorEvent, SignatureTrigger};
+use crate::semantic::{SemanticSpan, SemanticState};
 pub use eludite_ui::LightbulbKind;
 
 /// Width of the light bulb margin at the left of the line numbers.
@@ -245,6 +247,8 @@ pub enum DecorationStyle {
     Underline { color: Rgba, wavy: bool },
     /// Text color, painted over syntax colors (semantic tokens).
     Foreground(Rgba),
+    /// The text's color at this opacity (brief 0066: unnecessary code, `DiagnosticTag.Unnecessary`).
+    Faded(f32),
 }
 
 struct SyntaxState {
@@ -278,6 +282,37 @@ pub(crate) struct LastLayout {
     pub vertical: VerticalLayout,
     /// Where each CodeLens indicator was painted, by lens id.
     pub lens_hits: Vec<(Bounds<Pixels>, u64)>,
+    /// The inlay hints of the painted rows (brief 0066), and where each chip was painted, by hint id.
+    pub inlays: Vec<(u32, RowInlays)>,
+    pub inlay_hits: Vec<(Bounds<Pixels>, u64)>,
+}
+
+impl LastLayout {
+    pub(crate) fn row_inlays(&self, row: u32) -> Option<&RowInlays> {
+        self.inlays.iter().find(|(r, _)| *r == row).map(|(_, i)| i)
+    }
+
+    /// The x (from the text's left edge, before scrolling) of byte column `column` of painted row `row`, hints
+    /// skipped (brief 0066).
+    pub(crate) fn x_for_column(&self, row: u32, column: usize) -> Option<Pixels> {
+        let (_, text, shaped) = self.rows.iter().find(|(r, _, _)| *r == row)?;
+        let display = match self.row_inlays(row) {
+            Some(i) => i.to_display(text, column),
+            None => to_display(text, column),
+        };
+        Some(shaped.x_for_index(display))
+    }
+
+    /// The byte column of painted row `row` closest to `x` (from the text's left edge, before scrolling); a point on a
+    /// hint is the hint's column.
+    pub(crate) fn column_for_x(&self, row: u32, x: Pixels) -> Option<usize> {
+        let (_, text, shaped) = self.rows.iter().find(|(r, _, _)| *r == row)?;
+        let display = shaped.closest_index_for_x(x);
+        Some(match self.row_inlays(row) {
+            Some(i) => i.from_display(text, display),
+            None => from_display(text, display),
+        })
+    }
 }
 
 /// A GPUI view showing one [`Editor`].
@@ -314,6 +349,9 @@ pub struct EditorView {
     emmet: bool,
     /// CodeLens rows (brief 0052).
     pub(crate) lenses: CodeLenses,
+    /// Semantic highlighting and inlay hints from the language server (brief 0066).
+    pub(crate) semantic: SemanticState,
+    pub(crate) inlays: InlayState,
 }
 
 impl EditorView {
@@ -352,6 +390,8 @@ impl EditorView {
             execution: None,
             emmet: false,
             lenses: CodeLenses::default(),
+            semantic: SemanticState::default(),
+            inlays: InlayState::default(),
         };
         this.schedule_highlight(cx);
         this
@@ -606,6 +646,9 @@ impl EditorView {
         self.autoscroll = true;
         self.schedule_highlight(cx);
         self.lens_edited(cx);
+        // Brief 0066.
+        self.semantic_edited(cx);
+        self.inlay_edited(cx);
         cx.notify();
     }
 
@@ -870,8 +913,8 @@ impl EditorView {
             .row
             .min(buffer.line_count() - 1);
         let x = (position.x - l.text_left + l.scroll.x).max(px(0.));
-        let col = match l.rows.iter().find(|(r, _, _)| *r == row) {
-            Some((_, text, shaped)) => from_display(text, shaped.closest_index_for_x(x)),
+        let col = match l.column_for_x(row, x) {
+            Some(col) => col,
             None => {
                 let text = buffer.line(row);
                 byte_for_visual_column(&text, (x / l.char_width).round() as u32)
@@ -886,8 +929,7 @@ impl EditorView {
     pub fn pixel_position_for_offset(&self, offset: usize) -> Option<Point<Pixels>> {
         let l = self.layout.as_ref()?;
         let p = self.editor.buffer().offset_to_point(offset);
-        let (_, text, shaped) = l.rows.iter().find(|(r, _, _)| *r == p.row)?;
-        let x = l.text_left - l.scroll.x + shaped.x_for_index(to_display(text, p.column as usize));
+        let x = l.text_left - l.scroll.x + l.x_for_column(p.row, p.column as usize)?;
         let y = l.bounds.top() + px(l.vertical.line_top(p.row)) - l.scroll.y;
         Some(point(x, y))
     }
@@ -966,6 +1008,23 @@ impl EditorView {
             self.lenses.hovered = lens;
             cx.notify();
         }
+        // An inlay hint under the mouse (brief 0066): the owner shows its tooltip.
+        let hint = self.layout.as_ref().and_then(|l| {
+            l.inlay_hits
+                .iter()
+                .find(|(b, _)| b.contains(&event.position))
+                .map(|(_, id)| *id)
+        });
+        if hint != self.inlays.hovered {
+            self.inlays.hovered = hint;
+            if let Some(id) = hint
+                && event.pressed_button.is_none()
+                && let Some((offset, _)) = self.inlay_hints().into_iter().find(|(_, h)| h.id == id)
+            {
+                cx.emit(EditorEvent::InlayHintHovered { id, offset });
+                return;
+            }
+        }
         if event.pressed_button.is_none() {
             self.hover_mouse_moved(event.position, cx);
         }
@@ -993,6 +1052,7 @@ impl EditorView {
         self.scroll.x = (self.scroll.x - delta.x).max(px(0.));
         self.autoscroll = false;
         self.check_lens_resolve(cx);
+        self.check_inlay_window(cx);
         cx.notify();
     }
 
@@ -1031,6 +1091,7 @@ impl EditorView {
         }
         self.scroll.y = self.scroll.y.max(px(0.)).min(self.max_scroll_y());
         self.check_lens_resolve(cx);
+        self.check_inlay_window(cx);
     }
 }
 
@@ -1047,6 +1108,7 @@ macro_rules! bind {
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_highlights();
+        self.sync_semantic();
         let mut context = KeyContext::default();
         context.add(KEY_CONTEXT);
         if self.completion_visible() {
@@ -1272,9 +1334,7 @@ impl EntityInputHandler for EditorView {
         let l = self.layout.as_ref()?;
         let s = self.editor.buffer().snapshot();
         let start = s.offset_to_point(utf16_to_range(s, &range_utf16).start);
-        let (_, text, shaped) = l.rows.iter().find(|(r, _, _)| *r == start.row)?;
-        let x =
-            l.text_left - l.scroll.x + shaped.x_for_index(to_display(text, start.column as usize));
+        let x = l.text_left - l.scroll.x + l.x_for_column(start.row, start.column as usize)?;
         let y = l.bounds.top() + px(l.vertical.line_top(start.row)) - l.scroll.y;
         Some(Bounds::new(point(x, y), size(px(1.), l.line_height)))
     }
@@ -1339,6 +1399,9 @@ pub struct PrepaintState {
     /// CodeLens rows (brief 0052) and where each indicator is, by lens id.
     lenses: Vec<LensLine>,
     lens_hits: Vec<(Bounds<Pixels>, u64)>,
+    /// Inlay hints of the painted rows and their chips (brief 0066).
+    inlays: Vec<(u32, RowInlays)>,
+    inlay_hits: Vec<(Bounds<Pixels>, u64)>,
     vertical: VerticalLayout,
     lens_height: Pixels,
     /// The light bulb's bounds and color.
@@ -1469,30 +1532,58 @@ impl Element for EditorElement {
         let mut rows = Vec::with_capacity((last - first) as usize);
         let mut quads = Vec::new();
         let mut carets = Vec::new();
+        // Inlay hints (brief 0066): inserted into the shaped line, never into the buffer.
+        let inlays = v.row_inlays(first..last);
+        let mut inlay_hits = Vec::new();
+        let hint_color = hsla(style.theme.inlay_hint_text);
         for row in first..last {
             let text = buffer.line(row);
             let display = expand_tabs(&text);
             let row_start = snapshot.point_to_offset(text::Point::new(row, 0));
             let row_end = row_start + text.len();
-            let runs = text_runs(
+            let mut runs = text_runs(
                 &text,
                 &display,
                 v.syntax.highlights.spans(row),
+                v.semantic.rows.spans(row),
                 &decorations,
                 row_start,
                 &style.syntax,
                 &font,
             );
-            let line = text_system.shape_line(
-                SharedString::from(display.into_owned()),
-                font_size,
-                &runs,
-                None,
-            );
+            let row_inlays = inlays.iter().find(|(r, _)| *r == row).map(|(_, i)| i);
+            let display = match row_inlays {
+                Some(i) => {
+                    runs = splice_inlay_runs(runs, &i.insertions(&text), hint_color, &font);
+                    i.display(&text)
+                }
+                None => display.into_owned(),
+            };
+            let line = text_system.shape_line(SharedString::from(display), font_size, &runs, None);
             let x_of = |offset: usize| -> Pixels {
-                text_left - scroll.x + line.x_for_index(to_display(&text, offset - row_start))
+                let column = offset - row_start;
+                let display = match row_inlays {
+                    Some(i) => i.to_display(&text, column),
+                    None => to_display(&text, column),
+                };
+                text_left - scroll.x + line.x_for_index(display)
             };
             let top = row_top(row);
+            if let Some(i) = row_inlays {
+                // Each hint's chip: a rounded background behind its label, not its padding.
+                for ((start, end, id), item) in i.ranges(&text).into_iter().zip(&i.items) {
+                    let lead = item.text.len() - item.text.trim_start().len();
+                    let trail = item.text.len() - item.text.trim_end().len();
+                    let x0 = text_left - scroll.x + line.x_for_index(start + lead);
+                    let x1 = text_left - scroll.x + line.x_for_index(end - trail);
+                    let chip =
+                        Bounds::from_corners(point(x0, top + px(1.)), point(x1, top + lh - px(1.)));
+                    quads.push(
+                        fill(chip, hsla(style.theme.inlay_hint_background)).corner_radii(px(3.)),
+                    );
+                    inlay_hits.push((chip, id));
+                }
+            }
             let active = row == primary_row;
             if active && primary.is_empty() {
                 quads.push(gpui::outline(
@@ -1694,6 +1785,8 @@ impl Element for EditorElement {
             rows,
             lenses,
             lens_hits,
+            inlays,
+            inlay_hits,
             vertical,
             lens_height,
             lightbulb,
@@ -1884,16 +1977,21 @@ impl Element for EditorElement {
             lightbulb: state.lightbulb.map(|(b, _)| b),
             vertical: std::mem::take(&mut state.vertical),
             lens_hits: std::mem::take(&mut state.lens_hits),
+            inlays: std::mem::take(&mut state.inlays),
+            inlay_hits: std::mem::take(&mut state.inlay_hits),
         };
         self.view.update(cx, |v, _| v.layout = Some(layout));
     }
 }
 
-/// Text runs for one display line: syntax colors, then decorations on top.
-fn text_runs(
+/// Text runs for one display line: syntax colors, the language server's colors over them (brief 0066), then
+/// decorations on top.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn text_runs(
     text: &str,
     display: &str,
     spans: &[Span],
+    semantic: &[SemanticSpan],
     decorations: &[(Range<usize>, DecorationStyle)],
     row_start: usize,
     syntax: &SyntaxTheme,
@@ -1907,6 +2005,10 @@ fn text_runs(
     // Boundaries in display coordinates.
     let mut cuts = vec![0, len];
     for s in spans {
+        cuts.push(snap(s.start as usize));
+        cuts.push(snap(s.end as usize));
+    }
+    for s in semantic {
         cuts.push(snap(s.start as usize));
         cuts.push(snap(s.end as usize));
     }
@@ -1928,6 +2030,7 @@ fn text_runs(
     cuts.dedup();
     let mut runs = Vec::with_capacity(cuts.len());
     let mut span_ix = 0;
+    let mut semantic_ix = 0;
     for w in cuts.windows(2) {
         let (s, e) = (w[0], w[1]);
         if s >= e || e > len {
@@ -1940,7 +2043,25 @@ fn text_runs(
             Some(sp) if snap(sp.start as usize) <= s => syntax.color(sp.kind),
             _ => syntax.default,
         };
+        let mut strikethrough = None;
+        while semantic_ix < semantic.len() && snap(semantic[semantic_ix].end as usize) <= s {
+            semantic_ix += 1;
+        }
+        if let Some(sem) = semantic.get(semantic_ix)
+            && snap(sem.start as usize) <= s
+        {
+            if let Some(c) = sem.color {
+                color = c;
+            }
+            if sem.strikethrough {
+                strikethrough = Some(gpui::StrikethroughStyle {
+                    thickness: px(1.),
+                    color: None,
+                });
+            }
+        }
         let mut underline = None;
+        let mut fade = 1.0f32;
         for (r, d) in &row_decorations {
             if r.start <= s && e <= r.end {
                 match d {
@@ -1952,17 +2073,19 @@ fn text_runs(
                             wavy: *wavy,
                         })
                     }
+                    DecorationStyle::Faded(a) => fade = fade.min(*a),
                     DecorationStyle::Background(_) => {}
                 }
             }
         }
+        color.a *= fade;
         runs.push(TextRun {
             len: e - s,
             font: font.clone(),
             color: hsla(color),
             background_color: None,
             underline,
-            strikethrough: None,
+            strikethrough,
         });
     }
     if runs.is_empty() {
@@ -1976,4 +2099,53 @@ fn text_runs(
         });
     }
     runs
+}
+
+/// Insert each inlay hint's run into a line's runs (brief 0066): `insertions` are the hints' positions in the plain
+/// display string, in order; a run a hint falls inside is split around it.
+pub(crate) fn splice_inlay_runs(
+    runs: Vec<TextRun>,
+    insertions: &[(usize, &crate::inlay::RowInlay)],
+    color: Hsla,
+    font: &gpui::Font,
+) -> Vec<TextRun> {
+    let hint = |len: usize| TextRun {
+        len,
+        font: font.clone(),
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let mut out = Vec::with_capacity(runs.len() + insertions.len() * 2);
+    let mut next = insertions.iter().peekable();
+    let mut at = 0usize;
+    for run in runs {
+        let end = at + run.len;
+        let mut rest = run;
+        while let Some((pos, item)) = next.peek()
+            && *pos < end
+        {
+            let head = pos.saturating_sub(at);
+            if head > 0 {
+                out.push(TextRun {
+                    len: head,
+                    ..rest.clone()
+                });
+                rest.len -= head;
+                at += head;
+            }
+            out.push(hint(item.text.len()));
+            next.next();
+        }
+        at += rest.len;
+        if rest.len > 0 {
+            out.push(rest);
+        }
+    }
+    // Hints at the end of the line.
+    for (_, item) in next {
+        out.push(hint(item.text.len()));
+    }
+    out
 }

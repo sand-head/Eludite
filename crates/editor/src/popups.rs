@@ -15,7 +15,7 @@ use gpui::{
 };
 use text::{Anchor, Bias};
 
-use crate::display::{from_display, to_display, visual_column};
+use crate::display::{from_display, visual_column};
 use crate::intellisense::{
     AcceptedCompletion, CompletionItem, CompletionRequest, CompletionSnapshot, CompletionSource,
     CompletionTrigger, EditorEvent, HOVER_DELAY, HoverSnapshot, ListMatch, Rendered,
@@ -1001,7 +1001,12 @@ impl EditorView {
         let row = hit.row;
         let (_, text, shaped) = l.rows.iter().find(|(r, _, _)| *r == row)?;
         let x = position.x - l.text_left + l.scroll.x;
-        let col = from_display(text, shaped.index_for_x(x)?);
+        let display = shaped.index_for_x(x)?;
+        // Brief 0066: a point past an inlay hint maps through it.
+        let col = match l.row_inlays(row) {
+            Some(i) => i.from_display(text, display),
+            None => from_display(text, display),
+        };
         let c = text[col..].chars().next()?;
         if !is_identifier_char(c) {
             return None;
@@ -1079,8 +1084,8 @@ impl EditorView {
         if y + l.line_height < l.bounds.top() || y > l.bounds.bottom() {
             return None;
         }
-        let x_in_text = match l.rows.iter().find(|(r, _, _)| *r == p.row) {
-            Some((_, text, shaped)) => shaped.x_for_index(to_display(text, p.column as usize)),
+        let x_in_text = match l.x_for_column(p.row, p.column as usize) {
+            Some(x) => x,
             None => l.char_width * visual_column(&buffer.line(p.row), p.column as usize) as f32,
         };
         Some(point(l.text_left - self.scroll_position().x + x_in_text, y))

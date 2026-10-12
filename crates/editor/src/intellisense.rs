@@ -101,6 +101,22 @@ pub enum EditorEvent {
         id: u64,
         keyboard: bool,
     },
+    /// Brief 0066: the document's semantic tokens are wanted (turned on, [`crate::SEMANTIC_DEBOUNCE`] after the last
+    /// edit, a refresh). The owner answers with [`crate::EditorView::set_semantic_tokens`] quoting `id`.
+    SemanticTokensRequested {
+        id: u64,
+    },
+    /// Brief 0066: the inlay hints of `rows` are wanted; the owner answers with [`crate::EditorView::set_inlay_hints`].
+    InlayHintsRequested {
+        id: u64,
+        rows: std::ops::Range<u32>,
+    },
+    /// Brief 0066: the mouse came to rest on hint `id` (at buffer `offset`): the owner shows its tooltip (resolving it
+    /// first when it has none) with [`crate::EditorView::open_hover`].
+    InlayHintHovered {
+        id: u64,
+        offset: usize,
+    },
 }
 
 /// How long after the last edit the lenses are asked for again (brief 0052).

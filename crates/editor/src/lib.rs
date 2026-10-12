@@ -93,6 +93,17 @@
 //! lines of the visible range); a click or Ctrl+K, Ctrl+Q emits [`EditorEvent::CodeLensActivated`]. Overlays drawn
 //! beside the text place themselves with [`EditorView::row_top`].
 //!
+//! # Semantic highlighting and inlay hints (brief 0066)
+//!
+//! [`semantic`]: the language server's classifications as colored spans per row ([`SemanticRows`]), painted over the
+//! tree-sitter colors (which stay the first paint) and under the decorations, moved through edits until a fresh answer
+//! replaces them; [`EditorView::set_semantic_tokens`] answers [`EditorEvent::SemanticTokensRequested`] (on, 150 ms
+//! after the last edit, on [`EditorView::refresh_semantic_tokens`]) and drops a stale answer.
+//! [`DecorationStyle::Faded`] draws unnecessary code at a lower opacity. [`inlay`]: hints drawn inside the shaped line
+//! as chips that are not text (no line count, offset, line number or copy changes; the caret skips them);
+//! [`EditorView::set_inlay_hints`] answers [`EditorEvent::InlayHintsRequested`] for the visible rows and
+//! [`INLAY_MARGIN`] around them, and [`EditorEvent::InlayHintHovered`] asks for a hint's tooltip.
+//!
 //! # Text input (brief 0057)
 //!
 //! [`TextInput`] is a text box over the same [`Editor`] (a prompt, a search box): its own element with no gutter,
@@ -115,8 +126,11 @@ mod debugging;
 pub mod display;
 mod editor;
 mod input;
+// Brief 0066: inlay hints and semantic highlighting from the language server.
+pub mod inlay;
 pub mod intellisense;
 mod popups;
+pub mod semantic;
 pub mod syntax;
 mod view;
 
@@ -125,12 +139,14 @@ pub use debugging::{BreakpointGlyph, ExecutionKind};
 pub use display::{RowHit, VerticalLayout};
 pub use editor::{ClickKind, Editor, FindQuery, Selection, SelectionRange};
 pub use eludite_ui::CompletionKind;
+pub use inlay::{INLAY_MARGIN, InlayHint, InlayKind};
 pub use input::{INPUT_KEY_CONTEXT, InputLayout, TextInput, TextInputEvent};
 pub use intellisense::{
     AcceptedCompletion, CodeLens, CodeLensSnapshot, CompletionEdit, CompletionItem,
     CompletionRequest, CompletionSnapshot, CompletionSource, CompletionTrigger, EditorEvent,
     HoverSnapshot, SignatureHelpData, SignatureInfo, SignatureSnapshot, SignatureTrigger,
 };
+pub use semantic::{SEMANTIC_DEBOUNCE, SemanticRows, SemanticSpan, SemanticUpdate};
 pub use text;
 pub use view::{
     COMPLETION_CONTEXT, COMPLETION_SELECTED_CONTEXT, Decoration, DecorationStyle, EditorStyle,
