@@ -218,7 +218,8 @@ public sealed class LspProxy : IAsyncDisposable
 
         _ = NotifyShellAsync("eludite/languageServer/status", new LanguageServerStatus("unavailable")
         {
-            Message = "No language server is configured (build it with tools/roslyn-pin/build.sh, or pass --roslyn-ls).",
+            // Brief 0080: what is missing and where to set it, for the person rather than a developer.
+            Message = RoslynProcessLauncher.NotFoundMessage,
         });
     }
 
@@ -600,7 +601,8 @@ public sealed class LspProxy : IAsyncDisposable
 
             if (_launcher is null)
             {
-                await FailAsync(load, "ELUDITE0001", "No language server is configured; the solution is shown without semantic features.").ConfigureAwait(false);
+                // Brief 0080: what is missing and where to set it, for the person rather than a developer.
+                await FailAsync(load, "ELUDITE0001", RoslynProcessLauncher.NotFoundMessage + " The solution is shown without semantic features.").ConfigureAwait(false);
                 return;
             }
 

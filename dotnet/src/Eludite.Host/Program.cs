@@ -7,12 +7,19 @@ namespace Eludite.Host;
 
 internal static class Program
 {
-    private const string Usage = "usage: eludite-host [--stdio] [--roslyn-ls <path to Microsoft.CodeAnalysis.LanguageServer.dll> | --no-roslyn]";
+    private const string Usage = "usage: eludite-host [--stdio] [--roslyn-ls <path to Microsoft.CodeAnalysis.LanguageServer.dll> | --no-roslyn] | --version";
 
     private static async Task<int> Main(string[] args)
     {
         // stdout carries JSON-RPC only; every diagnostic goes to stderr.
         var log = Console.Error;
+
+        // Brief 0080: the release version (companions.sh publishes with -p:Version=), on stdout because no protocol runs.
+        if (args is ["--version"])
+        {
+            Console.WriteLine($"{HostRpcTarget.HostName} {HostRpcTarget.HostVersion}");
+            return 0;
+        }
 
         string? roslynPath = null;
         var noRoslyn = false;
@@ -44,18 +51,22 @@ internal static class Program
         ISolutionPreparer? preparer = null;
         if (!noRoslyn)
         {
-            var located = RoslynProcessLauncher.Locate(roslynPath);
+            // Brief 0080: the argument (the shell's setting languageServers.roslynPath), ELUDITE_ROSLYN_LS, roslyn/ beside
+            // the host (the package), then tools/roslyn-pin's output.
+            var located = RoslynProcessLauncher.Locate(roslynPath, AppContext.BaseDirectory, Environment.GetEnvironmentVariable, out var source);
             if (located is null)
             {
-                await log.WriteLineAsync("Roslyn language server not found (see tools/roslyn-pin); LSP forwarding disabled").ConfigureAwait(false);
+                await log.WriteLineAsync($"Roslyn language server not found ({source} was the last place looked); LSP forwarding disabled. {RoslynProcessLauncher.NotFoundMessage}").ConfigureAwait(false);
             }
             else if (Environment.GetEnvironmentVariable("ELUDITE_LEGACY") == "0")
             {
+                await log.WriteLineAsync($"Roslyn language server ({source}): {located}").ConfigureAwait(false);
                 // Brief 0003: ELUDITE_LEGACY=0 turns the legacy preparation and the extra environment off.
                 launcher = new RoslynProcessLauncher(located, log);
             }
             else
             {
+                await log.WriteLineAsync($"Roslyn language server ({source}): {located}").ConfigureAwait(false);
                 var legacy = new LegacyDesignTime(log);
                 await log.WriteLineAsync(legacy.Mono is { } mono
                     ? $"[legacy] Mono MSBuild: {mono.MsBuildDll} ({mono.Source})"

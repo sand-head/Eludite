@@ -26,33 +26,78 @@ public sealed class RoslynProcessLauncher : ILanguageServerLauncher
         _environment = environment;
     }
 
-    /// <summary>
-    /// Resolves the language server DLL from <c>--roslyn-ls</c>, then <c>ELUDITE_ROSLYN_LS</c>, then the
-    /// default tools/roslyn-pin output under <c>ROSLYN_SRC_DIR</c> (default ~/.cache/eludite/roslyn).
-    /// Returns null when none exists.
-    /// </summary>
-    public static string? Locate(string? explicitPath)
+    /// <summary>The server's file name.</summary>
+    public const string ServerDll = "Microsoft.CodeAnalysis.LanguageServer.dll";
+
+    /// <summary>The folder beside the host's own assembly that a package ships the server in (brief 0080, ADR-0015).</summary>
+    public const string BundledFolder = "roslyn";
+
+    /// <summary>What the person reads when no server was found (ELUDITE0001 and the language server status).</summary>
+    public const string NotFoundMessage =
+        "C# and Visual Basic IntelliSense is unavailable: the Roslyn language server was not found beside eludite-host " +
+        "(eludite-host/roslyn/), at the setting languageServers.roslynPath (Tools > Options > Language servers) or at " +
+        "ELUDITE_ROSLYN_LS. See docs/user/troubleshooting.md#roslyn.";
+
+    /// <summary>Where <see cref="Locate(string?)"/> found the server.</summary>
+    public enum Source
     {
+        /// <summary><c>--roslyn-ls</c>: the shell passes the setting <c>languageServers.roslynPath</c> this way.</summary>
+        Argument,
+
+        /// <summary><c>ELUDITE_ROSLYN_LS</c>.</summary>
+        Environment,
+
+        /// <summary><c>roslyn/</c> beside the host (the package layout, tools/package/companions.sh).</summary>
+        BesideHost,
+
+        /// <summary>The tools/roslyn-pin output under <c>ROSLYN_SRC_DIR</c> (default ~/.cache/eludite/roslyn).</summary>
+        Cache,
+    }
+
+    /// <summary>
+    /// Resolves the language server DLL (brief 0080): <c>--roslyn-ls</c>, then <c>ELUDITE_ROSLYN_LS</c>, then
+    /// <c>roslyn/</c> beside the host's own assembly, then the default tools/roslyn-pin output under
+    /// <c>ROSLYN_SRC_DIR</c> (default ~/.cache/eludite/roslyn). The explicit choices win over the shipped copy; a named
+    /// path that does not exist is null rather than a silent fallback. Returns null when none exists.
+    /// </summary>
+    public static string? Locate(string? explicitPath) =>
+        Locate(explicitPath, AppContext.BaseDirectory, System.Environment.GetEnvironmentVariable, out _);
+
+    /// <summary>The search with its inputs given (tests), and where the server was found.</summary>
+    public static string? Locate(string? explicitPath, string? hostDirectory, Func<string, string?> environment, out Source source)
+    {
+        source = Source.Argument;
         if (!string.IsNullOrEmpty(explicitPath))
         {
             return File.Exists(explicitPath) ? Path.GetFullPath(explicitPath) : null;
         }
 
-        var fromEnv = Environment.GetEnvironmentVariable("ELUDITE_ROSLYN_LS");
+        source = Source.Environment;
+        var fromEnv = environment("ELUDITE_ROSLYN_LS");
         if (!string.IsNullOrEmpty(fromEnv))
         {
             return File.Exists(fromEnv) ? Path.GetFullPath(fromEnv) : null;
         }
 
-        var src = Environment.GetEnvironmentVariable("ROSLYN_SRC_DIR");
+        source = Source.BesideHost;
+        if (!string.IsNullOrEmpty(hostDirectory))
+        {
+            var bundled = Path.Combine(hostDirectory, BundledFolder, ServerDll);
+            if (File.Exists(bundled))
+            {
+                return Path.GetFullPath(bundled);
+            }
+        }
+
+        source = Source.Cache;
+        var src = environment("ROSLYN_SRC_DIR");
         if (string.IsNullOrEmpty(src))
         {
-            src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache", "eludite", "roslyn");
+            src = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), ".cache", "eludite", "roslyn");
         }
 
         var candidate = Path.Combine(
-            src, "artifacts", "bin", "Microsoft.CodeAnalysis.LanguageServer", "Release", "net10.0",
-            "Microsoft.CodeAnalysis.LanguageServer.dll");
+            src, "artifacts", "bin", "Microsoft.CodeAnalysis.LanguageServer", "Release", "net10.0", ServerDll);
         return File.Exists(candidate) ? candidate : null;
     }
 

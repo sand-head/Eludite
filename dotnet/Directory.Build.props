@@ -12,6 +12,7 @@
     <Authors>Jessie Schweigert</Authors>
     <Product>Eludite</Product>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <!-- Brief 0080: the default for development builds; tools/package/companions.sh publishes with -p:Version=<release version>. -->
     <Version>0.1.0</Version>
   </PropertyGroup>
 </Project>
