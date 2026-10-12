@@ -87,7 +87,8 @@ fn razor_html(w: &mut Ws, method: &str, uri: &str, checksum: &str, params: Value
         "method": method,
         "uri": uri,
         "checksum": checksum,
-        "text": HOME_HTML,
+        // Another checksum is another projection (the session sends a didChange only for changed text).
+        "text": if checksum == "c1" { HOME_HTML.to_owned() } else { HOME_HTML.replace("<h1>", "<h2>") },
         "params": params,
         "eluditeGeneration": generation.unwrap_or_else(|| fake.generation()),
     });

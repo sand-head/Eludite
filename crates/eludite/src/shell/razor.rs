@@ -23,7 +23,7 @@ use std::path::PathBuf;
 
 use eludite_lsp::Id;
 use eludite_lsp::host::RazorHtmlParams;
-use gpui::{Context, Window};
+use gpui::{AppContext as _, Context, Window};
 use serde_json::Value;
 
 use super::Shell;
