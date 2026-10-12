@@ -229,6 +229,12 @@ pub enum Event {
         id: Id,
         params: eludite_protocol::host::NuGetCredentialsParams,
     },
+    /// `eludite/razor/html` (brief 0079): Razor asks for the HTML part of a Razor document. Answer with
+    /// `HostClient::respond_razor_html` and `id`; until then the host (and Razor) waits.
+    RazorHtml {
+        id: Id,
+        params: Box<eludite_protocol::host::RazorHtmlParams>,
+    },
     /// `workspace/applyEdit` from the server. Answer it with `respond_apply_edit` and `id`; until then the server
     /// waits.
     ApplyEdit {

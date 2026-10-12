@@ -4,8 +4,8 @@
       "id": "roslyn",
       "name": "C# and Visual Basic",
       "languageId": "csharp",
-      "languageIds": { "*.vb": "vb" },
-      "fileGlobs": ["*.cs", "*.vb"],
+      "languageIds": { "*.vb": "vb", "*.razor": "aspnetcorerazor", "*.cshtml": "aspnetcorerazor" },
+      "fileGlobs": ["*.cs", "*.vb", "*.razor", "*.cshtml"],
       "via": "eluditeHost"
     },
     {
@@ -158,7 +158,7 @@
       "id": "html",
       "name": "HTML",
       "languageId": "html",
-      "fileGlobs": ["*.html", "*.htm", "*.cshtml", "*.razor"],
+      "fileGlobs": ["*.html", "*.htm"],
       "via": "process",
       "rootMarkers": ["package.json"],
       "command": {

@@ -108,6 +108,24 @@ impl Dialect for HostDialect {
 
     /// `eludite/nuget/credentials` (brief 0048) waits for the person: an event the shell answers later.
     fn deferred_request(&self, r: &Request) -> Option<Result<Event, ErrorObject>> {
+        // Brief 0079: Razor's HTML request, answered from the shell's HTML server.
+        if r.method == methods::RAZOR_HTML {
+            return Some(
+                serde_json::from_value::<host::RazorHtmlParams>(
+                    r.params.clone().unwrap_or(Value::Null),
+                )
+                .map(|params| Event::RazorHtml {
+                    id: r.id.clone(),
+                    params: Box::new(params),
+                })
+                .map_err(|e| {
+                    ErrorObject::new(
+                        ErrorObject::INVALID_PARAMS,
+                        format!("{}: {e}", methods::RAZOR_HTML),
+                    )
+                }),
+            );
+        }
         if r.method != methods::NUGET_CREDENTIALS {
             return None;
         }
@@ -128,8 +146,8 @@ impl Dialect for HostDialect {
         )
     }
 
-    /// `workspace/applyEdit` and `eludite/nuget/credentials` are the host's requests to the shell; anything else is
-    /// MethodNotFound (host-rpc.md, "Messages the host sends").
+    /// `workspace/applyEdit`, `eludite/nuget/credentials` and `eludite/razor/html` are the host's requests to the shell;
+    /// anything else is MethodNotFound (host-rpc.md, "Messages the host sends").
     fn request(&self, _conn: &Connection, r: &Request) -> Result<Value, ErrorObject> {
         Err(ErrorObject::new(
             ErrorObject::METHOD_NOT_FOUND,
@@ -283,6 +301,12 @@ impl HostClient {
         answer: Option<host::NuGetCredentialsAnswer>,
     ) -> Result<(), Error> {
         self.conn.respond(id, serde_json::to_value(answer)?)
+    }
+
+    /// Answer the host's `eludite/razor/html` request `id` ([`Event::RazorHtml`], brief 0079) with the HTML server's
+    /// result, or `null`.
+    pub fn respond_razor_html(&self, id: Id, result: Value) -> Result<(), Error> {
+        self.conn.respond(id, result)
     }
 
     /// Answer the host's `workspace/applyEdit` request `id` ([`Event::ApplyEdit`]).

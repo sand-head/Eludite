@@ -1002,8 +1002,13 @@ mod tests {
             "typescript"
         );
         assert_eq!(ids("/v/index.html"), ["html"]);
-        assert_eq!(ids("/w/Views/Home/Index.cshtml"), ["html"]);
-        assert_eq!(ids("/w/Components/Pages/Counter.razor"), ["html"]);
+        // Brief 0079: Razor files are the host's; the HTML server sees only their projections.
+        assert_eq!(ids("/w/Views/Home/Index.cshtml"), ["roslyn"]);
+        assert_eq!(ids("/w/Components/Pages/Counter.razor"), ["roslyn"]);
+        assert_eq!(
+            ids("/w/Components/Pages/Counter.razor__virtual.html"),
+            ["html"]
+        );
         assert_eq!(ids("/v/site.scss"), ["css"]);
         assert_eq!(ids("/v/package.json"), ["json"]);
         assert_eq!(ids("/v/Program.cs"), ["roslyn"]);
@@ -1012,8 +1017,8 @@ mod tests {
         assert_eq!(lang("typescript", "/v/App.tsx"), "typescriptreact");
         assert_eq!(lang("typescript", "/v/a.js"), "javascript");
         assert_eq!(lang("eslint", "/v/a.jsx"), "javascriptreact");
-        assert_eq!(lang("html", "/w/Index.cshtml"), "html");
-        assert_eq!(lang("html", "/w/Counter.razor"), "html");
+        assert_eq!(lang("roslyn", "/w/Index.cshtml"), "aspnetcorerazor");
+        assert_eq!(lang("roslyn", "/w/Counter.razor"), "aspnetcorerazor");
         assert_eq!(lang("css", "/v/site.scss"), "scss");
         assert_eq!(lang("css", "/v/theme.less"), "less");
         assert_eq!(lang("css", "/v/site.css"), "css");
@@ -1586,6 +1591,47 @@ mod tests {
         }
         let pinned = pin.lines().find_map(|l| l.strip_prefix("pin ")).unwrap();
         assert_eq!(ServerRegistry::builtin().web_servers.unwrap().pin, pinned);
+    }
+
+    /// Brief 0079: `.razor` and `.cshtml` are the host's (Roslyn's Razor cohosting), as `aspnetcorerazor`, and no
+    /// other server's.
+    #[test]
+    fn razor_goes_to_the_host_only() {
+        let r = ServerRegistry::builtin();
+        for f in [
+            "/s/Components/Pages/Home.razor",
+            "/s/Views/Home/Index.cshtml",
+            "/s/Pages/Privacy.CSHTML",
+        ] {
+            let all = r.all_for_path(Path::new(f));
+            assert_eq!(all.len(), 1, "{f}");
+            assert_eq!(
+                (all[0].id.as_str(), all[0].via),
+                ("roslyn", Via::EluditeHost),
+                "{f}"
+            );
+            assert_eq!(
+                all[0].language_id_for(Path::new(f)),
+                "aspnetcorerazor",
+                "{f}"
+            );
+        }
+        // The code-behind stays C#.
+        assert_eq!(
+            r.for_path(Path::new("/s/Pages/Privacy.cshtml.cs"))
+                .unwrap()
+                .language_id_for(Path::new("/s/Pages/Privacy.cshtml.cs")),
+            "csharp"
+        );
+        // No formatter claims a Razor file: Format Document goes to the host (Razor's formatter).
+        for name in ["Home.razor", "Index.cshtml"] {
+            assert!(
+                !r.formatters
+                    .iter()
+                    .any(|f| f.file_globs.iter().any(|g| glob_match(g, name))),
+                "{name}"
+            );
+        }
     }
 
     /// Brief 0063: `.vb` is the host's (Roslyn), as `vb`; the F# files are FsAutoComplete's, as `fsharp`, a .NET tool

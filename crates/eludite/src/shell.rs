@@ -60,6 +60,10 @@ pub mod output;
 pub mod project_properties;
 #[cfg(test)]
 mod project_properties_tests;
+// Brief 0079: Razor's HTML requests answered from the HTML server.
+pub mod razor;
+#[cfg(test)]
+mod razor_tests;
 #[cfg(test)]
 mod refactor_tests;
 pub mod references;
@@ -520,6 +524,8 @@ pub struct Shell {
     properties: project_properties::PropertiesUi,
     /// The `.resx` editor (proposal 0005).
     resx: resx::ResxUi,
+    /// Razor's virtual HTML documents (brief 0079).
+    razor: razor::RazorHtml,
     /// The self-updater: the status slot, the Output lines, the question, the restart (brief 0055).
     update: update::UpdateUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
@@ -1159,6 +1165,7 @@ impl Shell {
             nuget,
             properties,
             resx,
+            razor: Default::default(), // Brief 0079.
             update,
             ui_bounds: None,
             timings: Timings::default(),
@@ -1957,6 +1964,7 @@ impl Shell {
             SessionEvent::NuGetCredentials { id, params } => {
                 self.on_nuget_credentials(id, params, window, cx)
             }
+            SessionEvent::RazorHtml { id, params } => self.on_razor_html(id, *params, window, cx), // Brief 0079.
             SessionEvent::BuildProgress(p) => self.on_build_progress(p, cx),
             SessionEvent::BuildFinished { finished, received } => {
                 self.on_build_finished(*finished, received, window, cx)

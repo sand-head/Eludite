@@ -7,8 +7,8 @@
 //! script in the project's `node_modules`), then the server's formatting, and a failing formatter leaves the document
 //! and writes an Output line; format on save formats before writing; Emmet expands on Tab in HTML and CSS and not when
 //! `editor.emmet` is off; a server that is not found says `not found (run tools/web-servers/fetch.sh)` while
-//! highlighting stays; a `.cshtml` view and a `.razor` component get Razor highlighting (brief 0056) and the HTML
-//! server's completion; the JSON server gets the schema associations pushed with the cached schemas. The real servers'
+//! highlighting stays; a `.cshtml` view and a `.razor` component get Razor highlighting (brief 0056) and go to the
+//! host (Razor, brief 0079), never to the HTML server; the JSON server gets the schema associations pushed with the cached schemas. The real servers'
 //! test is at the end, gated on `ELUDITE_WEB_SERVERS` (`tools/web-servers/fetch.sh`).
 
 use std::path::PathBuf;
@@ -926,19 +926,18 @@ fn a_server_that_is_not_found_names_the_fetch_command(cx: &mut TestAppContext) {
     assert!(w.text(&view).contains("color: red;"));
 }
 
-/// A Razor view (`.cshtml`) is highlighted by the Razor grammar (brief 0056), its markup served by the HTML server.
+/// A Razor view (`.cshtml`) is highlighted by the Razor grammar (brief 0056); since brief 0079 it is the host's
+/// (Razor), and the HTML server does not see it.
 #[gpui::test]
-fn a_cshtml_view_gets_razor_highlighting_and_the_html_servers_completion(cx: &mut TestAppContext) {
-    razor_highlighting_and_html_completion(cx, "Views/Home/Index.cshtml", &[]);
+fn a_cshtml_view_gets_razor_highlighting_and_not_the_html_server(cx: &mut TestAppContext) {
+    razor_highlighting_without_the_html_server(cx, "Views/Home/Index.cshtml", &[]);
 }
 
-/// A Blazor component (`.razor`) is highlighted by the Razor grammar, its `@code` block's C# by the C# query, and its
-/// markup is served by the HTML server as a `.cshtml` view's is.
+/// A Blazor component (`.razor`) is highlighted by the Razor grammar, its `@code` block's C# by the C# query; like a
+/// `.cshtml` view it is the host's, not the HTML server's (brief 0079).
 #[gpui::test]
-fn a_razor_component_gets_razor_highlighting_and_the_html_servers_completion(
-    cx: &mut TestAppContext,
-) {
-    razor_highlighting_and_html_completion(
+fn a_razor_component_gets_razor_highlighting_and_not_the_html_server(cx: &mut TestAppContext) {
+    razor_highlighting_without_the_html_server(
         cx,
         "Components/Pages/Counter.razor",
         &[
@@ -952,32 +951,15 @@ fn a_razor_component_gets_razor_highlighting_and_the_html_servers_completion(
 
 /// Open the Razor document `rel` (its first row a directive, its second `<div class=...>`, its third `  <h1>`, its
 /// fourth blank): the editor's language is Razor, with a keyword at the directive's `@`, a tag at `div` and `h1`, an
-/// attribute name at `class` and the `more` kinds at their rows and columns; the HTML server gets it with `languageId`
-/// `html` and completes `<s` typed on the blank row.
-fn razor_highlighting_and_html_completion(
+/// attribute name at `class` and the `more` kinds at their rows and columns; no HTML server starts for it (its HTML
+/// is served through Razor's projections, `razor_tests`).
+fn razor_highlighting_without_the_html_server(
     cx: &mut TestAppContext,
     rel: &str,
     more: &[(u32, u32, HighlightKind, &str)],
 ) {
-    let mut w = setup(cx, |w| {
-        w.html.respond("textDocument/completion", |_| {
-            FakeReply::Result(
-                json!([{"label": "section", "kind": 10}, {"label": "span", "kind": 10}]),
-            )
-        });
-    });
-    let path = w.path(rel).to_string_lossy().into_owned();
-    let file = rel.rsplit('/').next().unwrap().to_owned();
+    let mut w = setup(cx, |_| {});
     let view = w.open(rel);
-    let open = w
-        .html
-        .wait_for("textDocument/didOpen", T, |p| {
-            p["textDocument"]["uri"]
-                .as_str()
-                .is_some_and(|u| u.ends_with(&file))
-        })
-        .unwrap();
-    assert_eq!(open.params["textDocument"]["languageId"], "html");
     let language = view.read_with(&w.vcx, |v, _| v.language().map(|l| l.id()));
     assert_eq!(language, Some("razor"));
     w.wait("the Razor highlights", |w| {
@@ -1005,18 +987,9 @@ fn razor_highlighting_and_html_completion(
     for &(row, column, want, what) in more {
         assert_eq!(kind(&w, row, column), Some(want), "{what}");
     }
-    w.wait("HTML ready", |w| w.slot("html").starts_with("HTML: ready"));
-    w.type_at_end_of_line(&view, 3, "<s");
-    w.run_cmd(
-        workspace::EDITOR_COMPLETE,
-        json!({"path": path, "line": 4, "column": 5}),
-    );
-    w.wait("the HTML server's list", |w| {
-        view.read_with(&w.vcx, |v, _| {
-            v.completion()
-                .is_some_and(|c| c.visible && c.items.iter().any(|i| i.0 == "section"))
-        })
-    });
+    assert_eq!(w.html.connections(), 0, "the HTML server started for {rel}");
+    let generic = w.shell.read_with(&w.vcx, |s, _| s.generic_servers().len());
+    assert_eq!(generic, 0, "a generic server started for {rel}");
 }
 
 /// The JSON server gets its settings pushed after `initialized`: the SchemaStore associations at the cached schema

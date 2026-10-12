@@ -266,6 +266,12 @@ pub enum SessionEvent {
     CodeLensRefresh {
         generation: Generation,
     },
+    /// `eludite/razor/html` (brief 0079): Razor asks for the HTML part of a Razor document; answer with
+    /// [`ServerSession::respond_razor_html`] and `id`.
+    RazorHtml {
+        id: Id,
+        params: Box<host::RazorHtmlParams>,
+    },
 }
 
 enum Cmd {
@@ -298,6 +304,8 @@ enum Cmd {
     RespondApplyEdit(Id, lsp::ApplyWorkspaceEditResult),
     /// Answer the host's `eludite/nuget/credentials` (brief 0048).
     RespondNuGetCredentials(Id, Option<host::NuGetCredentialsAnswer>),
+    /// Answer the host's `eludite/razor/html` (brief 0079).
+    RespondRazorHtml(Id, serde_json::Value),
     /// Ask for the tree again: the projects changed under a new generation (brief 0048's NuGet changes), or the host
     /// reloaded the solution itself (brief 0049's property writes).
     RefreshTree,
@@ -769,6 +777,12 @@ impl ServerSession {
         self.send(Cmd::RespondNuGetCredentials(id, answer));
     }
 
+    /// Answer the host's `eludite/razor/html` request `id` ([`SessionEvent::RazorHtml`], brief 0079): the HTML server's
+    /// result, or `null`.
+    pub fn respond_razor_html(&self, id: Id, result: serde_json::Value) {
+        self.send(Cmd::RespondRazorHtml(id, result));
+    }
+
     /// Ask the host for the solution tree again (a NuGet change advanced the generation, brief 0048, or the host
     /// reloaded the solution after a project or solution file write, brief 0049). The answer arrives as
     /// [`SessionEvent::Tree`] when it is still current.
@@ -982,6 +996,12 @@ impl Worker {
                 Cmd::RespondNuGetCredentials(id, answer) => {
                     if let Some(c) = self.host() {
                         let _ = c.respond_nuget_credentials(id, answer);
+                    }
+                }
+                // Brief 0079.
+                Cmd::RespondRazorHtml(id, result) => {
+                    if let Some(c) = self.host() {
+                        let _ = c.respond_razor_html(id, result);
                     }
                 }
                 Cmd::RefreshTree => {
@@ -1560,6 +1580,7 @@ impl Pump {
                 Event::NuGetCredentials { id, params } => {
                     SessionEvent::NuGetCredentials { id, params }
                 }
+                Event::RazorHtml { id, params } => SessionEvent::RazorHtml { id, params }, // Brief 0079.
                 Event::CodeLensRefresh { generation, .. } => {
                     SessionEvent::CodeLensRefresh { generation }
                 }

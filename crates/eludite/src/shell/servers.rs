@@ -475,6 +475,8 @@ impl Shell {
                     server.modules = modules;
                 }
             }
+            // Brief 0079: a Razor document's virtual HTML document is not the person's file; its diagnostics are dropped.
+            SessionEvent::Diagnostics(params) if super::razor::is_virtual_uri(&params.uri) => {}
             SessionEvent::Diagnostics(params) => {
                 if let Some(server) = self.generic.get_mut(key)
                     && self.documents.values().any(|d| d.uri == params.uri)
