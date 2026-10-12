@@ -134,6 +134,12 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
             },
             data = p.GetProperty("data"),
         })));
+        // Brief 0066: semantic tokens (one class name, then a method) and a parameter hint.
+        Add(rpc, "textDocument/semanticTokens/full", new Func<JsonElement, object>(p => Record(launch, "textDocument/semanticTokens/full", p, new { resultId = "1", data = new[] { 2, 13, 15, 2, 0, 2, 4, 4, 13, 0 } })));
+        Add(rpc, "textDocument/semanticTokens/full/delta", new Func<JsonElement, object>(p => Record(launch, "textDocument/semanticTokens/full/delta", p, new { resultId = "2", edits = new[] { new { start = 10, deleteCount = 0, data = new[] { 1, 0, 1, 0, 0 } } } })));
+        Add(rpc, "textDocument/semanticTokens/range", new Func<JsonElement, object>(p => Record(launch, "textDocument/semanticTokens/range", p, new { data = new[] { 2, 13, 15, 2, 0 } })));
+        Add(rpc, "textDocument/inlayHint", new Func<JsonElement, object>(p => Record(launch, "textDocument/inlayHint", p, new[] { new { position = new { line = 4, character = 20 }, label = "count:", kind = 2, paddingRight = true, data = new { listIndex = 0 } } })));
+        Add(rpc, "inlayHint/resolve", new Func<JsonElement, object>(p => Record(launch, "inlayHint/resolve", p, new { position = p.GetProperty("position"), label = p.GetProperty("label"), kind = 2, tooltip = "int count", data = p.GetProperty("data") })));
         Add(rpc, "workspace/symbol", new Func<JsonElement, object>(p => Record(launch, "workspace/symbol", p, Array.Empty<object>())));
         Add(rpc, "textDocument/diagnostic", new Func<JsonElement, CancellationToken, Task<object>>((p, ct) => DiagnosticAsync(launch, p, ct)));
         Add(rpc, "shutdown", new Func<object?>(() => Record<object?>(launch, "shutdown", default, null)));
@@ -153,6 +159,9 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
 
     /// <summary>Sends the host <c>workspace/codeLens/refresh</c> without params, as Roslyn does.</summary>
     public Task RequestCodeLensRefreshAsync() => _rpc!.InvokeAsync<object?>("workspace/codeLens/refresh");
+
+    /// <summary>Sends the host a server-to-client request without params (brief 0066's refreshes), as Roslyn does.</summary>
+    public Task RequestAsync(string method) => _rpc!.InvokeAsync<object?>(method);
 
     /// <summary>
     /// What the pinned Roslyn answers for a document with <c>class CalculatorTests</c> on line 2 and the test method

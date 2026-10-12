@@ -64,6 +64,12 @@ public sealed class LspProxy : IAsyncDisposable
         "textDocument/diagnostic",
         "textDocument/codeLens",
         "codeLens/resolve",
+        // Brief 0066: semantic tokens (full and range were untyped before) and inlay hints.
+        "textDocument/semanticTokens/full",
+        "textDocument/semanticTokens/full/delta",
+        "textDocument/semanticTokens/range",
+        "textDocument/inlayHint",
+        "inlayHint/resolve",
     ];
 
     /// <summary>Forwarded requests passed through untyped (still generation-checked).</summary>
@@ -72,8 +78,6 @@ public sealed class LspProxy : IAsyncDisposable
         "textDocument/typeDefinition",
         "textDocument/implementation",
         "textDocument/documentHighlight",
-        "textDocument/semanticTokens/full",
-        "textDocument/semanticTokens/range",
         "textDocument/formatting",
     ];
 
@@ -104,6 +108,16 @@ public sealed class LspProxy : IAsyncDisposable
 
     /// <summary>What the host tells the shell when it arrives (host-rpc.md, "Messages the host sends").</summary>
     public const string ShellCodeLensRefresh = "eludite/codeLens/refresh";
+
+    /// <summary>The language server's requests for fresh semantic tokens and inlay hints (brief 0066).</summary>
+    internal const string SemanticTokensRefresh = "workspace/semanticTokens/refresh";
+
+    internal const string InlayHintRefresh = "workspace/inlayHint/refresh";
+
+    /// <summary>What the host tells the shell when they arrive (host-rpc.md, "Messages the host sends").</summary>
+    public const string ShellSemanticTokensRefresh = "eludite/semanticTokens/refresh";
+
+    public const string ShellInlayHintRefresh = "eludite/inlayHint/refresh";
 
     private static readonly JsonElement JsonNull = JsonDocument.Parse("null").RootElement.Clone();
 
@@ -460,6 +474,10 @@ public sealed class LspProxy : IAsyncDisposable
                                   && range.ValueKind == JsonValueKind.Object
                 ? null
                 : "params.range (object) is required",
+            "inlayHint/resolve" => p.ValueKind == JsonValueKind.Object && p.TryGetProperty("position", out var position)
+                                   && position.ValueKind == JsonValueKind.Object
+                ? null
+                : "params.position (object) is required",
             _ when TypedRequests.Contains(method) =>
                 p.ValueKind == JsonValueKind.Object && p.TryGetProperty("textDocument", out var td) && HasString(td, "uri")
                     ? null
@@ -936,6 +954,9 @@ public sealed class LspProxy : IAsyncDisposable
             },
             // Brief 0052: Roslyn asks for fresh lenses (relayed to the shell as eludite/codeLens/refresh).
             codeLens = new { refreshSupport = true },
+            // Brief 0066: Roslyn asks for fresh tokens and hints (relayed to the shell).
+            semanticTokens = new { refreshSupport = true },
+            inlayHint = new { refreshSupport = true },
         },
         textDocument = new
         {
@@ -974,7 +995,31 @@ public sealed class LspProxy : IAsyncDisposable
             rename = new { prepareSupport = true },
             // Brief 0052: the references and tests lenses.
             codeLens = new { },
-            publishDiagnostics = new { },
+            // Brief 0066: semantic tokens in every request form (the shell decodes them with Roslyn's legend), inlay
+            // hints with resolve, and the unnecessary and deprecated diagnostic tags (faded and struck-through code).
+            semanticTokens = new
+            {
+                dynamicRegistration = false,
+                requests = new { range = true, full = new { delta = true } },
+                tokenTypes = new[]
+                {
+                    "namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable",
+                    "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment",
+                    "string", "number", "regexp", "operator", "decorator",
+                },
+                tokenModifiers = new[]
+                {
+                    "declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification",
+                    "documentation", "defaultLibrary",
+                },
+                formats = new[] { "relative" },
+                overlappingTokenSupport = false,
+                multilineTokenSupport = false,
+                serverCancelSupport = true,
+                augmentsSyntaxTokens = true,
+            },
+            inlayHint = new { resolveSupport = new { properties = new[] { "tooltip", "textEdits", "label.tooltip" } } },
+            publishDiagnostics = new { tagSupport = new { valueSet = new[] { 1, 2 } } },
             diagnostic = new { dynamicRegistration = false },
         },
         window = new { workDoneProgress = true },
@@ -987,7 +1032,7 @@ public sealed class LspProxy : IAsyncDisposable
         foreach (var method in new[]
                  {
                      "client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create",
-                     "window/showMessageRequest", "workspace/semanticTokens/refresh", "workspace/inlayHint/refresh",
+                     "window/showMessageRequest",
                  })
         {
             AddMethod(upstream, method, new Func<JsonElement, JsonElement>(_ => JsonNull));
@@ -1027,6 +1072,18 @@ public sealed class LspProxy : IAsyncDisposable
         });
         upstream.AddLocalRpcMethod(codeLensBare.Method, codeLensBare.Target, new JsonRpcMethodAttribute(CodeLensRefresh));
 
+        // Brief 0066: the same for semantic tokens and inlay hints.
+        foreach (var (method, shellMethod) in new[] { (SemanticTokensRefresh, ShellSemanticTokensRefresh), (InlayHintRefresh, ShellInlayHintRefresh) })
+        {
+            AddMethod(upstream, method, new Func<JsonElement, JsonElement>(_ => RelayRefresh(shellMethod)));
+            var bare = new Func<object?>(() =>
+            {
+                RelayRefresh(shellMethod);
+                return null;
+            });
+            upstream.AddLocalRpcMethod(bare.Method, bare.Target, new JsonRpcMethodAttribute(method));
+        }
+
         AddMethod(upstream, ApplyEdit, new Func<JsonElement, CancellationToken, Task<JsonElement>>(RelayApplyEditAsync));
 
         AddMethod(upstream, "window/logMessage", new Func<JsonElement, Task>(p =>
@@ -1045,9 +1102,11 @@ public sealed class LspProxy : IAsyncDisposable
         }
     }
 
-    private JsonElement RelayCodeLensRefresh()
+    private JsonElement RelayCodeLensRefresh() => RelayRefresh(ShellCodeLensRefresh);
+
+    private JsonElement RelayRefresh(string shellMethod)
     {
-        _ = NotifyShellAsync(ShellCodeLensRefresh, new Dictionary<string, object> { [GenerationProperty] = Generation });
+        _ = NotifyShellAsync(shellMethod, new Dictionary<string, object> { [GenerationProperty] = Generation });
         return JsonNull;
     }
 
@@ -1085,15 +1144,49 @@ public sealed class LspProxy : IAsyncDisposable
         JsonSerializer.SerializeToElement(new { applied = false, failureReason = reason });
 
     /// <summary>
+    /// Brief 0066: Roslyn's inlay hint switches the pinned server reads (InlineHintsOptionsStorage, per language as
+    /// <c>csharp|inlay_hints.&lt;name&gt;</c> and <c>visual_basic|inlay_hints.&lt;name&gt;</c>), all on: the shell filters hints by
+    /// kind with its own settings. Roslyn's own suppressions (parameters that match the argument or the method's
+    /// intent) keep their defaults.
+    /// </summary>
+    internal static readonly string[] InlayHintOptions =
+    [
+        "dotnet_enable_inlay_hints_for_parameters",
+        "dotnet_enable_inlay_hints_for_literal_parameters",
+        "dotnet_enable_inlay_hints_for_indexer_parameters",
+        "dotnet_enable_inlay_hints_for_object_creation_parameters",
+        "dotnet_enable_inlay_hints_for_other_parameters",
+        "csharp_enable_inlay_hints_for_types",
+        "csharp_enable_inlay_hints_for_implicit_variable_types",
+        "csharp_enable_inlay_hints_for_lambda_parameter_types",
+        "csharp_enable_inlay_hints_for_implicit_object_creation",
+    ];
+
+    /// <summary>
     /// Settings the host supplies to Roslyn's <c>workspace/configuration</c> requests; everything else is null
     /// (Roslyn's default). File-based programs are off: with them on, a document opened before the solution
     /// finishes loading is captured by Roslyn's "canonical misc" project and never moves to its real project,
     /// so semantic completion in it stays empty for the life of the session (observed at the pinned commit).
     /// </summary>
-    internal static IReadOnlyDictionary<string, JsonElement> ConfigurationOverrides { get; } = new Dictionary<string, JsonElement>
+    internal static IReadOnlyDictionary<string, JsonElement> ConfigurationOverrides { get; } = BuildConfigurationOverrides();
+
+    private static Dictionary<string, JsonElement> BuildConfigurationOverrides()
     {
-        ["projects.dotnet_enable_file_based_programs"] = JsonSerializer.SerializeToElement(false),
-    };
+        var overrides = new Dictionary<string, JsonElement>
+        {
+            ["projects.dotnet_enable_file_based_programs"] = JsonSerializer.SerializeToElement(false),
+        };
+        var on = JsonSerializer.SerializeToElement(true);
+        foreach (var language in new[] { "csharp", "visual_basic" })
+        {
+            foreach (var option in InlayHintOptions)
+            {
+                overrides[$"{language}|inlay_hints.{option}"] = on;
+            }
+        }
+
+        return overrides;
+    }
 
     internal static JsonElement AnswerConfiguration(JsonElement parameters)
     {
