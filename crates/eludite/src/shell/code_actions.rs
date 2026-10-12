@@ -12,7 +12,10 @@
 //! - **Applying** an action resolves it lazily with `codeAction/resolve` when it has no edit, then hands the edit to
 //!   the workspace-edit applier with the generation and document versions it was computed for. Roslyn's nested
 //!   actions (`roslyn.client.nestedCodeAction`) are shown as a submenu; its Fix All actions
-//!   (`roslyn.client.fixAllCodeAction`) are not offered (out of scope). An action that is only a command a server of
+//!   (`roslyn.client.fixAllCodeAction`) are a submenu of scopes, "Fix all occurrences in: Document", "Project" and
+//!   "Solution", resolved with `codeAction/resolveFixAll` (brief 0069).
+//! - **The range** (brief 0069): the request carries the selection (the caret when it is empty) and the diagnostics on
+//!   its lines, so Extract Method and the other selection refactorings are offered. An action that is only a command a server of
 //!   the document lists in `executeCommandProvider.commands` (ESLint's fixes, brief 0050) runs with
 //!   `workspace/executeCommand` on that server, which answers with `workspace/applyEdit` (the applier applies it);
 //!   any other command is reported as unsupported, because the pinned Roslyn runs none.
@@ -49,8 +52,16 @@ pub const LIGHTBULB_DEBOUNCE: Duration = Duration::from_millis(50);
 
 /// Roslyn's client-side command for an action with nested actions (shown as a submenu).
 pub const NESTED_COMMAND: &str = "roslyn.client.nestedCodeAction";
-/// Roslyn's client-side Fix All command (not offered: fix-all is out of scope for brief 0015).
+/// Roslyn's client-side Fix All command: its scopes are resolved with [`FIX_ALL_RESOLVE`] (brief 0069).
 pub const FIX_ALL_COMMAND: &str = "roslyn.client.fixAllCodeAction";
+/// Brief 0069: the request that computes a Fix All's edit for a scope.
+pub const FIX_ALL_RESOLVE: &str = "codeAction/resolveFixAll";
+/// Brief 0069: the Fix All scopes offered, as Roslyn names them, and Visual Studio's labels.
+pub const FIX_ALL_SCOPES: [(&str, &str); 3] = [
+    ("Document", "Fix all occurrences in: Document"),
+    ("Project", "Fix all occurrences in: Project"),
+    ("Solution", "Fix all occurrences in: Solution"),
+];
 
 /// Visual Studio's message when Ctrl+. finds nothing.
 pub const NO_ACTIONS: &str = "No quick actions available here.";
@@ -97,6 +108,8 @@ pub struct MenuAction {
     pub children: Vec<usize>,
     pub disabled: Option<String>,
     pub action: lsp::CodeAction,
+    /// Brief 0069: a Fix All scope (`Document`, `Project`, `Solution`): applying it sends [`FIX_ALL_RESOLVE`].
+    pub fix_all_scope: Option<String>,
 }
 
 /// The actions at one position, and what they were computed for.
@@ -105,6 +118,8 @@ pub struct ActionList {
     pub doc: String,
     /// The caret offset and buffer version the request was made at.
     pub offset: usize,
+    /// Brief 0069: the range asked about (the selection, or the caret).
+    pub range: std::ops::Range<usize>,
     pub buffer_version: clock::Global,
     pub generation: u64,
     /// Every open document's LSP version when the request was made.
@@ -170,9 +185,7 @@ pub fn menu_actions(answer: Vec<lsp::CodeActionOrCommand>) -> Vec<MenuAction> {
             return;
         }
         let command = action.command.as_ref().map(|c| c.command.as_str());
-        if command == Some(FIX_ALL_COMMAND) {
-            return;
-        }
+        let fix_all = command == Some(FIX_ALL_COMMAND);
         let index = out.len();
         let nested = match &action.command {
             Some(c) if c.command == NESTED_COMMAND => nested_actions(c),
@@ -187,6 +200,7 @@ pub fn menu_actions(answer: Vec<lsp::CodeActionOrCommand>) -> Vec<MenuAction> {
             parent,
             children: Vec::new(),
             disabled: action.disabled.as_ref().map(|d| d.reason.clone()),
+            fix_all_scope: None,
             action,
         });
         if let Some(p) = parent {
@@ -194,6 +208,60 @@ pub fn menu_actions(answer: Vec<lsp::CodeActionOrCommand>) -> Vec<MenuAction> {
         }
         for child in nested {
             add(out, child, Some(index));
+        }
+        // Brief 0069: Fix All, a submenu of the scopes Roslyn offers for it.
+        if fix_all {
+            let flavors: Vec<String> = out[index]
+                .action
+                .data
+                .as_ref()
+                .or_else(|| {
+                    out[index]
+                        .action
+                        .command
+                        .as_ref()
+                        .and_then(|c| c.arguments.as_ref()?.first())
+                })
+                .and_then(|d| d.get("FixAllFlavors"))
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_else(|| {
+                    FIX_ALL_SCOPES
+                        .iter()
+                        .map(|(s, _)| (*s).to_owned())
+                        .collect()
+                });
+            for (scope, label) in FIX_ALL_SCOPES {
+                if !flavors.iter().any(|f| f == scope) || out.len() >= MAX_ACTIONS {
+                    continue;
+                }
+                let child = out.len();
+                let mut action = out[index].action.clone();
+                if action.data.is_none() {
+                    action.data = action
+                        .command
+                        .as_ref()
+                        .and_then(|c| c.arguments.as_ref()?.first().cloned());
+                }
+                out.push(MenuAction {
+                    index: child,
+                    title: label.to_owned(),
+                    group: out[index].group,
+                    kind: out[index].kind.clone(),
+                    preferred: false,
+                    parent: Some(index),
+                    children: Vec::new(),
+                    disabled: None,
+                    action,
+                    fix_all_scope: Some(scope.to_owned()),
+                });
+                out[index].children.push(child);
+            }
         }
     }
     let mut out = Vec::new();
@@ -606,6 +674,11 @@ impl Shell {
             }
             None => view.read(cx).editor().primary_selection().head,
         };
+        // Brief 0069: the selection (Extract Method and the other selection refactorings), else the caret.
+        let range = match at {
+            Some(_) => offset..offset,
+            None => view.read(cx).editor().primary_selection().range(),
+        };
         let (line, column) = line_column(&view, offset, cx);
         if invoked {
             self.code_actions.status = MenuStatus {
@@ -629,14 +702,17 @@ impl Shell {
         let doc = &self.documents[id];
         let buffer_version = view.read(cx).editor().buffer().version();
         let position = lsp_position(&doc.sent, offset);
+        let (from, to) = (
+            lsp_position(&doc.sent, range.start),
+            lsp_position(&doc.sent, range.end),
+        );
+        // The diagnostics on the range's lines (brief 0069), so fixes elsewhere on the line are offered too.
         let diagnostics: Vec<lsp::Diagnostic> = self
             .diagnostics
             .get(&doc.uri)
             .map(|ds| {
                 ds.iter()
-                    .filter(|d| {
-                        d.range.start.line <= position.line && position.line <= d.range.end.line
-                    })
+                    .filter(|d| d.range.start.line <= to.line && from.line <= d.range.end.line)
                     .cloned()
                     .collect()
             })
@@ -646,8 +722,8 @@ impl Shell {
                 uri: doc.uri.clone(),
             },
             range: lsp::Range {
-                start: position,
-                end: position,
+                start: from,
+                end: to,
             },
             context: lsp::CodeActionContext {
                 diagnostics,
@@ -732,6 +808,7 @@ impl Shell {
             let list = ActionList {
                 doc: doc_id.clone(),
                 offset,
+                range: range.clone(),
                 buffer_version: buffer_version.clone(),
                 generation,
                 versions: versions.clone(),
@@ -794,6 +871,7 @@ impl Shell {
         };
         list.doc == id
             && list.offset == offset
+            && doc.view.read(cx).editor().primary_selection().range() == list.range
             && list.generation == self.doc_generation(id)
             && list.buffer_version == doc.view.read(cx).editor().buffer().version()
     }
@@ -948,6 +1026,8 @@ impl Shell {
             return;
         }
         self.close_code_action_menu(window, cx);
+        // Brief 0069: a Fix All scope is resolved with codeAction/resolveFixAll.
+        let fix_all = entry.fix_all_scope.clone();
         if let Some(edit) = entry.action.edit.clone() {
             self.apply_action_edit(
                 entry.title.clone(),
@@ -961,7 +1041,8 @@ impl Shell {
             return;
         }
         let features = self.doc_features(&list.doc);
-        let can_resolve = entry.action.data.is_some() && features.code_action_resolve;
+        let can_resolve =
+            fix_all.is_some() || (entry.action.data.is_some() && features.code_action_resolve);
         if !can_resolve {
             if let Some(c) = entry
                 .action
@@ -999,9 +1080,40 @@ impl Shell {
         let ticket = self.code_actions.next_ticket;
         let title = entry.title.clone();
         trace(format_args!("codeAction/resolve {ticket}: {title:?}"));
-        let (handle, rx) = self
-            .session_for(&doc_id)
-            .request::<lsp::ResolveCodeAction>(entry.action.clone());
+        let (handle, rx) = match &fix_all {
+            None => self
+                .session_for(&doc_id)
+                .request::<lsp::ResolveCodeAction>(entry.action.clone()),
+            Some(scope) => {
+                let mut params = serde_json::to_value(&entry.action).unwrap_or_default();
+                params["scope"] = json!(scope);
+                if let Some(o) = params.as_object_mut() {
+                    o.remove("command");
+                }
+                let (handle, rx) = self
+                    .session_for(&doc_id)
+                    .request_value(FIX_ALL_RESOLVE, params);
+                let rx = {
+                    let (tx, out) = futures::channel::oneshot::channel();
+                    cx.background_spawn(async move {
+                        if let Ok(reply) = rx.await {
+                            let _ = tx.send(super::session::Reply {
+                                result: reply.result.and_then(|v| {
+                                    serde_json::from_value::<lsp::CodeAction>(v).map_err(|e| {
+                                        RequestError::Failed(format!("not a code action: {e}"))
+                                    })
+                                }),
+                                sent: reply.sent,
+                                received: reply.received,
+                            });
+                        }
+                    })
+                    .detach();
+                    out
+                };
+                (handle, rx)
+            }
+        };
         let task = cx.spawn_in(window, async move |this, cx| {
             let Ok(reply) = rx.await else {
                 return;
@@ -1344,29 +1456,47 @@ mod tests {
             [
                 "Extract method",
                 "Use primary constructor",
+                "Fix All: Use primary constructor",
+                "Fix all occurrences in: Document",
+                "Fix all occurrences in: Project",
+                "Fix all occurrences in: Solution",
                 "Suppress or configure issues",
                 "Suppress IDE0290",
                 "Configure IDE0290",
                 "Configure severity: warning",
                 "Organize usings"
             ],
-            "Fix All is not offered"
+            "Fix All is a submenu of its scopes (brief 0069)"
         );
-        assert_eq!(actions[2].children, [3, 4]);
-        assert_eq!(actions[4].children, [5]);
-        assert_eq!(actions[5].parent, Some(4));
+        assert_eq!(actions[2].children, [3, 4, 5]);
+        assert_eq!(actions[3].fix_all_scope.as_deref(), Some("Document"));
+        assert_eq!(actions[5].action.data, Some(data.clone()));
+        assert_eq!(actions[6].children, [7, 8]);
+        assert_eq!(actions[8].children, [9]);
+        assert_eq!(actions[9].parent, Some(8));
         assert_eq!(actions[0].group, Group::Refactoring);
-        assert_eq!(actions[6].group, Group::Other);
+        assert_eq!(actions[10].group, Group::Other);
+        // Roslyn's flavors limit the scopes.
+        let only: Vec<lsp::CodeActionOrCommand> = serde_json::from_value(json!([
+            {"title": "Fix All: x", "kind": "quickfix",
+             "command": {"title": "Fix All", "command": FIX_ALL_COMMAND,
+                         "arguments": [{"FixAllFlavors": ["Document", "ContainingMember"]}]}}
+        ]))
+        .unwrap();
+        let only = menu_actions(only);
+        assert_eq!(only.len(), 2);
+        assert_eq!(only[1].fix_all_scope.as_deref(), Some("Document"));
         let list = ActionList {
             doc: String::new(),
             offset: 0,
+            range: 0..0,
             buffer_version: Default::default(),
             generation: 1,
             versions: HashMap::new(),
             actions,
         };
         // Fixes first, then refactorings, then the rest; nested under their parent.
-        assert_eq!(list.display_order(), [1, 2, 3, 4, 5, 0, 6]);
+        assert_eq!(list.display_order(), [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 10]);
         assert_eq!(list.bulb(), Some(LightbulbKind::Fix));
         let refactorings = ActionList {
             actions: list.actions[..1].to_vec(),

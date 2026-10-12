@@ -28,6 +28,13 @@ pub const HOVER_DELAY: std::time::Duration = std::time::Duration::from_millis(40
 /// Characters that open the completion list when typed, besides identifier characters (the brief 0013 contract).
 pub const DEFAULT_COMPLETION_TRIGGERS: [char; 3] = ['.', '(', '<'];
 
+/// Characters that commit the selected completion item before they are inserted, when the server names none
+/// (brief 0069): Roslyn's `CompletionRules.DefaultCommitCharacters`, Visual Studio's C# set.
+pub const DEFAULT_COMMIT_CHARACTERS: [char; 30] = [
+    ' ', '{', '}', '[', ']', '(', ')', '.', ',', ':', ';', '+', '-', '*', '/', '%', '&', '|', '^',
+    '!', '~', '=', '<', '>', '?', '@', '#', '\'', '"', '\\',
+];
+
 /// Why the completion list is wanted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionTrigger {
@@ -100,6 +107,19 @@ pub enum EditorEvent {
     CodeLensActivated {
         id: u64,
         keyboard: bool,
+    },
+    /// Brief 0069: the list committed an item because a commit character was typed (the character follows it). The
+    /// owner applies the item's additional edits and command, as for `eludite.editor.accept_completion`.
+    CompletionCommitted(AcceptedCompletion),
+    /// Brief 0069: one of the characters set with [`crate::EditorView::set_typed_character_reports`] was typed
+    /// (`'\n'` for Enter); `offset` is the caret after it. For format on type and `///` doc comments.
+    CharacterTyped {
+        ch: char,
+        offset: usize,
+    },
+    /// Brief 0069: text was pasted at `range` (after the paste), while paste reports are on (format on paste).
+    Pasted {
+        range: Range<usize>,
     },
 }
 
@@ -286,6 +306,11 @@ pub struct CompletionItem {
     pub insert_text: Option<String>,
     /// True once documentation was fetched (or there is nothing to fetch).
     pub resolved: bool,
+    /// Brief 0069: the characters that commit this item when typed; `None`: the list's
+    /// ([`crate::EditorView::set_completion_commit_characters`]). Empty: only Tab and Enter commit it.
+    pub commit_characters: Option<Arc<Vec<char>>>,
+    /// Brief 0069: `edit`'s text or `insert_text` is LSP snippet syntax, inserted as a snippet session.
+    pub snippet: bool,
 }
 
 impl CompletionItem {

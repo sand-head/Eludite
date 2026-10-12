@@ -136,6 +136,12 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
         })));
         Add(rpc, "workspace/symbol", new Func<JsonElement, object>(p => Record(launch, "workspace/symbol", p, Array.Empty<object>())));
         Add(rpc, "textDocument/diagnostic", new Func<JsonElement, CancellationToken, Task<object>>((p, ct) => DiagnosticAsync(launch, p, ct)));
+        // Brief 0069: the configuration push and the new forwarded requests.
+        Add(rpc, "workspace/didChangeConfiguration", new Action<JsonElement>(p => Record(launch, "workspace/didChangeConfiguration", p, 0)));
+        Add(rpc, "textDocument/rangeFormatting", new Func<JsonElement, object>(p => Record(launch, "textDocument/rangeFormatting", p, new[]
+        {
+            new { range = p.GetProperty("range"), newText = "x" },
+        })));
         Add(rpc, "shutdown", new Func<object?>(() => Record<object?>(launch, "shutdown", default, null)));
         Add(rpc, "exit", new Action(() => Record(launch, "exit", default, 0)));
         rpc.StartListening();
@@ -146,6 +152,10 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
     /// <summary>Sends the host <c>workspace/applyEdit</c>, as Roslyn would, and returns the host's answer.</summary>
     public Task<JsonElement> ApplyEditAsync(object parameters, CancellationToken cancellationToken) =>
         _rpc!.InvokeWithParameterObjectAsync<JsonElement>("workspace/applyEdit", parameters, cancellationToken);
+
+    /// <summary>Brief 0069: asks the host for <c>workspace/configuration</c>, as Roslyn does at <c>initialized</c>.</summary>
+    public Task<JsonElement> RequestConfigurationAsync(params string[] sections) =>
+        _rpc!.InvokeWithParameterObjectAsync<JsonElement>("workspace/configuration", new { items = sections.Select(s => new { section = s }).ToArray() });
 
     public Task NotifyProjectsLoadedAsync() => _rpc!.NotifyAsync("workspace/projectInitializationComplete");
 

@@ -188,7 +188,7 @@ pub struct Formatting {
     last: HashMap<String, FormatDocumentOutput>,
     running: HashMap<String, Task<()>>,
     /// The save that followed format on save, per document: what an agent's `eludite.editor.save` answers.
-    saved: HashMap<String, SaveOutput>,
+    pub(super) saved: HashMap<String, SaveOutput>,
     /// How long each Format Document took, request to applied (tests and the harness).
     pub timings: Vec<Duration>,
 }
@@ -486,6 +486,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Option<Result<WorkspaceOutput, CommandError>> {
         let id = self.document_id(path).ok()?;
+        // Brief 0069: Code Cleanup on save runs first (and saves when done).
+        if let Some(r) = self.cleanup_on_save(&id, cx) {
+            return Some(r);
+        }
         if !self.format_on_save_due(&id) {
             return None;
         }

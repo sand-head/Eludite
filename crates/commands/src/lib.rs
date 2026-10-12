@@ -58,6 +58,8 @@ pub mod files;
 pub mod forge;
 pub mod git;
 mod id;
+/// Brief 0069: snippets, Format Selection, Remove and Sort Usings, Code Cleanup.
+pub mod intellisense;
 pub mod nuget;
 pub mod policy;
 pub mod project;

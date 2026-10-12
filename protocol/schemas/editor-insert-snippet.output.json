@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-insert-snippet.output.json",
+  "title": "eludite.editor.insert_snippet output",
+  "description": "What Insert Snippet did.",
+  "type": "object",
+  "required": [
+    "path",
+    "state",
+    "applied"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "description": "`done` when the command finished; `running` while a language server request is in flight (an agent polls until done, up to 5 seconds); `picker` when a picker opened for the person to choose; `failed` when nothing was applied (see `message`).",
+      "enum": [
+        "done",
+        "running",
+        "picker",
+        "failed"
+      ]
+    },
+    "applied": {
+      "description": "Whether the document changed.",
+      "type": "boolean"
+    },
+    "line": {
+      "description": "The caret's line afterwards (1-based).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "The caret's column afterwards (1-based, in characters).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "message": {
+      "description": "Why nothing was applied, or a note on what was.",
+      "type": "string"
+    },
+    "shortcut": {
+      "type": "string"
+    }
+  }
+}

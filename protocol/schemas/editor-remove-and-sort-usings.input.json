@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-remove-and-sort-usings.input.json",
+  "title": "eludite.editor.remove_and_sort_usings input",
+  "description": "Remove and Sort Usings (Edit > IntelliSense > Remove and Sort Usings, Ctrl+R, Ctrl+G; brief 0069): the document's leading using (C#) or Imports (Visual Basic) directives are sorted, System namespaces first, and the language server's fix that removes unnecessary ones is applied when it offers one. One or two undo steps.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

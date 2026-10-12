@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Eludite's built-in code snippet (brief 0069; MIT, written for Eludite in Visual Studio's format). -->
+<CodeSnippets xmlns="http://schemas.microsoft.com/VisualStudio/2005/CodeSnippet">
+  <CodeSnippet Format="1.0.0">
+    <Header>
+      <Title>attribute</Title>
+      <Shortcut>attribute</Shortcut>
+      <Description>Attribute class</Description>
+      <Author>Eludite</Author>
+      <SnippetTypes><SnippetType>Expansion</SnippetType></SnippetTypes>
+    </Header>
+    <Snippet>
+      <Declarations>
+        <Literal>
+          <ID>name</ID>
+          <ToolTip>Attribute name</ToolTip>
+          <Default>My</Default>
+        </Literal>
+        <Literal>
+          <ID>target</ID>
+          <ToolTip>Attribute target</ToolTip>
+          <Default>All</Default>
+        </Literal>
+      </Declarations>
+      <Code Language="csharp"><![CDATA[[AttributeUsage(AttributeTargets.$target$, Inherited = false, AllowMultiple = true)]
+sealed class $name$Attribute : Attribute
+{
+    public $name$Attribute()
+    {
+        $end$
+    }
+}]]></Code>
+    </Snippet>
+  </CodeSnippet>
+</CodeSnippets>

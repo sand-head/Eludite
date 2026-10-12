@@ -75,6 +75,12 @@ public sealed class LspProxy : IAsyncDisposable
         "textDocument/semanticTokens/full",
         "textDocument/semanticTokens/range",
         "textDocument/formatting",
+        // Brief 0069: Format Selection, format on type and paste, `///`, Fix All, full-solution analysis.
+        "textDocument/rangeFormatting",
+        "textDocument/onTypeFormatting",
+        "textDocument/_vs_onAutoInsert",
+        "codeAction/resolveFixAll",
+        "workspace/diagnostic",
     ];
 
     /// <summary>All forwarded requests.</summary>
@@ -98,6 +104,12 @@ public sealed class LspProxy : IAsyncDisposable
     public const string ApplyEdit = "workspace/applyEdit";
 
     internal const string ProjectInitializationComplete = "workspace/projectInitializationComplete";
+
+    /// <summary>Brief 0069: the shell's settings for Roslyn (see <see cref="RoslynOptions"/>).</summary>
+    public const string DidChangeConfiguration = "workspace/didChangeConfiguration";
+
+    /// <summary>Brief 0069: the values the shell sent, answered to Roslyn's <c>workspace/configuration</c>.</summary>
+    internal RoslynOptions Options { get; } = new();
 
     /// <summary>The language server's request for fresh lenses (brief 0052).</summary>
     internal const string CodeLensRefresh = "workspace/codeLens/refresh";
@@ -191,6 +203,8 @@ public sealed class LspProxy : IAsyncDisposable
         AddMethod(shell, "textDocument/didOpen", new Action<JsonElement>(DidOpen));
         AddMethod(shell, "textDocument/didChange", new Action<JsonElement>(DidChange));
         AddMethod(shell, "textDocument/didClose", new Action<JsonElement>(DidClose));
+        // Brief 0069: the shell's settings as Roslyn options; Roslyn is told to pull them again.
+        AddMethod(shell, DidChangeConfiguration, new Action<JsonElement>(DidChangeConfigurationFromShell));
         foreach (var method in UntypedNotifications)
         {
             AddMethod(shell, method, new Action<JsonElement>(p => ForwardNotification(method, p)));
@@ -513,6 +527,26 @@ public sealed class LspProxy : IAsyncDisposable
         {
             _warmer.Closed(uri);
             _ = NotifyShellAsync("textDocument/publishDiagnostics", new { uri, diagnostics = Array.Empty<object>(), eluditeGeneration = generation });
+        }
+    }
+
+    /// <summary>
+    /// Brief 0069: <c>workspace/didChangeConfiguration</c> from the shell. The values are kept for Roslyn's
+    /// <c>workspace/configuration</c>; when they changed and the server runs, it is told (with no payload: Roslyn pulls).
+    /// </summary>
+    private void DidChangeConfigurationFromShell(JsonElement parameters)
+    {
+        if (!Options.Update(parameters))
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            if (_started)
+            {
+                EnqueueNotificationLocked(DidChangeConfiguration, JsonSerializer.SerializeToElement(new { settings = new { } }));
+            }
         }
     }
 
@@ -936,6 +970,8 @@ public sealed class LspProxy : IAsyncDisposable
             },
             // Brief 0052: Roslyn asks for fresh lenses (relayed to the shell as eludite/codeLens/refresh).
             codeLens = new { refreshSupport = true },
+            // Brief 0069: the shell's settings are pushed; Roslyn pulls them with workspace/configuration.
+            didChangeConfiguration = new { dynamicRegistration = false },
         },
         textDocument = new
         {
@@ -983,7 +1019,7 @@ public sealed class LspProxy : IAsyncDisposable
     private void RegisterServerToClientHandlers(UpstreamSession session)
     {
         var upstream = session.Rpc;
-        AddMethod(upstream, "workspace/configuration", new Func<JsonElement, JsonElement>(AnswerConfiguration));
+        AddMethod(upstream, "workspace/configuration", new Func<JsonElement, JsonElement>(p => AnswerConfiguration(p, Options)));
         foreach (var method in new[]
                  {
                      "client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create",
@@ -1095,7 +1131,10 @@ public sealed class LspProxy : IAsyncDisposable
         ["projects.dotnet_enable_file_based_programs"] = JsonSerializer.SerializeToElement(false),
     };
 
-    internal static JsonElement AnswerConfiguration(JsonElement parameters)
+    internal static JsonElement AnswerConfiguration(JsonElement parameters) => AnswerConfiguration(parameters, null);
+
+    /// <summary>Brief 0069: the host's overrides first, then the shell's settings through <see cref="RoslynOptions"/>.</summary>
+    internal static JsonElement AnswerConfiguration(JsonElement parameters, RoslynOptions? options)
     {
         var answers = new List<JsonElement>();
         if (parameters.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
@@ -1103,7 +1142,9 @@ public sealed class LspProxy : IAsyncDisposable
             foreach (var item in items.EnumerateArray())
             {
                 var section = item.TryGetProperty("section", out var s) ? s.GetString() : null;
-                answers.Add(section is not null && ConfigurationOverrides.TryGetValue(section, out var value) ? value : JsonNull);
+                answers.Add(section is null ? JsonNull
+                    : ConfigurationOverrides.TryGetValue(section, out var value) ? value
+                    : options?.Answer(section) ?? JsonNull);
             }
         }
 

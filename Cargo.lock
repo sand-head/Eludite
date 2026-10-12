@@ -1751,6 +1751,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "image",
+ "roxmltree 0.20.0",
  "serde",
  "serde_json",
  "tempfile",

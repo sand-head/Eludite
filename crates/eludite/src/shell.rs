@@ -98,6 +98,11 @@ pub mod welcome;
 pub mod workspace_edit;
 #[cfg(test)]
 mod workspace_edit_tests;
+// Brief 0069: IntelliSense editing depth (snippets, formatting, Remove and Sort Usings, Code Cleanup).
+pub mod cleanup;
+#[cfg(test)]
+mod intellisense_depth_tests;
+pub mod snippets;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -224,6 +229,8 @@ pub struct Services {
     pub update: Arc<update::UpdateService>,
     pub update_jobs: UnboundedReceiver<update::UpdateJob>,
     pub update_setup: update::UpdateSetup,
+    /// Brief 0069: `eludite.editor.insert_snippet` and the rest from other threads.
+    pub depth_jobs: UnboundedReceiver<cleanup::DepthJob>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -384,6 +391,8 @@ pub fn register_workspace(
         update,
         update_jobs,
         update_setup: update::UpdateSetup::detect(),
+        // Brief 0069.
+        depth_jobs: cleanup::register(commands),
     }
 }
 
@@ -520,6 +529,8 @@ pub struct Shell {
     properties: project_properties::PropertiesUi,
     /// The `.resx` editor (proposal 0005).
     resx: resx::ResxUi,
+    /// Brief 0069: snippets, formatting, Remove and Sort Usings, Code Cleanup, Roslyn options.
+    depth: cleanup::Depth,
     /// The self-updater: the status slot, the Output lines, the question, the restart (brief 0055).
     update: update::UpdateUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
@@ -761,6 +772,7 @@ impl Shell {
             update,
             update_jobs,
             update_setup,
+            depth_jobs,
         } = services;
         let update = update::UpdateUi::new(update);
         let nuget = nuget::NuGetUi::new(nuget, theme, cx);
@@ -1159,6 +1171,7 @@ impl Shell {
             nuget,
             properties,
             resx,
+            depth: cleanup::Depth::default(),
             update,
             ui_bounds: None,
             timings: Timings::default(),
@@ -1188,6 +1201,7 @@ impl Shell {
         this.nuget_install(nuget_events, nuget_jobs, window, cx);
         this.properties_install(properties_jobs, window, cx);
         this.resx_install(resx_jobs, window, cx);
+        this.depth_install(depth_jobs, window, cx);
         this.update_install(update_setup, update_jobs, window, cx);
         this.apply_settings(None, cx);
         this
@@ -1455,6 +1469,8 @@ impl Shell {
                 self.apply_resx(request, eludite_commands::Caller::User, None, window, cx);
             resx::stage(outcome);
         }
+        // Brief 0069.
+        self.depth_invoke(command, &args, window, cx);
         if eludite_commands::test::ALL.contains(&command)
             && let Ok(request) = eludite_commands::test::parse(command, args.clone())
         {
@@ -2360,6 +2376,7 @@ impl Render for Shell {
             .children(self.debug.attach_dialog.clone())
             .children(self.debug.startup_dialog.clone())
             .children(self.code_actions.menu.clone())
+            .children(self.snippet_picker().cloned())
             .children(self.search.dialog.clone())
             .children(self.forge.signin.clone())
             .children(self.nuget.prompt.as_ref().map(|(_, p)| p.clone()));

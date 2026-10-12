@@ -117,6 +117,8 @@ mod editor;
 mod input;
 pub mod intellisense;
 mod popups;
+/// Brief 0069: LSP snippets as tab-stop sessions.
+pub mod snippet_session;
 pub mod syntax;
 mod view;
 
@@ -134,7 +136,8 @@ pub use intellisense::{
 pub use text;
 pub use view::{
     COMPLETION_CONTEXT, COMPLETION_SELECTED_CONTEXT, Decoration, DecorationStyle, EditorStyle,
-    EditorView, KEY_CONTEXT, LightbulbKind, SIGNATURES_CONTEXT, default_font_family, key_bindings,
+    EditorView, KEY_CONTEXT, LightbulbKind, SIGNATURES_CONTEXT, SNIPPET_CONTEXT,
+    default_font_family, key_bindings,
 };
 /// The text input's actions (context [`INPUT_KEY_CONTEXT`]).
 pub mod input_actions {
@@ -162,4 +165,6 @@ pub mod actions {
         SelectToStart, SelectUp, SelectWordLeft, SelectWordRight, Tab, ToggleFindCaseSensitive,
         Undo,
     };
+    /// Brief 0069.
+    pub use crate::view::{NextSnippetStop, PreviousSnippetStop};
 }

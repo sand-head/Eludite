@@ -92,6 +92,9 @@ actions!(
         PreviousSignature,
         NextSignature,
         ShowCodeLensMenu,
+        // Brief 0069: snippet sessions.
+        NextSnippetStop,
+        PreviousSnippetStop,
     ]
 );
 
@@ -104,6 +107,8 @@ pub const COMPLETION_CONTEXT: &str = "Editor && showing_completions";
 pub const COMPLETION_SELECTED_CONTEXT: &str = "Editor && completion_selected";
 /// Added while Parameter Info shows more than one overload.
 pub const SIGNATURES_CONTEXT: &str = "Editor && showing_signatures";
+/// Brief 0069: added while a snippet session is active (Tab and Shift+Tab move between its stops).
+pub const SNIPPET_CONTEXT: &str = "Editor && in_snippet";
 
 /// Visual Studio's default editor bindings. `secondary` is Ctrl on Windows
 /// and Linux and Cmd on macOS.
@@ -164,6 +169,9 @@ pub fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-k ctrl-q", ShowCodeLensMenu, c),
         // Up and Down cycle overloads while Parameter Info shows several, unless the completion list is open
         // (bound after these, so it wins).
+        // Brief 0069: a snippet session's stops (the completion list's Tab, bound after, wins).
+        KeyBinding::new("tab", NextSnippetStop, Some(SNIPPET_CONTEXT)),
+        KeyBinding::new("shift-tab", PreviousSnippetStop, Some(SNIPPET_CONTEXT)),
         KeyBinding::new("up", PreviousSignature, Some(SIGNATURES_CONTEXT)),
         KeyBinding::new("down", NextSignature, Some(SIGNATURES_CONTEXT)),
         KeyBinding::new("up", SelectPreviousCompletion, Some(COMPLETION_CONTEXT)),
@@ -314,6 +322,9 @@ pub struct EditorView {
     emmet: bool,
     /// CodeLens rows (brief 0052).
     pub(crate) lenses: CodeLenses,
+    /// Brief 0069: the snippet session, and what Tab-Tab expands.
+    pub(crate) snippet: Option<crate::snippet_session::SnippetSession>,
+    pub(crate) snippet_expander: Option<crate::snippet_session::SnippetExpander>,
 }
 
 impl EditorView {
@@ -352,6 +363,8 @@ impl EditorView {
             execution: None,
             emmet: false,
             lenses: CodeLenses::default(),
+            snippet: None,
+            snippet_expander: None,
         };
         this.schedule_highlight(cx);
         this
@@ -649,6 +662,10 @@ impl EditorView {
     /// Tab: expand an Emmet abbreviation before the caret in an HTML or CSS document (brief 0050), else indent. With
     /// the completion list open, Tab accepts the selected item instead (its own binding).
     fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
+        // Brief 0069: Tab-Tab, a snippet shortcut before the caret (a session's Tab is its own binding).
+        if self.expand_snippet_shortcut(cx) {
+            return;
+        }
         if !self.read_only && self.expand_emmet(cx) {
             return;
         }
@@ -710,13 +727,25 @@ impl EditorView {
             });
             return;
         }
+        // Brief 0069: Enter ends a snippet session at `$0`; Enter typed is reported (format on type, `///`).
+        if self.end_snippet_session(true, cx) {
+            return;
+        }
         self.edit(cx, Editor::newline);
+        if self.popups.typed_reports.contains(&'\n') && !self.read_only {
+            let offset = self.editor.primary_selection().head;
+            cx.emit(EditorEvent::CharacterTyped { ch: '\n', offset });
+        }
     }
 
     fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
         // Escape closes the innermost IntelliSense popup first, as in Visual Studio.
         if self.popups.completion.is_some() {
             self.close_completion(cx);
+            return;
+        }
+        // Brief 0069: then a snippet session.
+        if self.end_snippet_session(false, cx) {
             return;
         }
         if self.popups.signature.is_some() {
@@ -801,7 +830,16 @@ impl EditorView {
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) {
+            // Brief 0069: the pasted range is reported (format on paste).
+            let start = self.editor.primary_selection().start();
+            let single = self.editor.selections().len() == 1;
             self.edit(cx, |e| e.paste(&text));
+            if self.popups.report_pastes && single && !self.read_only {
+                let end = self.editor.primary_selection().head;
+                if end > start {
+                    cx.emit(EditorEvent::Pasted { range: start..end });
+                }
+            }
         }
     }
 
@@ -815,6 +853,8 @@ impl EditorView {
         if self.read_only {
             return;
         }
+        // Brief 0069: a commit character commits the selected completion item first.
+        self.commit_before_typing(text, cx);
         self.editor.insert(text);
         self.changed(cx);
         self.after_typing(text, cx);
@@ -1058,6 +1098,10 @@ impl Render for EditorView {
         if self.signatures_cyclable() {
             context.add("showing_signatures");
         }
+        // Brief 0069.
+        if self.snippet.is_some() {
+            context.add("in_snippet");
+        }
         let el = div()
             .id("editor")
             .key_context(context)
@@ -1100,6 +1144,13 @@ impl Render for EditorView {
                 cx.listener(|this, _: &PreviousSignature, _, cx| this.cycle_signature(-1, cx)),
             )
             .on_action(cx.listener(|this, _: &NextSignature, _, cx| this.cycle_signature(1, cx)))
+            // Brief 0069: snippet sessions.
+            .on_action(cx.listener(|this, _: &NextSnippetStop, _, cx| {
+                this.move_snippet_stop(1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PreviousSnippetStop, _, cx| {
+                this.move_snippet_stop(-1, cx);
+            }))
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                 if !*hovered {
                     this.hover_mouse_left(cx);

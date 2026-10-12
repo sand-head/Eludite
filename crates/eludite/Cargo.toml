@@ -43,6 +43,8 @@ eludite-mcp.workspace = true
 eludite-protocol.workspace = true
 eludite-ui.workspace = true
 eludite-workspace.workspace = true
+# Brief 0069: Visual Studio .snippet files (MIT; already in the build through eludite-resx).
+roxmltree.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-insert-snippet.input.json",
+  "title": "eludite.editor.insert_snippet input",
+  "description": "Insert a code snippet at the caret (Edit > IntelliSense > Insert Snippet, Ctrl+K, Ctrl+X; brief 0069). With `shortcut`, the snippet of that shortcut in the document's language is inserted as a snippet session (Tab and Shift+Tab move between its fields; Enter or Escape ends it); without one, the Insert Snippet picker opens.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "shortcut": {
+      "description": "The snippet's shortcut (`prop`, `ctor`, `cw`), as eludite.editor.snippets lists it.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

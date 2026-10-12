@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-snippets.input.json",
+  "title": "eludite.editor.snippets input",
+  "description": "List the code snippets of a language (brief 0069): Eludite's built-in Visual Studio snippets and the ones under the folders the setting editor.snippets.paths names (a user snippet overrides a built-in of the same shortcut).",
+  "type": "object",
+  "properties": {
+    "language": {
+      "description": "`csharp` or `vb`; omit for the active document's language (both when no document is active).",
+      "type": "string",
+      "enum": [
+        "csharp",
+        "vb"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

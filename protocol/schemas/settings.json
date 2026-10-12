@@ -889,6 +889,98 @@
       "x-eludite-section": "Text Editor > JSON",
       "x-eludite-label": "Format on save"
     },
+    "editor.formatOnSave.roslyn": {
+      "description": "Format C# and Visual Basic files when they are saved, with the language server's textDocument/formatting, before the file is written (brief 0069; off by default, as in Visual Studio).",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Text Editor > C#",
+      "x-eludite-label": "Format document on save"
+    },
+    "editor.formatOnType": {
+      "description": "Format the statement or block when ; or } is typed, and the line on Enter, with the language server's textDocument/onTypeFormatting where it registers those characters (brief 0069; Roslyn does).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > C#",
+      "x-eludite-label": "Automatically format on typing"
+    },
+    "editor.formatOnPaste": {
+      "description": "Format pasted text with the language server's textDocument/rangeFormatting (brief 0069; on, as Visual Studio's C# default).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > C#",
+      "x-eludite-label": "Automatically format on paste"
+    },
+    "editor.snippets.paths": {
+      "description": "Folders of user code snippets in Visual Studio's .snippet format, separated by ; (brief 0069). Each folder is read recursively; a user snippet overrides a built-in one with the same shortcut and language.",
+      "type": "string",
+      "default": "",
+      "x-eludite-section": "Text Editor > C#",
+      "x-eludite-label": "Code snippet folders"
+    },
+    "dotnet.completion.showItemsFromUnimportedNamespaces": {
+      "description": "Show items from namespaces that are not imported in the completion list; committing one adds the using directive (Roslyn's dotnet_show_completion_items_from_unimported_namespaces; brief 0069).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > C# > Advanced",
+      "x-eludite-label": "Show items from unimported namespaces"
+    },
+    "dotnet.completion.showNameSuggestions": {
+      "description": "Suggest names for declarations in the completion list (Roslyn's dotnet_show_name_completion_suggestions; brief 0069).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > C# > Advanced",
+      "x-eludite-label": "Show name suggestions"
+    },
+    "dotnet.backgroundAnalysis.scope": {
+      "description": "Where Roslyn runs analyzers and the compiler in the background (Roslyn's dotnet_analyzer_diagnostics_scope and dotnet_compiler_diagnostics_scope; brief 0069). With the entire solution, the Error List shows the errors and warnings of closed files too.",
+      "type": "string",
+      "default": "openFiles",
+      "enum": [
+        "openFiles",
+        "fullSolution"
+      ],
+      "x-eludite-enum-labels": [
+        "Open documents",
+        "Entire solution"
+      ],
+      "x-eludite-section": "Text Editor > C# > Advanced",
+      "x-eludite-label": "Run background code analysis for"
+    },
+    "dotnet.quickInfo.showRemarks": {
+      "description": "Show the remarks section of a symbol's documentation in Quick Info (Roslyn's dotnet_show_remarks_in_quick_info; brief 0069).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > C# > Advanced",
+      "x-eludite-label": "Show remarks in Quick Info"
+    },
+    "dotnet.autoInsert": {
+      "description": "Generate XML documentation comments for /// (''' in Visual Basic) and continue them on Enter (Roslyn's dotnet_enable_auto_insert; brief 0069).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > C# > Advanced",
+      "x-eludite-label": "Generate XML documentation comments for ///"
+    },
+    "editor.codeCleanup.profile1": {
+      "description": "Code Cleanup profile 1 (Ctrl+K, Ctrl+E runs it): steps separated by ;, in order: removeAndSortUsings, fixAll:<diagnostic id> (Roslyn's Fix All in the document for that diagnostic) and format (brief 0069).",
+      "type": "string",
+      "default": "removeAndSortUsings;format",
+      "x-eludite-section": "Text Editor > Code Cleanup",
+      "x-eludite-label": "Profile 1"
+    },
+    "editor.codeCleanup.profile2": {
+      "description": "Code Cleanup profile 2 (the same steps as profile 1; brief 0069).",
+      "type": "string",
+      "default": "removeAndSortUsings;fixAll:IDE0005;fixAll:IDE0161;format",
+      "x-eludite-section": "Text Editor > Code Cleanup",
+      "x-eludite-label": "Profile 2"
+    },
+    "editor.codeCleanup.onSave": {
+      "description": "Run Code Cleanup profile 1 when a C# or Visual Basic file is saved, before it is written (brief 0069; off, as in Visual Studio).",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Text Editor > Code Cleanup",
+      "x-eludite-label": "Run Code Cleanup profile 1 on save"
+    },
     "resx.rules.placeholders": {
       "description": "Warn when a translation's format placeholders ({0}, {name}, %s) differ from the neutral value's (proposal 0005). The warning shows on the cell and under the editor's Warnings filter; nothing is refused.",
       "type": "boolean",

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-snippets.output.json",
+  "title": "eludite.editor.snippets output",
+  "description": "The snippets.",
+  "type": "object",
+  "required": [
+    "snippets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "snippets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "shortcut",
+          "title",
+          "language",
+          "kinds",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "shortcut": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "language": {
+            "enum": [
+              "csharp",
+              "vb"
+            ]
+          },
+          "kinds": {
+            "description": "Visual Studio's SnippetTypes: `expansion` (Insert Snippet, Tab-Tab) and `surroundsWith` (Surround With).",
+            "type": "array",
+            "items": {
+              "enum": [
+                "expansion",
+                "surroundsWith"
+              ]
+            }
+          },
+          "source": {
+            "description": "`builtIn`, or the file it was read from.",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

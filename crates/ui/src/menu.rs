@@ -165,11 +165,21 @@ pub fn vs_menus() -> Vec<Menu> {
                     "eludite.editor.code_actions",
                 ),
                 item("Format Document", "eludite.editor.format_document"),
+                // Brief 0069: Format Selection and Code Cleanup.
+                item("Format Selection", "eludite.editor.format_selection"),
+                item("Run Code Cleanup", "eludite.editor.code_cleanup"),
                 Separator,
                 // Visual Studio's Edit > IntelliSense items.
                 item("Complete Word", "eludite.editor.complete"),
                 item("Parameter Info", "eludite.editor.signature_help"),
                 item("Quick Info", "eludite.editor.hover"),
+                // Brief 0069: Insert Snippet, Surround With, Remove and Sort Usings.
+                item("Insert Snippet...", "eludite.editor.insert_snippet"),
+                item("Surround With...", "eludite.editor.surround_with"),
+                item(
+                    "Remove and Sort Usings",
+                    "eludite.editor.remove_and_sort_usings",
+                ),
             ],
         ),
         menu(

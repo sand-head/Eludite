@@ -132,6 +132,38 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         command("f2", "F2", "eludite.editor.rename"),
         command("ctrl-.", "Ctrl+.", "eludite.editor.code_actions"),
         command("alt-enter", "Alt+Enter", "eludite.editor.code_actions"),
+        // Brief 0069: Edit.InsertSnippet, Edit.SurroundWith, Edit.FormatSelection, Edit.RemoveAndSort, Code Cleanup and
+        // Refactor.ExtractMethod (the light bulb's refactorings for the selection).
+        command(
+            "ctrl-k ctrl-x",
+            "Ctrl+K, Ctrl+X",
+            "eludite.editor.insert_snippet",
+        ),
+        command(
+            "ctrl-k ctrl-s",
+            "Ctrl+K, Ctrl+S",
+            "eludite.editor.surround_with",
+        ),
+        command(
+            "ctrl-k ctrl-f",
+            "Ctrl+K, Ctrl+F",
+            "eludite.editor.format_selection",
+        ),
+        command(
+            "ctrl-r ctrl-g",
+            "Ctrl+R, Ctrl+G",
+            "eludite.editor.remove_and_sort_usings",
+        ),
+        command(
+            "ctrl-k ctrl-e",
+            "Ctrl+K, Ctrl+E",
+            "eludite.editor.code_cleanup",
+        ),
+        command(
+            "ctrl-r ctrl-m",
+            "Ctrl+R, Ctrl+M",
+            "eludite.editor.code_actions",
+        ),
         // Build (brief 0017): Build.BuildSolution (Ctrl+Shift+B; F6 in the C# profile) and Build.BuildSelection
         // (Shift+F6).
         command("ctrl-shift-b", "Ctrl+Shift+B", "eludite.build.solution"),

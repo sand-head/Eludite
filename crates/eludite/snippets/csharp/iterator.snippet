@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Eludite's built-in code snippet (brief 0069; MIT, written for Eludite in Visual Studio's format). -->
+<CodeSnippets xmlns="http://schemas.microsoft.com/VisualStudio/2005/CodeSnippet">
+  <CodeSnippet Format="1.0.0">
+    <Header>
+      <Title>iterator</Title>
+      <Shortcut>iterator</Shortcut>
+      <Description>Iterator method</Description>
+      <Author>Eludite</Author>
+      <SnippetTypes><SnippetType>Expansion</SnippetType></SnippetTypes>
+    </Header>
+    <Snippet>
+      <Declarations>
+        <Literal>
+          <ID>type</ID>
+          <ToolTip>Element type</ToolTip>
+          <Default>ElementType</Default>
+        </Literal>
+        <Literal>
+          <ID>name</ID>
+          <ToolTip>Method name</ToolTip>
+          <Default>MyIterator</Default>
+        </Literal>
+      </Declarations>
+      <Code Language="csharp"><![CDATA[public IEnumerable<$type$> $name$()
+{
+    $end$throw new NotImplementedException();
+    yield return default;
+}]]></Code>
+    </Snippet>
+  </CodeSnippet>
+</CodeSnippets>

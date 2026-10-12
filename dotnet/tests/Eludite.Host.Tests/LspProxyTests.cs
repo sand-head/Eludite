@@ -674,6 +674,63 @@ public sealed class LspProxyTests : IAsyncDisposable
         Assert.Equal(JsonRpcErrorCode.MethodNotFound, ex.ErrorCode);
     }
 
+    // ----- Brief 0069 -----
+
+    [Fact]
+    public async Task ShellSettings_AnswerRoslynsConfiguration_AndTellRoslynWhenTheyChange()
+    {
+        await InitializeAsync();
+        await _fake.WaitForAsync("initialized");
+        const string unimported = "csharp|completion.dotnet_show_completion_items_from_unimported_namespaces";
+        const string scope = "visual_basic|background_analysis.dotnet_compiler_diagnostics_scope";
+        const string fileBased = "projects.dotnet_enable_file_based_programs";
+
+        var before = await _fake.RequestConfigurationAsync(unimported, scope, fileBased, "csharp|unknown.option");
+        Assert.Equal("[null,null,false,null]", before.GetRawText());
+
+        await _client.NotifyWithParameterObjectAsync("workspace/didChangeConfiguration", new
+        {
+            settings = new Dictionary<string, object>
+            {
+                ["dotnet.completion.showItemsFromUnimportedNamespaces"] = false,
+                ["dotnet.backgroundAnalysis.scope"] = "fullSolution",
+                ["not.mapped"] = true,
+            },
+        });
+        await _fake.WaitForAsync("workspace/didChangeConfiguration");
+        var after = await _fake.RequestConfigurationAsync(unimported, scope, fileBased);
+        Assert.Equal("""[false,"FullSolution",false]""", after.GetRawText());
+
+        // The same values again: Roslyn is not told twice.
+        await _client.NotifyWithParameterObjectAsync("workspace/didChangeConfiguration", new
+        {
+            settings = new Dictionary<string, object>
+            {
+                ["dotnet.completion.showItemsFromUnimportedNamespaces"] = false,
+                ["dotnet.backgroundAnalysis.scope"] = "fullSolution",
+            },
+        });
+        await CompleteAsync(0);
+        Assert.Equal(1, _fake.Count("workspace/didChangeConfiguration"));
+    }
+
+    [Fact]
+    public async Task RangeFormatting_OnTypeAutoInsertFixAllAndWorkspaceDiagnostics_AreForwarded()
+    {
+        await InitializeAsync();
+        foreach (var method in new[] { "textDocument/rangeFormatting", "textDocument/onTypeFormatting", "textDocument/_vs_onAutoInsert", "codeAction/resolveFixAll", "workspace/diagnostic" })
+        {
+            Assert.Contains(method, LspProxy.ForwardedRequests);
+        }
+
+        var result = await _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "textDocument/rangeFormatting",
+            new { textDocument = new { uri = "file:///a.cs" }, range = new { start = new { line = 1, character = 0 }, end = new { line = 2, character = 0 } }, options = new { tabSize = 4, insertSpaces = true }, eluditeGeneration = 0 },
+            Ct);
+        Assert.Equal("x", result[0].GetProperty("newText").GetString());
+        Assert.Equal(2, _fake.Last("textDocument/rangeFormatting")!.Value.GetProperty("range").GetProperty("end").GetProperty("line").GetInt32());
+    }
+
     [Fact]
     public async Task ShutdownExit_ShutsDownUpstream()
     {

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-format-selection.input.json",
+  "title": "eludite.editor.format_selection input",
+  "description": "Format the selected lines (Edit > Advanced > Format Selection, Ctrl+K, Ctrl+F; brief 0069) with the language server's textDocument/rangeFormatting; with no selection, the caret's line. One undo step; the document is not saved.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

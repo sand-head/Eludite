@@ -463,6 +463,8 @@ impl Shell {
         self.git_document_opened(&id, cx);
         // CodeLens rows, when the settings show any for the document's language (brief 0052).
         self.code_lens_document_opened(&id, cx);
+        // Tab-Tab snippets, format on type and paste, `///` (brief 0069).
+        self.depth_document_opened(&id, cx);
         if self.timings.editable.is_none() {
             // Editable once the frame that shows the editor has been drawn.
             let this = cx.entity().downgrade();

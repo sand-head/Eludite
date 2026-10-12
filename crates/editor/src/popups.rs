@@ -57,6 +57,8 @@ pub(crate) struct CompletionMenu {
     filter_task: Option<Task<()>>,
     /// The item a resolve was last asked for.
     resolving: Option<(u64, usize)>,
+    /// Brief 0069: the server put the list in suggestion (builder) mode: space never commits.
+    suggestion_mode: bool,
 }
 
 impl CompletionMenu {
@@ -103,6 +105,11 @@ pub(crate) struct Popups {
     hover_timer: Option<(usize, Task<()>)>,
     /// The offset the last mouse hover was asked for.
     mouse_hover: Option<usize>,
+    /// Brief 0069: the list's commit characters (an item may name its own); `None`: the defaults.
+    pub commit_characters: Option<Arc<Vec<char>>>,
+    /// Brief 0069: the characters whose typing is reported ([`EditorEvent::CharacterTyped`]), and whether pastes are.
+    pub typed_reports: Vec<char>,
+    pub report_pastes: bool,
 }
 
 impl Default for Popups {
@@ -117,6 +124,9 @@ impl Default for Popups {
             identifier_task: None,
             hover_timer: None,
             mouse_hover: None,
+            commit_characters: None,
+            typed_reports: Vec::new(),
+            report_pastes: false,
         }
     }
 }
@@ -177,6 +187,7 @@ impl EditorView {
                 filter_seq: 0,
                 filter_task: None,
                 resolving: None,
+                suggestion_mode: false,
             });
         }
         cx.notify();
@@ -366,6 +377,16 @@ impl EditorView {
         label: Option<&str>,
         cx: &mut Context<Self>,
     ) -> Option<AcceptedCompletion> {
+        self.accept_completion_as(label, false, cx)
+    }
+
+    /// [`EditorView::accept_completion`]; `plain_snippet`: insert a snippet item's text without a session.
+    fn accept_completion_as(
+        &mut self,
+        label: Option<&str>,
+        plain_snippet: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<AcceptedCompletion> {
         let menu = self.popups.completion.as_ref()?;
         let index = match label {
             Some(l) => menu
@@ -401,14 +422,26 @@ impl EditorView {
                     .unwrap_or_else(|| item.label.clone()),
             ),
         };
-        self.editor.set_selections(
-            vec![crate::SelectionRange {
-                tail: range.start,
-                head: range.end,
-            }],
-            0,
-        );
-        self.editor.insert(&text);
+        // Brief 0069: a snippet item starts a session (argument placeholders), unless a commit character follows it.
+        let text = if item.snippet && !plain_snippet {
+            self.popups.completion = None;
+            self.insert_snippet(range, &text, &[], cx)
+        } else {
+            let text = if item.snippet {
+                crate::snippet_session::parse(&text, &|_| None).text
+            } else {
+                text
+            };
+            self.editor.set_selections(
+                vec![crate::SelectionRange {
+                    tail: range.start,
+                    head: range.end,
+                }],
+                0,
+            );
+            self.editor.insert(&text);
+            text
+        };
         self.popups.completion = None;
         cx.emit(EditorEvent::CompletionClosed);
         self.changed(cx);
@@ -426,6 +459,74 @@ impl EditorView {
         if self.popups.completion.take().is_some() {
             cx.emit(EditorEvent::CompletionClosed);
             cx.notify();
+        }
+    }
+
+    /// Brief 0069: the characters that commit the selected item when the item names none (default
+    /// [`crate::intellisense::DEFAULT_COMMIT_CHARACTERS`]; the server's `allCommitCharacters`).
+    pub fn set_completion_commit_characters(&mut self, characters: Option<Vec<char>>) {
+        self.popups.commit_characters = characters.map(Arc::new);
+    }
+
+    /// Brief 0069: list `id` is in suggestion mode (space never commits it).
+    pub fn set_completion_suggestion_mode(&mut self, id: u64, on: bool) {
+        if let Some(menu) = self.popups.completion.as_mut()
+            && menu.id == id
+        {
+            menu.suggestion_mode = on;
+        }
+    }
+
+    /// Brief 0069: report typing these characters with [`EditorEvent::CharacterTyped`] (`'\n'`: Enter), and pastes
+    /// with [`EditorEvent::Pasted`].
+    pub fn set_typed_character_reports(&mut self, characters: &[char], pastes: bool) {
+        self.popups.typed_reports = characters.to_vec();
+        self.popups.report_pastes = pastes;
+    }
+
+    /// Brief 0069: before `text` is typed: when it is one commit character of the selected item and the list has a
+    /// hard selection (something typed into the filter or the selection moved; not opened soft), commit the item.
+    /// The character is inserted after it by the caller. Returns whether an item was committed.
+    pub(crate) fn commit_before_typing(&mut self, text: &str, cx: &mut Context<Self>) -> bool {
+        let mut chars = text.chars();
+        let (Some(c), None) = (chars.next(), chars.next()) else {
+            return false;
+        };
+        if is_identifier_char(c) || self.editor.selections().len() > 1 {
+            return false;
+        }
+        let Some(menu) = self.popups.completion.as_ref() else {
+            return false;
+        };
+        if !menu.visible()
+            || menu.soft
+            || menu.shown_source != Some(CompletionSource::LanguageServer)
+            || (c == ' ' && menu.suggestion_mode)
+        {
+            return false;
+        }
+        let typed = menu.filter.as_deref().is_some_and(|f| !f.is_empty());
+        if !typed && !menu.explicit {
+            return false;
+        }
+        let Some(m) = menu.matches.get(menu.selected) else {
+            return false;
+        };
+        let item = &menu.shown[m.item];
+        let commits = match (&item.commit_characters, &self.popups.commit_characters) {
+            (Some(own), _) => own.contains(&c),
+            (None, Some(list)) => list.contains(&c),
+            (None, None) => crate::intellisense::DEFAULT_COMMIT_CHARACTERS.contains(&c),
+        };
+        if !commits {
+            return false;
+        }
+        match self.accept_completion_as(None, true, cx) {
+            Some(accepted) => {
+                cx.emit(EditorEvent::CompletionCommitted(accepted));
+                true
+            }
+            None => false,
         }
     }
 
@@ -624,6 +725,14 @@ impl EditorView {
     /// After typing `text`: filter or close the open list, and decide whether to ask for completion or Parameter Info.
     pub(crate) fn after_typing(&mut self, text: &str, cx: &mut Context<Self>) {
         self.close_hover(cx);
+        // Brief 0069: snippet sessions follow the caret; reported characters (format on type, `///`).
+        self.snippet_follow_caret(cx);
+        if let (Some(c), 1) = (text.chars().next(), text.chars().count())
+            && self.popups.typed_reports.contains(&c)
+        {
+            let offset = self.editor.primary_selection().head;
+            cx.emit(EditorEvent::CharacterTyped { ch: c, offset });
+        }
         let mut chars = text.chars();
         let (Some(c), None) = (chars.next(), chars.next()) else {
             // A paste or composed text.
@@ -676,6 +785,7 @@ impl EditorView {
     /// After Backspace: filter the open list again, or close it when the caret left the word.
     pub(crate) fn after_backspace(&mut self, cx: &mut Context<Self>) {
         self.close_hover(cx);
+        self.snippet_follow_caret(cx);
         if let Some(menu) = &self.popups.completion {
             let refresh = menu.loading || menu.incomplete;
             if self.refilter(cx) && refresh {
@@ -687,6 +797,7 @@ impl EditorView {
 
     /// After any other edit or a caret move by the keys or the mouse.
     pub(crate) fn after_other_change(&mut self, cx: &mut Context<Self>) {
+        self.snippet_follow_caret(cx);
         self.close_completion(cx);
         self.close_hover(cx);
         self.signature_follow_caret(cx);

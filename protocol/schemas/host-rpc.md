@@ -702,7 +702,13 @@ JSON. Requests still require `eluditeGeneration`.
 | `textDocument/semanticTokens/full` | request, forwarded, untyped |
 | `textDocument/semanticTokens/range` | request, forwarded, untyped |
 | `textDocument/formatting` | request, forwarded, untyped |
+| `textDocument/rangeFormatting` | request, forwarded, untyped (brief 0069: Format Selection, format on paste) |
+| `textDocument/onTypeFormatting` | request, forwarded, untyped (brief 0069: format on `}`, `;`, Enter) |
+| `textDocument/_vs_onAutoInsert` | request, forwarded, untyped (brief 0069: `///` and `'''` doc comments; params `_vs_textDocument`, `_vs_position`, `_vs_ch`, `_vs_options`; result `{ _vs_textEditFormat?, _vs_textEdit }` or null) |
+| `codeAction/resolveFixAll` | request, forwarded, untyped (brief 0069: a `roslyn.client.fixAllCodeAction` action's `data` with `scope` `Document`, `Project` or `Solution`; result the action with its `edit`) |
+| `workspace/diagnostic` | request, forwarded, untyped (brief 0069: full-solution analysis; Roslyn holds the request after its first answer until something changes, so the shell keeps one in flight and cancels it) |
 | `textDocument/didSave` | notification, forwarded, untyped |
+| `workspace/didChangeConfiguration` | notification, answered by the host (brief 0069): `{ settings: { <Eludite setting>: value } }`, the settings `RoslynOptions` maps; the host keeps them for Roslyn's `workspace/configuration` and, when they changed, sends Roslyn `workspace/didChangeConfiguration` `{ settings: {} }` so it pulls again |
 | `workspace/didChangeWatchedFiles` | notification, forwarded, untyped |
 
 Any other method returns -32601 (MethodNotFound) and is not forwarded.
@@ -797,7 +803,7 @@ Answered by the host, never relayed:
 
 | Method | Host answer |
 |---|---|
-| `workspace/configuration` | `projects.dotnet_enable_file_based_programs = false`; `null` (Roslyn default) for every other section. Shell-supplied settings are future work. |
+| `workspace/configuration` | `projects.dotnet_enable_file_based_programs = false`; the last values the shell sent in `workspace/didChangeConfiguration`, through `RoslynOptions`' table (brief 0069: `dotnet.completion.showItemsFromUnimportedNamespaces` to `completion.dotnet_show_completion_items_from_unimported_namespaces`, `dotnet.backgroundAnalysis.scope` to both `background_analysis.dotnet_analyzer_diagnostics_scope` and `..._compiler_diagnostics_scope` as `OpenFiles` or `FullSolution`, `editor.inlayHints.*` to `inlay_hints.*`, ...; a per-language section `csharp|x` or `visual_basic|x` gets the same value); `null` (Roslyn default) for every other section. |
 | `client/registerCapability`, `client/unregisterCapability` | `null` (accepted, ignored) |
 | `window/workDoneProgress/create` | `null` |
 | `window/showMessageRequest` | `null` (no modal UI) |
@@ -824,7 +830,7 @@ plaintext, `signatureHelp`, `definition`, `references`, `publishDiagnostics`, pu
 `textDocument.codeAction` with `codeActionLiteralSupport` (the kinds `quickfix`, `refactor`, `refactor.extract`,
 `refactor.inline`, `refactor.rewrite`, `source`, `source.organizeImports`), `resolveSupport` for `edit`,
 `dataSupport`, `isPreferredSupport` and `disabledSupport`; and `textDocument.rename` with `prepareSupport`. Since brief 0052 also: `textDocument.codeLens` and
-`workspace.codeLens.refreshSupport`. The server's resulting capabilities reach the shell in `eludite/languageServer/status`.
+`workspace.codeLens.refreshSupport`. Since brief 0069 also: `workspace.didChangeConfiguration` (no dynamic registration). The server's resulting capabilities reach the shell in `eludite/languageServer/status`.
 
 ## Generic language servers and Cargo (brief 0019)
 

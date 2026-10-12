@@ -22,7 +22,6 @@ use eludite_commands::workspace::{
     PopupState, SignatureHelpOutput, SignatureRow, WorkspaceOutput, WorkspaceRequest,
 };
 
-use eludite_editor::intellisense::snippet_to_plain;
 use eludite_editor::text::{self, PointUtf16, Unclipped};
 use eludite_editor::{
     CompletionEdit, CompletionItem, CompletionKind, CompletionSource, CompletionTrigger,
@@ -63,6 +62,8 @@ pub struct DocIntellisense {
     /// `additionalTextEdits` from `completionItem/resolve`, by item index of the shown list, with the text the server
     /// had when it resolved (an empty list: resolved, none).
     resolved: std::collections::HashMap<usize, (Vec<lsp::TextEdit>, text::BufferSnapshot)>,
+    /// Brief 0069: the `roslyn.client.completionComplexEdit` command a resolve gave an item of the shown list.
+    resolved_commands: std::collections::HashMap<usize, Value>,
     /// A resolve sent when an unresolved item was committed (brief 0015).
     accept_resolve: Option<Pending>,
     /// The last Parameter Info answer, sent back as `activeSignatureHelp` on a retrigger.
@@ -86,6 +87,7 @@ impl DocIntellisense {
         self.raw = None;
         self.raw_base = None;
         self.resolved.clear();
+        self.resolved_commands.clear();
         self.last_signature = None;
     }
 }
@@ -103,6 +105,12 @@ pub struct ServerFeatures {
     /// `codeLensProvider` and its `resolveProvider` (brief 0052): a server without it is never asked for lenses.
     pub code_lens: bool,
     pub code_lens_resolve: bool,
+    /// Brief 0069: `completionProvider.allCommitCharacters`, `documentRangeFormattingProvider`, the on-type formatting
+    /// characters and Roslyn's `_vs_onAutoInsertProvider._vs_triggerCharacters`.
+    pub all_commit_characters: Vec<char>,
+    pub range_formatting: bool,
+    pub on_type_triggers: Vec<String>,
+    pub auto_insert_triggers: Vec<String>,
 }
 
 impl ServerFeatures {
@@ -130,6 +138,25 @@ impl ServerFeatures {
             code_lens: caps["codeLensProvider"].is_object()
                 || caps["codeLensProvider"].as_bool() == Some(true),
             code_lens_resolve: caps["codeLensProvider"]["resolveProvider"].as_bool() == Some(true),
+            all_commit_characters: strings(&caps["completionProvider"]["allCommitCharacters"])
+                .iter()
+                .filter_map(|c| c.chars().next())
+                .collect(),
+            range_formatting: caps["documentRangeFormattingProvider"].is_object()
+                || caps["documentRangeFormattingProvider"].as_bool() == Some(true),
+            on_type_triggers: {
+                let t = &caps["documentOnTypeFormattingProvider"];
+                let mut v: Vec<String> = t["firstTriggerCharacter"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect();
+                v.extend(strings(&t["moreTriggerCharacter"]));
+                v
+            },
+            auto_insert_triggers: strings(
+                &caps["_vs_onAutoInsertProvider"]["_vs_triggerCharacters"],
+            ),
         }
     }
 
@@ -147,6 +174,13 @@ impl ServerFeatures {
         add(&mut self.commands, other.commands);
         self.resolve |= other.resolve;
         self.code_action_resolve |= other.code_action_resolve;
+        // Brief 0069.
+        add(&mut self.on_type_triggers, other.on_type_triggers);
+        add(&mut self.auto_insert_triggers, other.auto_insert_triggers);
+        self.range_formatting |= other.range_formatting;
+        if self.all_commit_characters.is_empty() {
+            self.all_commit_characters = other.all_commit_characters;
+        }
         self
     }
 }
@@ -213,6 +247,12 @@ fn hover_markdown(contents: &Value) -> Option<String> {
     }
 }
 
+/// Whether `range` holds `p` (its end included, so a squiggle's last character counts).
+pub(super) fn covers(range: &lsp::Range, p: lsp::Position) -> bool {
+    let key = |q: lsp::Position| (q.line, q.character);
+    key(range.start) <= key(p) && key(p) <= key(range.end)
+}
+
 pub(super) fn offset_in(snapshot: &text::BufferSnapshot, p: lsp::Position) -> usize {
     let point = snapshot.clip_point_utf16(
         Unclipped(PointUtf16::new(p.line, p.character)),
@@ -249,6 +289,20 @@ pub fn completion_items(
         .and_then(|d| d.get("editRange"))
         .and_then(edit_range);
     let default_data = defaults.and_then(|d| d.get("data")).cloned();
+    // Brief 0069: the list's commit characters; an item's own replace them.
+    let chars = |v: &Value| -> Option<Arc<Vec<char>>> {
+        v.as_array().map(|a| {
+            Arc::new(
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|c| c.chars().next())
+                    .collect(),
+            )
+        })
+    };
+    let default_commit = defaults
+        .and_then(|d| d.get("commitCharacters"))
+        .and_then(chars);
     let anchored = |r: lsp::Range| {
         let start = offset_in(snapshot, r.start);
         let end = offset_in(snapshot, r.end).max(start);
@@ -265,13 +319,8 @@ pub fn completion_items(
                 .and_then(Value::as_u64)
                 .or(default_format)
                 == Some(2);
-            let plain = |t: &str| {
-                if snippet {
-                    snippet_to_plain(t)
-                } else {
-                    t.to_owned()
-                }
-            };
+            // Brief 0069: snippet text is kept and inserted as a session by the editor.
+            let plain = |t: &str| t.to_owned();
             let edit = match &item.text_edit {
                 Some(te) => edit_range(te).map(|r| CompletionEdit {
                     range: anchored(r),
@@ -303,6 +352,12 @@ pub fn completion_items(
                 sort_text: item.sort_text.clone(),
                 insert_text: item.insert_text.as_deref().map(plain),
                 edit,
+                commit_characters: item
+                    .extra
+                    .get("commitCharacters")
+                    .and_then(chars)
+                    .or_else(|| default_commit.clone()),
+                snippet,
             }
         })
         .collect()
@@ -380,7 +435,13 @@ impl Shell {
         }
         self.flush_change(id, cx);
         let generation = self.doc_generation(id);
-        let completion_triggers = self.doc_features(id).completion_triggers;
+        let features = self.doc_features(id);
+        let completion_triggers = features.completion_triggers;
+        // Brief 0069: the server's commit characters when its items name none.
+        let all_commit = features.all_commit_characters;
+        view.update(cx, |v, _| {
+            v.set_completion_commit_characters((!all_commit.is_empty()).then_some(all_commit))
+        });
         let doc = self.documents.get_mut(id).expect("checked above");
         let snapshot = doc.sent.clone();
         let version = doc.lsp_version;
@@ -466,20 +527,26 @@ impl Shell {
         }
         doc.intellisense.completion = None;
         let view = doc.view.clone();
-        let (items, incomplete) = match reply.result {
+        // Brief 0069: Roslyn's suggestion (builder) mode: space does not commit.
+        let mut suggestion_mode = false;
+        let (mut items, incomplete) = match reply.result {
             Ok(Some(response)) => {
-                let (mut raw, incomplete, defaults) = match response {
+                let (mut raw, incomplete, defaults, l_suggestion) = match response {
                     lsp::CompletionResponse::List(l) => {
                         let defaults = l.extra.get("itemDefaults").cloned();
-                        (l.items, l.is_incomplete, defaults)
+                        let suggestion = l.extra.get("_vs_suggestionMode").and_then(Value::as_bool)
+                            == Some(true);
+                        (l.items, l.is_incomplete, defaults, suggestion)
                     }
-                    lsp::CompletionResponse::Items(items) => (items, false, None),
+                    lsp::CompletionResponse::Items(items) => (items, false, None, false),
                 };
                 let items =
                     completion_items(&mut raw, defaults.as_ref(), &snapshot, features_resolve);
                 doc.intellisense.raw = Some((editor_id, Arc::new(raw)));
                 doc.intellisense.raw_base = Some(snapshot.clone());
                 doc.intellisense.resolved.clear();
+                doc.intellisense.resolved_commands.clear();
+                suggestion_mode = l_suggestion;
                 (items, incomplete)
             }
             Ok(None) => (Vec::new(), false),
@@ -493,6 +560,8 @@ impl Shell {
                 (Vec::new(), false)
             }
         };
+        // Brief 0069: the document language's code snippets join the list (not after a member access).
+        items.extend(self.snippet_completion_items(id, &view, cx));
         timing.items = items.len();
         trace(format_args!(
             "completion reply {editor_id}: {} items (host {:.1} ms)",
@@ -508,7 +577,8 @@ impl Shell {
                 CompletionSource::LanguageServer,
                 incomplete,
                 cx,
-            )
+            );
+            v.set_completion_suggestion_mode(editor_id, suggestion_mode);
         });
         timing.applied = Some(Instant::now());
         self.push_timing(timing);
@@ -571,6 +641,9 @@ impl Shell {
                         .as_ref()
                         .is_some_and(|(l, _)| *l == list)
                     {
+                        if let Some(c) = complex_edit_command(&resolved) {
+                            doc.intellisense.resolved_commands.insert(index, c);
+                        }
                         doc.intellisense
                             .resolved
                             .insert(index, (additional_edits(&resolved), base));
@@ -633,6 +706,7 @@ impl Shell {
                     return;
                 }
                 doc.intellisense.hover = None;
+                let uri = doc.uri.clone();
                 let (text, range) = match reply.result {
                     Ok(Some(h)) => (
                         hover_markdown(&h.contents),
@@ -643,10 +717,24 @@ impl Shell {
                     Err(RequestError::Canceled | RequestError::Stale) => return,
                     Err(_) => (None, None),
                 };
+                // Brief 0069: the diagnostics at the position above the symbol's Quick Info.
+                let at = lsp_position(&snapshot, offset);
+                let here: Vec<&lsp::Diagnostic> = shell
+                    .diagnostics
+                    .get(&uri)
+                    .map(|ds| ds.iter().filter(|d| covers(&d.range, at)).collect())
+                    .unwrap_or_default();
+                let text = match (diagnostics_markdown(&here), text) {
+                    (Some(d), Some(t)) => Some(format!("{d}\n\n{t}")),
+                    (d, t) => d.or(t),
+                };
                 trace(format_args!(
                     "hover reply {editor_id}: {} chars",
                     text.as_ref().map_or(0, String::len)
                 ));
+                let Some(doc) = shell.documents.get(&doc_id) else {
+                    return;
+                };
                 doc.view.update(cx, |v, cx| {
                     v.set_hover(editor_id, text.as_deref(), range, cx)
                 });
@@ -834,6 +922,14 @@ impl Shell {
             ),
             // Handled by the debugger above (brief 0018).
             EditorEvent::BreakpointMarginClicked { .. } => {}
+            // Brief 0069: a commit character committed an item; format on type, `///`, format on paste.
+            EditorEvent::CompletionCommitted(accepted) => {
+                self.apply_additional_edits(id, accepted.list, accepted.index, cx)
+            }
+            EditorEvent::CharacterTyped { ch, offset } => {
+                self.on_character_typed(id, *ch, *offset, window, cx)
+            }
+            EditorEvent::Pasted { range } => self.on_pasted(id, range.clone(), window, cx),
             // CodeLens (brief 0052).
             EditorEvent::CodeLensRequested { id: request } => {
                 self.request_code_lenses(id, *request, cx)
@@ -955,9 +1051,15 @@ impl Shell {
         } else {
             doc.intellisense.resolved.get(&index).cloned()
         };
+        let command = complex_edit_command(&item)
+            .or_else(|| doc.intellisense.resolved_commands.get(&index).cloned());
         if let Some((edits, base)) = known {
             if !edits.is_empty() {
                 self.apply_completion_edits(id, &edits, &base, commit, cx);
+            }
+            // Brief 0069: override and partial-method completion.
+            if let Some(c) = command {
+                self.apply_complex_edit(id, &c, &base, commit, cx);
             }
             return;
         }
@@ -999,6 +1101,10 @@ impl Shell {
                 ));
                 if !edits.is_empty() {
                     shell.apply_completion_edits(&doc_id, &edits, &base, commit, cx);
+                }
+                // Brief 0069: override and partial-method completion.
+                if let Some(c) = complex_edit_command(&resolved) {
+                    shell.apply_complex_edit(&doc_id, &c, &base, commit, cx);
                 }
                 shell.wake_intellisense_waiters();
             });
@@ -1270,6 +1376,46 @@ impl Shell {
 }
 
 /// A completion item's `additionalTextEdits` (none when absent or malformed).
+/// Brief 0069: Roslyn's client command that completes an override or partial method after the commit.
+pub const COMPLEX_EDIT_COMMAND: &str = "roslyn.client.completionComplexEdit";
+
+/// The item's `roslyn.client.completionComplexEdit` command, if it has one.
+fn complex_edit_command(item: &lsp::CompletionItem) -> Option<Value> {
+    item.extra
+        .get("command")
+        .filter(|c| c["command"].as_str() == Some(COMPLEX_EDIT_COMMAND))
+        .cloned()
+}
+
+/// Brief 0069: the Quick Info block for the diagnostics at a position: each one's code (a link to its help when it
+/// has one) and message, then "Show potential fixes (Ctrl+.)".
+pub fn diagnostics_markdown(diagnostics: &[&lsp::Diagnostic]) -> Option<String> {
+    if diagnostics.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    for d in diagnostics {
+        let code = match &d.code {
+            Some(Value::String(c)) => Some(c.clone()),
+            Some(Value::Number(n)) => Some(n.to_string()),
+            _ => None,
+        };
+        let href = d
+            .extra
+            .get("codeDescription")
+            .and_then(|c| c["href"].as_str());
+        match (code, href) {
+            (Some(c), Some(h)) => out.push_str(&format!("[{c}]({h}) ")),
+            (Some(c), None) => out.push_str(&format!("**{c}** ")),
+            _ => {}
+        }
+        out.push_str(&d.message.replace('\n', " "));
+        out.push_str("\n\n");
+    }
+    out.push_str("Show potential fixes (Ctrl+.)");
+    Some(out)
+}
+
 fn additional_edits(item: &lsp::CompletionItem) -> Vec<lsp::TextEdit> {
     item.extra
         .get("additionalTextEdits")
@@ -1325,9 +1471,10 @@ mod tests {
         };
         assert_eq!(items[0].kind, CompletionKind::Method);
         assert_eq!(span(items[0].edit.as_ref().unwrap()), 8..10);
-        // No textEdit: the default edit range, with the snippet as plain text.
-        assert_eq!(items[1].insert_text.as_deref(), Some("Write()"));
-        assert_eq!(items[1].edit.as_ref().unwrap().new_text, "Write()");
+        // No textEdit: the default edit range, with the snippet kept for the editor's session (brief 0069).
+        assert_eq!(items[1].insert_text.as_deref(), Some("Write($1)$0"));
+        assert_eq!(items[1].edit.as_ref().unwrap().new_text, "Write($1)$0");
+        assert!(items[1].snippet && !items[0].snippet);
         assert_eq!(items[2].kind, CompletionKind::Property);
         assert!(items[2].resolved && !items[0].resolved);
         assert_eq!(items[2].documentation.as_deref(), Some("The output."));

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Eludite's built-in code snippet (brief 0069; MIT, written for Eludite in Visual Studio's format). -->
+<CodeSnippets xmlns="http://schemas.microsoft.com/VisualStudio/2005/CodeSnippet">
+  <CodeSnippet Format="1.0.0">
+    <Header>
+      <Title>equals</Title>
+      <Shortcut>equals</Shortcut>
+      <Description>Equals and GetHashCode</Description>
+      <Author>Eludite</Author>
+      <SnippetTypes><SnippetType>Expansion</SnippetType></SnippetTypes>
+    </Header>
+    <Snippet>
+      <Code Language="csharp"><![CDATA[public override bool Equals(object? obj)
+{
+    if (obj is null || GetType() != obj.GetType())
+    {
+        return false;
+    }
+
+    $end$throw new NotImplementedException();
+}
+
+public override int GetHashCode()
+{
+    throw new NotImplementedException();
+}]]></Code>
+    </Snippet>
+  </CodeSnippet>
+</CodeSnippets>

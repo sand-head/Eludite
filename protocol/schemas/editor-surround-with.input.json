@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-surround-with.input.json",
+  "title": "eludite.editor.surround_with input",
+  "description": "Surround the selection with a code snippet (Edit > IntelliSense > Surround With, Ctrl+K, Ctrl+S; brief 0069): a snippet whose kinds include `surroundsWith` (`if`, `try`, `for`, `region`...), with the selected text where it says `$selected$`. Without `shortcut`, the Surround With picker opens.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "shortcut": {
+      "description": "The snippet's shortcut.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

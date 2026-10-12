@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Eludite's built-in code snippet (brief 0069; MIT, written for Eludite in Visual Studio's format). -->
+<CodeSnippets xmlns="http://schemas.microsoft.com/VisualStudio/2005/CodeSnippet">
+  <CodeSnippet Format="1.0.0">
+    <Header>
+      <Title>testm</Title>
+      <Shortcut>testm</Shortcut>
+      <Description>MSTest test method</Description>
+      <Author>Eludite</Author>
+      <SnippetTypes><SnippetType>Expansion</SnippetType></SnippetTypes>
+    </Header>
+    <Snippet>
+      <Declarations>
+        <Literal>
+          <ID>name</ID>
+          <ToolTip>Test name</ToolTip>
+          <Default>Test</Default>
+        </Literal>
+      </Declarations>
+      <Code Language="csharp"><![CDATA[[TestMethod]
+public void $name$()
+{
+    $end$
+}]]></Code>
+    </Snippet>
+  </CodeSnippet>
+</CodeSnippets>
