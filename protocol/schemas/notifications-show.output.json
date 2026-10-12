@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/notifications-show.output.json",
+  "title": "eludite.notifications.show output",
+  "type": "object",
+  "properties": {
+    "visible": {
+      "type": "boolean"
+    },
+    "unread": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "visible",
+    "unread"
+  ],
+  "additionalProperties": false
+}

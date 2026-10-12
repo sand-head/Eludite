@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-manage-window-layouts.input.json",
+  "title": "eludite.view.manage_window_layouts input",
+  "description": "Window > Manage Window Layouts: list the saved layouts in slot order; `rename` or `delete` one; `move_up` gives it the slot before. Without `action` the dialog opens.",
+  "type": "object",
+  "properties": {
+    "action": {
+      "enum": [
+        "list",
+        "rename",
+        "delete",
+        "move_up"
+      ]
+    },
+    "name": {
+      "type": "string"
+    },
+    "new_name": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

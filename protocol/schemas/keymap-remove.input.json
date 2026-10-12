@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/keymap-remove.input.json",
+  "title": "eludite.keymap.remove input",
+  "description": "Remove the bindings of `keys` (only `command`'s, when given) from the active keymap: written to the person's keybindings.json as a removal, applied at once.",
+  "type": "object",
+  "properties": {
+    "keys": {
+      "type": "string"
+    },
+    "command": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "keys"
+  ],
+  "additionalProperties": false
+}

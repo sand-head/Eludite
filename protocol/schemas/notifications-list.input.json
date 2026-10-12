@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/notifications-list.input.json",
+  "title": "eludite.notifications.list input",
+  "description": "The notifications (the status bar's bell, View > Notifications), newest first, and how many are unread.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

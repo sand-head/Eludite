@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/keymap-get.input.json",
+  "title": "eludite.keymap.get input",
+  "description": "The active keymap: the preset (the setting `keyboard.preset`), every binding with where it comes from and its scope, the person's bindings file and its errors.",
+  "type": "object",
+  "properties": {
+    "command": {
+      "type": "string",
+      "description": "Only this command's bindings."
+    }
+  },
+  "additionalProperties": false
+}

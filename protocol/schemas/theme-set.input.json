@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/theme-set.input.json",
+  "title": "eludite.theme.set input",
+  "description": "Switch the color theme (Tools > Theme): writes the setting `workbench.theme` in the user settings file; every window recolors at once.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "A theme id of eludite.theme.list: `dark`, `light`, `classic` or a user theme's."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}

@@ -3,8 +3,10 @@
 //! Every binding produces one GPUI action, [`RunCommand`], carrying the command
 //! id and its JSON input. The shell handles `RunCommand` by invoking the
 //! command bus, so keys and menus reach the same commands agents do (PLAN.md
-//! 5.1). Only the Visual Studio preset exists (brief 0008, out of scope: other
-//! presets).
+//! 5.1). Visual Studio's table is [`vs_keymap`] (brief 0008); brief 0078 adds the Rider (IntelliJ) and VS Code
+//! presets as tables of bindings that replace Visual Studio's ([`preset_keymap`]), the person's `keybindings.json`
+//! ([`parse_user_keybindings`]) on top of a preset ([`active_keymap`]), and their registration with GPUI
+//! ([`bind_active_keymap`]).
 
 use gpui::{App, KeyBinding, SharedString};
 use serde_json::{Value, json};
@@ -189,6 +191,25 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             command: "eludite.test.run",
             args: json!({ "repeat_last": true }),
         },
+        // Brief 0078: View.CommandPalette (Ctrl+Shift+P), Window.QuickLaunch / Feature Search (Ctrl+Q),
+        // View.FullScreen (Shift+Alt+Enter) and Window.ApplyWindowLayout1 to 9 (Ctrl+Alt+1 to 9).
+        command("ctrl-shift-p", "Ctrl+Shift+P", PALETTE),
+        KeyBindingSpec {
+            keystrokes: "ctrl-q",
+            display: "Ctrl+Q",
+            command: PALETTE,
+            args: json!({ "mode": "features" }),
+        },
+        command("shift-alt-enter", "Shift+Alt+Enter", FULL_SCREEN),
+        layout_key("ctrl-alt-1", "Ctrl+Alt+1", 1),
+        layout_key("ctrl-alt-2", "Ctrl+Alt+2", 2),
+        layout_key("ctrl-alt-3", "Ctrl+Alt+3", 3),
+        layout_key("ctrl-alt-4", "Ctrl+Alt+4", 4),
+        layout_key("ctrl-alt-5", "Ctrl+Alt+5", 5),
+        layout_key("ctrl-alt-6", "Ctrl+Alt+6", 6),
+        layout_key("ctrl-alt-7", "Ctrl+Alt+7", 7),
+        layout_key("ctrl-alt-8", "Ctrl+Alt+8", 8),
+        layout_key("ctrl-alt-9", "Ctrl+Alt+9", 9),
     ]
 }
 
@@ -239,6 +260,584 @@ pub fn shortcut_for(
         .iter()
         .find(|k| k.command == command && &k.args == args)
         .map(|k| k.display)
+}
+
+// ---- Brief 0078: presets, user bindings and the active keymap. ----------------------------------------------------
+
+/// The command palette's command (`{"mode": "features"}` is Feature Search, Ctrl+Q).
+pub const PALETTE: &str = "eludite.view.command_palette";
+/// View > Full Screen.
+pub const FULL_SCREEN: &str = "eludite.view.full_screen";
+/// Window > Apply Window Layout (`{"slot": n}`).
+pub const APPLY_LAYOUT: &str = "eludite.view.apply_window_layout";
+
+fn layout_key(keystrokes: &'static str, display: &'static str, slot: u32) -> KeyBindingSpec {
+    KeyBindingSpec {
+        keystrokes,
+        display,
+        command: APPLY_LAYOUT,
+        args: json!({ "slot": slot }),
+    }
+}
+
+/// The keyboard mapping scheme (the setting `keyboard.preset`, Tools > Options > Environment > Keyboard).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KeymapPreset {
+    /// Visual Studio's default scheme: [`vs_keymap`].
+    #[default]
+    VisualStudio,
+    /// Rider's IntelliJ scheme (Rider's own default on Windows is its Visual Studio scheme, which is ours).
+    Rider,
+    /// Visual Studio Code's default bindings.
+    VsCode,
+}
+
+impl KeymapPreset {
+    pub const ALL: [KeymapPreset; 3] = [Self::VisualStudio, Self::Rider, Self::VsCode];
+
+    /// The setting's value (`visualStudio`, `rider`, `vsCode`); an unknown value is Visual Studio's.
+    pub fn from_setting(value: &str) -> Self {
+        match value {
+            "rider" => Self::Rider,
+            "vsCode" => Self::VsCode,
+            _ => Self::VisualStudio,
+        }
+    }
+
+    pub fn setting(self) -> &'static str {
+        match self {
+            Self::VisualStudio => "visualStudio",
+            Self::Rider => "rider",
+            Self::VsCode => "vsCode",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::VisualStudio => "Visual Studio",
+            Self::Rider => "Rider (IntelliJ)",
+            Self::VsCode => "Visual Studio Code",
+        }
+    }
+}
+
+/// A preset's own bindings: each takes its command (with those arguments) from Visual Studio's table, and any Visual
+/// Studio binding on the same keys.
+fn preset_overrides(preset: KeymapPreset) -> Vec<KeyBindingSpec> {
+    let show = |keystrokes, display, id: &str| KeyBindingSpec {
+        keystrokes,
+        display,
+        command: SHOW,
+        args: json!({ "id": id }),
+    };
+    let with = |keystrokes, display, cmd, args: Value| KeyBindingSpec {
+        keystrokes,
+        display,
+        command: cmd,
+        args,
+    };
+    match preset {
+        KeymapPreset::VisualStudio => Vec::new(),
+        // Rider's IntelliJ scheme on Windows and Linux.
+        KeymapPreset::Rider => vec![
+            show("alt-1", "Alt+1", "workspace"),
+            show("alt-6", "Alt+6", "error_list"),
+            show("alt-f12", "Alt+F12", "terminal"),
+            show("alt-0", "Alt+0", "git_changes"),
+            show("alt-9", "Alt+9", "git_repository"),
+            show("alt-8", "Alt+8", "tests"),
+            command("ctrl-shift-a", "Ctrl+Shift+A", PALETTE),
+            with(
+                "shift shift",
+                "Shift, Shift",
+                PALETTE,
+                json!({ "mode": "features" }),
+            ),
+            command("ctrl-b", "Ctrl+B", "eludite.editor.go_to_definition"),
+            command("alt-f7", "Alt+F7", "eludite.editor.find_references"),
+            command("shift-f6", "Shift+F6", "eludite.editor.rename"),
+            command("ctrl-alt-l", "Ctrl+Alt+L", "eludite.editor.format_document"),
+            command("ctrl-p", "Ctrl+P", "eludite.editor.signature_help"),
+            command("ctrl-q", "Ctrl+Q", "eludite.editor.hover"),
+            command("ctrl-shift-z", "Ctrl+Shift+Z", "eludite.editor.redo"),
+            command("ctrl-alt-left", "Ctrl+Alt+Left", "eludite.navigation.back"),
+            command(
+                "ctrl-alt-right",
+                "Ctrl+Alt+Right",
+                "eludite.navigation.forward",
+            ),
+            command("ctrl-shift-r", "Ctrl+Shift+R", "eludite.search.replace"),
+            command("ctrl-f9", "Ctrl+F9", "eludite.build.solution"),
+            command("shift-f9", "Shift+F9", "eludite.debug.start"),
+            with(
+                "shift-f10",
+                "Shift+F10",
+                "eludite.debug.start",
+                json!({ "debug": false }),
+            ),
+            command("ctrl-f2", "Ctrl+F2", "eludite.debug.stop"),
+            command("ctrl-f8", "Ctrl+F8", "eludite.debug.toggle_breakpoint"),
+            command("f8", "F8", "eludite.debug.step_over"),
+            command("f7", "F7", "eludite.debug.step_into"),
+            command("shift-f8", "Shift+F8", "eludite.debug.step_out"),
+            command("alt-f9", "Alt+F9", "eludite.debug.run_to_cursor"),
+            command("f9", "F9", "eludite.debug.continue"),
+            command("ctrl-alt-s", "Ctrl+Alt+S", "eludite.tools.options"),
+            command("ctrl-k", "Ctrl+K", "eludite.git.commit"),
+        ],
+        // Visual Studio Code's defaults on Windows and Linux.
+        KeymapPreset::VsCode => vec![
+            command("f1", "F1", PALETTE),
+            command("ctrl-shift-p", "Ctrl+Shift+P", PALETTE),
+            command("ctrl-p", "Ctrl+P", "eludite.edit.go_to_all"),
+            show("ctrl-shift-e", "Ctrl+Shift+E", "workspace"),
+            show("ctrl-shift-m", "Ctrl+Shift+M", "error_list"),
+            show("ctrl-shift-u", "Ctrl+Shift+U", "output"),
+            show("ctrl-shift-g", "Ctrl+Shift+G", "git_changes"),
+            command(
+                "shift-alt-f",
+                "Shift+Alt+F",
+                "eludite.editor.format_document",
+            ),
+            command("ctrl-shift-z", "Ctrl+Shift+Z", "eludite.editor.redo"),
+            command("alt-left", "Alt+Left", "eludite.navigation.back"),
+            command("alt-right", "Alt+Right", "eludite.navigation.forward"),
+            command(
+                "ctrl-k ctrl-s",
+                "Ctrl+K, Ctrl+S",
+                "eludite.help.keyboard_shortcuts",
+            ),
+            command("ctrl-,", "Ctrl+,", "eludite.tools.options"),
+            command("f11", "F11", FULL_SCREEN),
+            command(
+                "ctrl-shift-f11",
+                "Ctrl+Shift+F11",
+                "eludite.debug.step_into",
+            ),
+        ],
+    }
+}
+
+/// The table of a preset: Visual Studio's with the preset's own bindings in place of Visual Studio's for the same
+/// commands (with the same arguments) or the same keys.
+pub fn preset_keymap(preset: KeymapPreset) -> Vec<KeyBindingSpec> {
+    let overrides = preset_overrides(preset);
+    let mut out: Vec<KeyBindingSpec> = vs_keymap()
+        .into_iter()
+        .filter(|vs| {
+            !overrides.iter().any(|o| {
+                o.keystrokes == vs.keystrokes
+                    || (o.command == vs.command
+                        && o.args == vs.args
+                        // A preset may keep a second key for the same command (VS Code's Ctrl+Shift+P and F1).
+                        && !overrides.iter().any(|p| p.keystrokes == vs.keystrokes))
+            })
+        })
+        .collect();
+    out.extend(overrides);
+    out
+}
+
+/// Where a binding applies: everywhere in the main window, or only while a text editor has the focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BindingScope {
+    #[default]
+    Global,
+    TextEditor,
+}
+
+impl BindingScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            Self::TextEditor => "editor",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "global" | "Global" => Some(Self::Global),
+            "editor" | "Text Editor" | "textEditor" => Some(Self::TextEditor),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Global => "Global",
+            Self::TextEditor => "Text Editor",
+        }
+    }
+}
+
+/// Where a binding of the active keymap comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingSource {
+    Preset,
+    User,
+}
+
+/// One binding of the active keymap.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActiveBinding {
+    pub spec: KeyBindingSpec,
+    pub scope: BindingScope,
+    pub source: BindingSource,
+}
+
+/// One entry of the person's `keybindings.json`: `command` `None` (or `-id`) removes the bindings of `key` (of that
+/// command, when it names one).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserBinding {
+    /// GPUI keystrokes (`ctrl-k ctrl-c`); the file may say `Ctrl+K, Ctrl+C`.
+    pub key: String,
+    pub command: Option<String>,
+    /// For a removal: only this command's binding of `key`.
+    pub removes: Option<String>,
+    pub args: Value,
+    pub scope: BindingScope,
+}
+
+/// The person's bindings file, `keybindings.json` in Eludite's config directory.
+pub const USER_KEYBINDINGS_FILE: &str = "keybindings.json";
+
+/// Leak `s` once: bindings carry `&'static str` (the table's shape); a reload of the same file leaks nothing new.
+pub fn intern(s: &str) -> &'static str {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static POOL: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+    let mut pool = POOL
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(found) = pool.get(s) {
+        return found;
+    }
+    let leaked: &'static str = Box::leak(s.to_owned().into_boxed_str());
+    pool.insert(leaked);
+    leaked
+}
+
+/// `Ctrl+K, Ctrl+C` or `ctrl-k ctrl-c` as GPUI keystrokes (`ctrl-k ctrl-c`), checked; `None` when a chord does not
+/// parse.
+pub fn normalize_keystrokes(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let chords: Vec<String> = if text.contains('+') || text.contains(',') {
+        text.split(',')
+            .map(|chord| {
+                let parts: Vec<&str> = chord.trim().split('+').map(str::trim).collect();
+                // `Ctrl++` (the plus key) leaves an empty last part.
+                let mut keys: Vec<String> = Vec::new();
+                for (i, p) in parts.iter().enumerate() {
+                    if p.is_empty() {
+                        if i == parts.len() - 1 {
+                            keys.push("+".into());
+                        }
+                        continue;
+                    }
+                    keys.push(match p.to_ascii_lowercase().as_str() {
+                        "ctrl" | "control" => "ctrl".into(),
+                        "shift" => "shift".into(),
+                        "alt" | "option" => "alt".into(),
+                        "cmd" | "win" | "super" | "meta" => "cmd".into(),
+                        "esc" => "escape".into(),
+                        "del" => "delete".into(),
+                        "ins" => "insert".into(),
+                        "break" => "pause".into(),
+                        "pgup" | "page up" => "pageup".into(),
+                        "pgdn" | "page down" => "pagedown".into(),
+                        other => other.into(),
+                    });
+                }
+                keys.join("-")
+            })
+            .collect()
+    } else {
+        text.split_whitespace().map(str::to_owned).collect()
+    };
+    for chord in &chords {
+        let ks = gpui::Keystroke::parse(chord).ok()?;
+        if !known_key(&ks.key) {
+            return None;
+        }
+    }
+    Some(chords.join(" "))
+}
+
+/// A key GPUI names: one character, a function key, or one of the named keys.
+fn known_key(key: &str) -> bool {
+    const NAMED: [&str; 26] = [
+        "enter",
+        "escape",
+        "tab",
+        "space",
+        "backspace",
+        "delete",
+        "insert",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "up",
+        "down",
+        "left",
+        "right",
+        "pause",
+        "shift",
+        "alt",
+        "ctrl",
+        "cmd",
+        "fn",
+        "menu",
+        "printscreen",
+        "scrolllock",
+        "capslock",
+        "numlock",
+    ];
+    key.chars().count() == 1
+        || NAMED.contains(&key)
+        || key
+            .strip_prefix('f')
+            .and_then(|n| n.parse::<u8>().ok())
+            .is_some_and(|n| (1..=35).contains(&n))
+}
+
+/// Visual Studio's way to show GPUI keystrokes: `ctrl-k ctrl-c` is `Ctrl+K, Ctrl+C`.
+pub fn display_keystrokes(keystrokes: &str) -> String {
+    keystrokes
+        .split_whitespace()
+        .map(|chord| {
+            let mut parts: Vec<String> = Vec::new();
+            // A trailing `-` key (`ctrl--`) is the minus key.
+            let (mods, key) = match chord.rsplit_once('-') {
+                Some((m, "")) => (m.trim_end_matches('-'), "-"),
+                Some((m, k)) => (m, k),
+                None => ("", chord),
+            };
+            for m in mods.split('-').filter(|m| !m.is_empty()) {
+                parts.push(
+                    match m {
+                        "ctrl" => "Ctrl",
+                        "shift" => "Shift",
+                        "alt" => "Alt",
+                        "cmd" | "super" | "win" => "Win",
+                        "fn" => "Fn",
+                        other => other,
+                    }
+                    .to_owned(),
+                );
+            }
+            let key = match key {
+                "escape" => "Esc".to_owned(),
+                "pause" => "Break".to_owned(),
+                "pageup" => "PgUp".to_owned(),
+                "pagedown" => "PgDn".to_owned(),
+                "shift" | "alt" | "ctrl" => {
+                    let mut c = key.chars();
+                    c.next()
+                        .map(|f| f.to_ascii_uppercase().to_string() + c.as_str())
+                        .unwrap_or_default()
+                }
+                k if k.len() == 1 => k.to_ascii_uppercase(),
+                k => {
+                    let mut c = k.chars();
+                    c.next()
+                        .map(|f| f.to_ascii_uppercase().to_string() + c.as_str())
+                        .unwrap_or_default()
+                }
+            };
+            parts.push(key);
+            parts.join("+")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Parse `keybindings.json`: an array of `{"key", "command", "args"?, "when"?}` (`when`: `global`, the default, or
+/// `editor`). Bad entries are reported by index and skipped; the others still apply.
+pub fn parse_user_keybindings(text: &str) -> (Vec<UserBinding>, Vec<String>) {
+    let mut errors = Vec::new();
+    let value: Value = match serde_json::from_str(text) {
+        Ok(v) => v,
+        Err(e) => return (Vec::new(), vec![format!("not JSON: {e}")]),
+    };
+    let Some(items) = value.as_array() else {
+        return (
+            Vec::new(),
+            vec!["the file must be a JSON array of bindings".into()],
+        );
+    };
+    let mut out = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        let Some(raw) = item.get("key").and_then(Value::as_str) else {
+            errors.push(format!("entry {i}: `key` must be a string"));
+            continue;
+        };
+        let Some(key) = normalize_keystrokes(raw) else {
+            errors.push(format!("entry {i}: `{raw}` is not a keystroke"));
+            continue;
+        };
+        let scope = match item.get("when").and_then(Value::as_str) {
+            None => BindingScope::Global,
+            Some(w) => match BindingScope::parse(w) {
+                Some(s) => s,
+                None => {
+                    errors.push(format!(
+                        "entry {i}: `when` must be `global` or `editor`, not `{w}`"
+                    ));
+                    continue;
+                }
+            },
+        };
+        let args = item.get("args").cloned().unwrap_or_else(|| json!({}));
+        if !args.is_object() {
+            errors.push(format!("entry {i}: `args` must be an object"));
+            continue;
+        }
+        let (command, removes) = match item.get("command") {
+            None | Some(Value::Null) => (None, None),
+            Some(Value::String(c)) if c.starts_with('-') => (None, Some(c[1..].to_owned())),
+            Some(Value::String(c)) if !c.is_empty() => (Some(c.clone()), None),
+            Some(_) => {
+                errors.push(format!(
+                    "entry {i}: `command` must be a command id, `-id` or null"
+                ));
+                continue;
+            }
+        };
+        out.push(UserBinding {
+            key,
+            command,
+            removes,
+            args,
+            scope,
+        });
+    }
+    (out, errors)
+}
+
+/// The text of a `keybindings.json` holding `bindings`.
+pub fn write_user_keybindings(bindings: &[UserBinding]) -> String {
+    let items: Vec<Value> = bindings
+        .iter()
+        .map(|b| {
+            let mut o = serde_json::Map::new();
+            o.insert("key".into(), json!(b.key));
+            o.insert(
+                "command".into(),
+                match (&b.command, &b.removes) {
+                    (Some(c), _) => json!(c),
+                    (None, Some(r)) => json!(format!("-{r}")),
+                    (None, None) => Value::Null,
+                },
+            );
+            if b.args.as_object().is_some_and(|a| !a.is_empty()) {
+                o.insert("args".into(), b.args.clone());
+            }
+            if b.scope != BindingScope::Global {
+                o.insert("when".into(), json!(b.scope.as_str()));
+            }
+            Value::Object(o)
+        })
+        .collect();
+    let mut text = serde_json::to_string_pretty(&Value::Array(items)).unwrap_or_default();
+    text.push('\n');
+    text
+}
+
+/// The keymap in effect: the preset's table with the person's bindings applied in file order (a binding takes its
+/// keys from whatever had them in its scope; a removal removes). The person's bindings come first.
+pub fn active_keymap(preset: KeymapPreset, user: &[UserBinding]) -> Vec<ActiveBinding> {
+    let mut out: Vec<ActiveBinding> = preset_keymap(preset)
+        .into_iter()
+        .map(|spec| ActiveBinding {
+            spec,
+            scope: BindingScope::Global,
+            source: BindingSource::Preset,
+        })
+        .collect();
+    for u in user {
+        let key = intern(&u.key);
+        match &u.command {
+            Some(command) => {
+                out.retain(|b| !(b.spec.keystrokes == key && b.scope == u.scope));
+                out.push(ActiveBinding {
+                    spec: KeyBindingSpec {
+                        keystrokes: key,
+                        display: intern(&display_keystrokes(key)),
+                        command: intern(command),
+                        args: u.args.clone(),
+                    },
+                    scope: u.scope,
+                    source: BindingSource::User,
+                });
+            }
+            None => out.retain(|b| {
+                !(b.spec.keystrokes == key
+                    && u.removes.as_deref().is_none_or(|c| c == b.spec.command))
+            }),
+        }
+    }
+    // The person's bindings first, so menus and the palette show the shortcut they chose.
+    out.sort_by_key(|b| b.source != BindingSource::User);
+    out
+}
+
+/// The bindings of the active keymap as the table's rows (the menu bar's and the palette's shortcut column).
+pub fn specs_of(active: &[ActiveBinding]) -> Vec<KeyBindingSpec> {
+    active.iter().map(|b| b.spec.clone()).collect()
+}
+
+/// Other bindings `keys` would take over in `scope`: the same keys, or a chord that starts with them or that they
+/// start with (Visual Studio's "Shortcut currently used by").
+pub fn conflicts<'a>(
+    active: &'a [ActiveBinding],
+    keys: &str,
+    scope: BindingScope,
+) -> Vec<&'a ActiveBinding> {
+    let keys = keys.trim();
+    active
+        .iter()
+        .filter(|b| {
+            let k = b.spec.keystrokes;
+            (b.scope == scope || b.scope == BindingScope::Global || scope == BindingScope::Global)
+                && (k == keys
+                    || k.starts_with(&format!("{keys} "))
+                    || keys.starts_with(&format!("{k} ")))
+        })
+        .collect()
+}
+
+/// Register the active keymap with GPUI: every binding in [`SHELL_CONTEXT`]; the person's and a preset's own
+/// bindings also in `editor_context`, so they win over the text editor's built-in keys there; Text Editor bindings
+/// only there.
+pub fn bind_active_keymap(cx: &mut App, active: &[ActiveBinding], editor_context: &str) {
+    let vs: Vec<&'static str> = vs_keymap().iter().map(|k| k.keystrokes).collect();
+    let mut bindings = Vec::new();
+    for b in active {
+        let action = || RunCommand::new(b.spec.command, b.spec.args.clone());
+        if b.scope == BindingScope::Global {
+            bindings.push(KeyBinding::new(
+                b.spec.keystrokes,
+                action(),
+                Some(SHELL_CONTEXT),
+            ));
+        }
+        if b.scope == BindingScope::TextEditor
+            || b.source == BindingSource::User
+            || !vs.contains(&b.spec.keystrokes)
+        {
+            bindings.push(KeyBinding::new(
+                b.spec.keystrokes,
+                action(),
+                Some(editor_context),
+            ));
+        }
+    }
+    cx.bind_keys(bindings);
 }
 
 #[cfg(test)]
@@ -409,5 +1008,187 @@ mod tests {
                 assert!(gpui::Keystroke::parse(ks).is_ok(), "{ks}");
             }
         }
+    }
+
+    /// Brief 0078: the presets parse, have no duplicate keys, and replace Visual Studio's bindings.
+    #[test]
+    fn presets_replace_visual_studio_bindings() {
+        for preset in KeymapPreset::ALL {
+            let k = preset_keymap(preset);
+            for b in &k {
+                for ks in b.keystrokes.split_whitespace() {
+                    assert!(gpui::Keystroke::parse(ks).is_ok(), "{preset:?} {ks}");
+                }
+            }
+            let mut keys: Vec<_> = k.iter().map(|b| b.keystrokes).collect();
+            keys.sort_unstable();
+            keys.dedup();
+            assert_eq!(keys.len(), k.len(), "{preset:?}: no duplicate keystrokes");
+            assert_eq!(KeymapPreset::from_setting(preset.setting()), preset);
+        }
+        let vs = preset_keymap(KeymapPreset::VisualStudio);
+        assert_eq!(vs, vs_keymap());
+        let rider = preset_keymap(KeymapPreset::Rider);
+        assert_eq!(
+            shortcut_for(&rider, "eludite.editor.go_to_definition", &json!({})),
+            Some("Ctrl+B")
+        );
+        // F12 is no longer Go To Definition, Shift+F6 is Rename (not Build Selection), F8 is Step Over.
+        assert!(!rider.iter().any(|b| b.keystrokes == "f12"));
+        assert_eq!(
+            shortcut_for(&rider, "eludite.editor.rename", &json!({})),
+            Some("Shift+F6")
+        );
+        assert!(
+            rider
+                .iter()
+                .any(|b| b.keystrokes == "f8" && b.command == "eludite.debug.step_over")
+        );
+        assert_eq!(
+            shortcut_for(&rider, "eludite.build.project", &json!({})),
+            None
+        );
+        // Bindings Rider does not name stay Visual Studio's.
+        assert_eq!(
+            shortcut_for(&rider, "eludite.editor.save", &json!({})),
+            Some("Ctrl+S")
+        );
+        let code = preset_keymap(KeymapPreset::VsCode);
+        assert_eq!(
+            shortcut_for(&code, "eludite.editor.format_document", &json!({})),
+            Some("Shift+Alt+F")
+        );
+        // Two keys for the palette: Ctrl+Shift+P and F1.
+        assert!(
+            code.iter()
+                .any(|b| b.keystrokes == "f1" && b.command == PALETTE)
+        );
+        assert!(
+            code.iter()
+                .any(|b| b.keystrokes == "ctrl-shift-p" && b.command == PALETTE)
+        );
+        assert_eq!(
+            KeymapPreset::from_setting("emacs"),
+            KeymapPreset::VisualStudio
+        );
+    }
+
+    #[test]
+    fn the_palette_and_full_screen_keys() {
+        let k = vs_keymap();
+        assert_eq!(shortcut_for(&k, PALETTE, &json!({})), Some("Ctrl+Shift+P"));
+        assert_eq!(
+            shortcut_for(&k, PALETTE, &json!({"mode": "features"})),
+            Some("Ctrl+Q")
+        );
+        assert_eq!(
+            shortcut_for(&k, FULL_SCREEN, &json!({})),
+            Some("Shift+Alt+Enter")
+        );
+        assert_eq!(
+            shortcut_for(&k, APPLY_LAYOUT, &json!({"slot": 3})),
+            Some("Ctrl+Alt+3")
+        );
+    }
+
+    #[test]
+    fn keystrokes_convert_both_ways() {
+        assert_eq!(
+            normalize_keystrokes("Ctrl+K, Ctrl+C").as_deref(),
+            Some("ctrl-k ctrl-c")
+        );
+        assert_eq!(
+            normalize_keystrokes("ctrl-shift-p").as_deref(),
+            Some("ctrl-shift-p")
+        );
+        assert_eq!(
+            normalize_keystrokes("Shift+Alt+Enter").as_deref(),
+            Some("shift-alt-enter")
+        );
+        assert_eq!(normalize_keystrokes(""), None);
+        assert_eq!(display_keystrokes("ctrl-k ctrl-c"), "Ctrl+K, Ctrl+C");
+        assert_eq!(display_keystrokes("ctrl--"), "Ctrl+-");
+        assert_eq!(display_keystrokes("shift-f12"), "Shift+F12");
+        assert_eq!(display_keystrokes("ctrl-alt-pause"), "Ctrl+Alt+Break");
+        // The display of every Visual Studio binding is what the table says, so the generated reference matches it.
+        for b in vs_keymap() {
+            if b.keystrokes.contains('`')
+                || b.keystrokes.contains('~')
+                || b.keystrokes.contains('_')
+            {
+                continue;
+            }
+            assert_eq!(
+                display_keystrokes(b.keystrokes),
+                b.display,
+                "{}",
+                b.keystrokes
+            );
+        }
+    }
+
+    /// The person's bindings override the preset, remove, and report bad entries.
+    #[test]
+    fn user_bindings_override_and_remove() {
+        let (user, errors) = parse_user_keybindings(
+            r#"[
+                {"key": "Ctrl+K, Ctrl+O", "command": "eludite.view.show", "args": {"id": "output"}},
+                {"key": "f5", "command": "eludite.build.solution"},
+                {"key": "ctrl-s", "command": null},
+                {"key": "ctrl-f", "command": "-eludite.editor.find"},
+                {"key": "ctrl-e e", "command": "eludite.test.run", "when": "editor"},
+                {"key": "not a key!!", "command": "x.y"},
+                {"key": "ctrl-j", "command": "x.y", "when": "terminal"}
+            ]"#,
+        );
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        let active = active_keymap(KeymapPreset::VisualStudio, &user);
+        let specs = specs_of(&active);
+        assert_eq!(
+            shortcut_for(&specs, SHOW, &json!({"id": "output"})),
+            Some("Ctrl+K, Ctrl+O")
+        );
+        // F5 builds now; Start Debugging lost F5.
+        assert_eq!(
+            shortcut_for(&specs, "eludite.debug.start", &json!({})),
+            None
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|b| b.keystrokes == "f5" && b.command == "eludite.build.solution")
+        );
+        assert_eq!(
+            shortcut_for(&specs, "eludite.editor.save", &json!({})),
+            None
+        );
+        assert_eq!(
+            shortcut_for(&specs, "eludite.editor.find", &json!({})),
+            None
+        );
+        let editor = active
+            .iter()
+            .find(|b| b.spec.keystrokes == "ctrl-e e")
+            .unwrap();
+        assert_eq!(editor.scope, BindingScope::TextEditor);
+        assert_eq!(editor.source, BindingSource::User);
+        // Round trip.
+        let text = write_user_keybindings(&user);
+        assert_eq!(parse_user_keybindings(&text), (user, Vec::new()));
+        assert!(!parse_user_keybindings("{").1.is_empty());
+        assert!(!parse_user_keybindings("{}").1.is_empty());
+    }
+
+    #[test]
+    fn conflicts_list_same_keys_and_chord_prefixes() {
+        let active = active_keymap(KeymapPreset::VisualStudio, &[]);
+        let c = conflicts(&active, "ctrl-r", BindingScope::Global);
+        // Ctrl+R starts Rename's and the tests' chords.
+        assert!(c.iter().any(|b| b.spec.command == "eludite.editor.rename"));
+        assert!(c.iter().any(|b| b.spec.command == "eludite.test.run"));
+        let c = conflicts(&active, "ctrl-s", BindingScope::TextEditor);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].spec.command, "eludite.editor.save");
+        assert!(conflicts(&active, "ctrl-alt-shift-f12", BindingScope::Global).is_empty());
     }
 }

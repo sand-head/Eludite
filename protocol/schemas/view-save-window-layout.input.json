@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-save-window-layout.input.json",
+  "title": "eludite.view.save_window_layout input",
+  "description": "Window > Save Window Layout: save the tool windows' arrangement under `name` (the person is asked for one without it). A layout of that name is replaced and keeps its slot.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/notifications-dismiss.input.json",
+  "title": "eludite.notifications.dismiss input",
+  "description": "Dismiss notification `id`, or every notification with `all: true` (the pane's Dismiss All).",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "all": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

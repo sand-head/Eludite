@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-command-palette.input.json",
+  "title": "eludite.view.command_palette input",
+  "description": "Open the command palette (View > Command Palette, Ctrl+Shift+P) or Feature Search (Ctrl+Q, `mode: features`, which also lists menu items and Options pages), with `query` typed in its box. The person picks; nothing runs until they do.",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "commands",
+        "features"
+      ],
+      "default": "commands"
+    }
+  },
+  "additionalProperties": false
+}

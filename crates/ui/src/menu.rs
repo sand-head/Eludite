@@ -3,12 +3,18 @@
 //! Items whose command is registered on the bus are enabled and dispatch
 //! [`RunCommand`] (the same action key bindings produce). Items for commands
 //! that do not exist yet are drawn disabled and do nothing.
+//!
+//! Brief 0078: the keyboard and submenus. A label with ` > ` is an item of a cascading submenu ([`menu_rows`]), so
+//! the data stays one flat list per menu. Access keys follow Windows' rule ([`access_keys`]) and are underlined while
+//! Alt is held or the bar has the keyboard; [`MenuBar::key`] takes the window's keystrokes before the key bindings
+//! (Alt tap, Alt+letter, the arrows, Home, End, Enter, Space, Escape, the items' access keys).
 
 use std::rc::Rc;
 
 use gpui::{
-    Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
+    AnyElement, Context, FontWeight, HighlightStyle, InteractiveElement, IntoElement, Keystroke,
+    MouseButton, ParentElement, Render, StatefulInteractiveElement, Styled, StyledText,
+    UnderlineStyle, Window, anchored, deferred, div, point, px,
 };
 use serde_json::{Value, json};
 
@@ -89,6 +95,15 @@ fn show(label: &'static str, id: &str) -> MenuEntry {
         label,
         command: "eludite.view.show",
         args: json!({ "id": id }),
+    }
+}
+
+/// Tools > Theme's item for a theme (brief 0078).
+fn theme_item(label: &'static str, name: &str) -> MenuEntry {
+    MenuEntry::Item {
+        label,
+        command: "eludite.theme.set",
+        args: json!({ "name": name }),
     }
 }
 
@@ -176,6 +191,12 @@ pub fn vs_menus() -> Vec<Menu> {
             "View",
             vec![
                 item("Command Palette", "eludite.view.command_palette"),
+                // Brief 0078: Visual Studio's Feature Search (Ctrl+Q).
+                MenuEntry::Item {
+                    label: "Feature Search",
+                    command: "eludite.view.command_palette",
+                    args: json!({ "mode": "features" }),
+                },
                 Separator,
                 show("Workspace", "workspace"),
                 show("Agents", "agents"),
@@ -195,6 +216,23 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Auto Hide", "eludite.view.auto_hide"),
                 item("Hide", "eludite.view.hide"),
                 item("Reset Window Layout", "eludite.view.reset_layout"),
+                // Brief 0078: Visual Studio's Window > Save, Apply and Manage Window Layouts, the notifications, Full
+                // Screen.
+                item(
+                    "Window Layouts > Save Window Layout...",
+                    "eludite.view.save_window_layout",
+                ),
+                item(
+                    "Window Layouts > Apply Window Layout...",
+                    "eludite.view.apply_window_layout",
+                ),
+                item(
+                    "Window Layouts > Manage Window Layouts...",
+                    "eludite.view.manage_window_layouts",
+                ),
+                Separator,
+                item("Notifications", "eludite.notifications.show"),
+                item("Full Screen", "eludite.view.full_screen"),
             ],
         ),
         // Visual Studio's Git menu (brief 0040): Commit or Stash... shows Git Changes, Manage Branches the Git
@@ -342,6 +380,12 @@ pub fn vs_menus() -> Vec<Menu> {
                     args: json!({ "section": "NuGet Package Manager > Package Sources" }),
                 },
                 Separator,
+                // Brief 0078: the color theme (`workbench.theme`); user themes are in the palette and on the Options
+                // page.
+                theme_item("Theme > Eludite Dark", "dark"),
+                theme_item("Theme > Eludite Light", "light"),
+                theme_item("Theme > Classic", "classic"),
+                Separator,
                 item("Options...", "eludite.tools.options"),
             ],
         ),
@@ -349,6 +393,12 @@ pub fn vs_menus() -> Vec<Menu> {
             "Help",
             vec![
                 item("View Help", "eludite.help.view"),
+                // Brief 0078: the keyboard reference, the logs and the issue tracker.
+                item("Keyboard Shortcuts", "eludite.help.keyboard_shortcuts"),
+                Separator,
+                item("Show Log", "eludite.help.show_log"),
+                item("Open Logs Folder", "eludite.help.open_logs_folder"),
+                item("Report a Problem...", "eludite.help.report_problem"),
                 Separator,
                 // Brief 0055: the self-updater's check; the status bar's update slot carries the download and the
                 // restart.
@@ -370,6 +420,139 @@ pub type IsChecked = Rc<dyn Fn(&str) -> bool>;
 /// (Start in External Browser is `eludite.debug.start` too; brief 0037). Asked after [`IsEnabled`].
 pub type IsItemEnabled = Rc<dyn Fn(&str, &Value) -> bool>;
 
+/// What a menu (or a submenu) shows, row by row (brief 0078). Entries whose label has ` > ` are grouped under a
+/// submenu row named by the part before it, at the place of the first of them: `Windows > Locals` is Locals in the
+/// Windows submenu. The data stays [`MenuEntry`]s, so a brief adds an item to a submenu with a plain `item(...)`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuRow {
+    /// `entries[ix]`, shown as `label`.
+    Entry {
+        ix: usize,
+        label: &'static str,
+    },
+    /// A cascading submenu and its items: (index into the menu's entries, the label shown in the submenu).
+    Submenu {
+        label: &'static str,
+        items: Vec<(usize, &'static str)>,
+    },
+    Separator,
+}
+
+impl MenuRow {
+    pub fn label(&self) -> Option<&'static str> {
+        match self {
+            MenuRow::Entry { label, .. } | MenuRow::Submenu { label, .. } => Some(label),
+            MenuRow::Separator => None,
+        }
+    }
+}
+
+/// The rows of `entries`.
+pub fn menu_rows(entries: &[MenuEntry]) -> Vec<MenuRow> {
+    let mut rows: Vec<MenuRow> = Vec::new();
+    for (ix, e) in entries.iter().enumerate() {
+        let Some(label) = e.label() else {
+            rows.push(MenuRow::Separator);
+            continue;
+        };
+        match label.split_once(" > ") {
+            Some((parent, child)) => {
+                let existing = rows.iter_mut().find_map(|r| match r {
+                    MenuRow::Submenu { label, items } if *label == parent => Some(items),
+                    _ => None,
+                });
+                match existing {
+                    Some(items) => items.push((ix, child)),
+                    None => rows.push(MenuRow::Submenu {
+                        label: parent,
+                        items: vec![(ix, child)],
+                    }),
+                }
+            }
+            None => rows.push(MenuRow::Entry { ix, label }),
+        }
+    }
+    rows
+}
+
+impl MenuEntry {
+    /// The label; `None` for a separator.
+    pub fn label(&self) -> Option<&'static str> {
+        match self {
+            MenuEntry::Item { label, .. }
+            | MenuEntry::Check { label, .. }
+            | MenuEntry::SettingCheck { label, .. } => Some(label),
+            MenuEntry::Separator => None,
+        }
+    }
+}
+
+/// Visual Studio's access keys of the menu titles where the first free letter is not it (Te&st, &Tools).
+const TITLE_KEYS: [(&str, char); 2] = [("Test", 's'), ("Tools", 't')];
+
+/// The access key of each label (Windows' rule, as Visual Studio assigns them): the first letter of a word that no
+/// earlier label took, else any free letter or digit, else none. `preferred` names fixed keys. The result is the
+/// byte offset of the underlined character and the key (lowercase).
+pub fn access_keys(labels: &[&str], preferred: &[(&str, char)]) -> Vec<Option<(usize, char)>> {
+    let mut used: Vec<char> = preferred
+        .iter()
+        .filter(|(l, _)| labels.contains(l))
+        .map(|(_, c)| *c)
+        .collect();
+    labels
+        .iter()
+        .map(|label| {
+            if let Some((_, c)) = preferred.iter().find(|(l, _)| l == label) {
+                return label
+                    .char_indices()
+                    .find(|(_, ch)| ch.to_ascii_lowercase() == *c)
+                    .map(|(i, _)| (i, *c));
+            }
+            let free =
+                |ch: char| ch.is_ascii_alphanumeric() && !used.contains(&ch.to_ascii_lowercase());
+            let word_start = label.char_indices().find(|(i, ch)| {
+                free(*ch)
+                    && (*i == 0
+                        || label[..*i]
+                            .chars()
+                            .last()
+                            .is_some_and(|p| !p.is_ascii_alphanumeric()))
+            });
+            let found = word_start.or_else(|| label.char_indices().find(|(_, ch)| free(*ch)));
+            found.map(|(i, ch)| {
+                let k = ch.to_ascii_lowercase();
+                used.push(k);
+                (i, k)
+            })
+        })
+        .collect()
+}
+
+/// What a keystroke did to the menu bar.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuKey {
+    /// Not the menu bar's: dispatch it as usual.
+    Ignored,
+    /// The menu bar took it.
+    Handled,
+    /// An item was chosen: the menus closed; dispatch this.
+    Run(RunCommand),
+}
+
+/// The keyboard's place in the menu bar (brief 0078).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct Keyboard {
+    /// The bar has the keyboard (Alt was tapped or an access key opened a menu): access keys are underlined.
+    active: bool,
+    /// The highlighted title while no menu is open.
+    title: usize,
+    /// The highlighted row of the open menu.
+    row: Option<usize>,
+    /// The open submenu (its row in the open menu) and its highlighted item.
+    sub: Option<usize>,
+    sub_row: Option<usize>,
+}
+
 /// The menu bar view: titles, and the open drop-down.
 pub struct MenuBar {
     menus: Vec<Menu>,
@@ -379,6 +562,9 @@ pub struct MenuBar {
     is_checked: Option<IsChecked>,
     is_item_enabled: Option<IsItemEnabled>,
     open: Option<usize>,
+    keyboard: Keyboard,
+    /// Alt is held: access keys are underlined.
+    alt_held: bool,
     /// Records where the titles (`menu-<title>`) and the open menu's items (`menu-item-<title>-<label>`) are drawn
     /// (the manual runs' real-input drivers).
     probe: Option<crate::BoundsMap>,
@@ -399,6 +585,8 @@ impl MenuBar {
             is_checked: None,
             is_item_enabled: None,
             open: None,
+            keyboard: Keyboard::default(),
+            alt_held: false,
             probe: None,
         }
     }
@@ -458,12 +646,26 @@ impl MenuBar {
 
     pub fn set_open(&mut self, title: Option<&str>, cx: &mut Context<Self>) {
         self.open = title.and_then(|t| self.menus.iter().position(|m| m.title == t));
+        self.keyboard.row = None;
+        self.keyboard.sub = None;
+        self.keyboard.sub_row = None;
         cx.notify();
     }
 
     pub fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
         self.theme = theme;
         cx.notify();
+    }
+
+    /// The table the shortcut column reads (brief 0078: the active keymap, switched live).
+    pub fn set_keymap(&mut self, keymap: Vec<KeyBindingSpec>, cx: &mut Context<Self>) {
+        self.keymap = keymap;
+        cx.notify();
+    }
+
+    /// The menus (Feature Search lists their items).
+    pub fn menus(&self) -> &[Menu] {
+        &self.menus
     }
 
     /// Whether the item labelled `label` in menu `title` is enabled.
@@ -496,31 +698,487 @@ impl MenuBar {
             .unwrap_or_default()
     }
 
-    fn render_popup(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
+    // ---- Brief 0078: the keyboard. ----------------------------------------------------------------------------------
+
+    /// Whether the bar has the keyboard or a menu is open.
+    pub fn is_active(&self) -> bool {
+        self.keyboard.active || self.open.is_some()
+    }
+
+    /// Whether access keys are underlined now.
+    pub fn shows_access_keys(&self) -> bool {
+        self.keyboard.active || self.alt_held
+    }
+
+    /// Alt went down or up (the shell forwards the window's modifier changes).
+    pub fn set_alt_held(&mut self, held: bool, cx: &mut Context<Self>) {
+        if self.alt_held != held {
+            self.alt_held = held;
+            cx.notify();
+        }
+    }
+
+    /// The highlighted title while no menu is open, the open menu's highlighted row label, and the open submenu's
+    /// highlighted item label: what the keyboard is on.
+    pub fn keyboard_focus(
+        &self,
+    ) -> (
+        Option<&'static str>,
+        Option<&'static str>,
+        Option<&'static str>,
+    ) {
+        let title = (self.keyboard.active && self.open.is_none())
+            .then(|| self.menus.get(self.keyboard.title).map(|m| m.title))
+            .flatten();
+        let Some(open) = self.open else {
+            return (title, None, None);
+        };
+        let rows = menu_rows(&self.menus[open].entries);
+        let row = self
+            .keyboard
+            .row
+            .and_then(|r| rows.get(r))
+            .and_then(MenuRow::label);
+        let sub = match (self.keyboard.sub, self.keyboard.sub_row) {
+            (Some(s), Some(r)) => match rows.get(s) {
+                Some(MenuRow::Submenu { items, .. }) => items.get(r).map(|(_, l)| *l),
+                _ => None,
+            },
+            _ => None,
+        };
+        (title, row, sub)
+    }
+
+    /// The open submenu's label.
+    pub fn open_submenu(&self) -> Option<&'static str> {
+        let open = self.open?;
+        menu_rows(&self.menus[open].entries)
+            .get(self.keyboard.sub?)
+            .and_then(MenuRow::label)
+    }
+
+    fn close_all(&mut self) {
+        self.open = None;
+        self.keyboard = Keyboard::default();
+    }
+
+    fn title_keys(&self) -> Vec<Option<(usize, char)>> {
+        let titles: Vec<&str> = self.menus.iter().map(|m| m.title).collect();
+        access_keys(&titles, &TITLE_KEYS)
+    }
+
+    fn rows_of(&self, menu: usize) -> Vec<MenuRow> {
+        menu_rows(&self.menus[menu].entries)
+    }
+
+    /// Whether a row can take the highlight: an item (enabled or not, as Windows does) or a submenu.
+    fn selectable(row: &MenuRow) -> bool {
+        !matches!(row, MenuRow::Separator)
+    }
+
+    fn step(
+        len: usize,
+        from: Option<usize>,
+        forward: bool,
+        ok: impl Fn(usize) -> bool,
+    ) -> Option<usize> {
+        if len == 0 {
+            return None;
+        }
+        let mut ix = match (from, forward) {
+            (None, true) => len - 1,
+            (None, false) => 0,
+            (Some(i), _) => i,
+        };
+        for _ in 0..len {
+            ix = if forward {
+                (ix + 1) % len
+            } else {
+                (ix + len - 1) % len
+            };
+            if ok(ix) {
+                return Some(ix);
+            }
+        }
+        None
+    }
+
+    fn open_at(&mut self, menu: usize) {
+        self.open = Some(menu);
+        self.keyboard.active = true;
+        self.keyboard.title = menu;
+        self.keyboard.sub = None;
+        self.keyboard.sub_row = None;
+        let rows = self.rows_of(menu);
+        self.keyboard.row = Self::step(rows.len(), None, true, |i| Self::selectable(&rows[i]));
+    }
+
+    /// The entry `ix` of the open menu as a command to run, or `None` when it is disabled.
+    fn choose(&mut self, menu: usize, ix: usize) -> MenuKey {
+        let entry = &self.menus[menu].entries[ix];
+        let Some((_, command, args)) = entry.action(self.entry_checked(entry)) else {
+            return MenuKey::Handled;
+        };
+        if !self.enabled(command, &args) {
+            return MenuKey::Handled;
+        }
+        self.close_all();
+        MenuKey::Run(RunCommand::new(command, args))
+    }
+
+    fn open_sub(&mut self, row: usize, items: usize) {
+        self.keyboard.sub = Some(row);
+        self.keyboard.sub_row = (items > 0).then_some(0);
+    }
+
+    /// Handle a keystroke the window is about to dispatch (the shell calls this from a keystroke interceptor, before
+    /// the key bindings): the Alt tap (`alt`, GPUI's keystroke for a lone modifier press) gives the bar the keyboard
+    /// or takes it back; Alt+letter opens a menu by its access key; while the bar has the keyboard or a menu is open,
+    /// the arrows, Home, End, Enter, Space, Escape and the items' access keys move through the menus. Keys with Ctrl
+    /// close the menus and go on to their bindings.
+    pub fn key(&mut self, keystroke: &Keystroke) -> MenuKey {
+        let m = keystroke.modifiers;
+        let key = keystroke.key.as_str();
+        let plain = !m.control && !m.alt && !m.platform && !m.function;
+        let alt_only = m.alt && !m.control && !m.platform && !m.function && !m.shift;
+        if key == "alt" && !m.modified() {
+            if self.is_active() {
+                self.close_all();
+            } else {
+                self.keyboard = Keyboard {
+                    active: true,
+                    ..Keyboard::default()
+                };
+            }
+            return MenuKey::Handled;
+        }
+        let letter = (key.chars().count() == 1)
+            .then(|| key.chars().next())
+            .flatten()
+            .filter(char::is_ascii_alphanumeric)
+            .map(|c| c.to_ascii_lowercase());
+        // Alt+letter: the menu with that access key, whatever is open.
+        if alt_only && let Some(c) = letter {
+            if let Some(ix) = self
+                .title_keys()
+                .iter()
+                .position(|k| k.is_some_and(|(_, k)| k == c))
+            {
+                self.open_at(ix);
+                return MenuKey::Handled;
+            }
+            return if self.is_active() {
+                MenuKey::Handled
+            } else {
+                MenuKey::Ignored
+            };
+        }
+        if !self.is_active() {
+            return MenuKey::Ignored;
+        }
+        if !plain && !alt_only {
+            // Ctrl+anything: the menus close and the key does what it does.
+            self.close_all();
+            return MenuKey::Ignored;
+        }
+        let n = self.menus.len();
+        let Some(open) = self.open else {
+            // The bar has the keyboard, no menu is open: the titles.
+            let t = self.keyboard.title;
+            match key {
+                "left" => self.keyboard.title = (t + n - 1) % n,
+                "right" => self.keyboard.title = (t + 1) % n,
+                "down" | "enter" | "space" | "up" => self.open_at(t),
+                "escape" => self.close_all(),
+                "home" => self.keyboard.title = 0,
+                "end" => self.keyboard.title = n - 1,
+                _ => match letter.and_then(|c| {
+                    self.title_keys()
+                        .iter()
+                        .position(|k| k.is_some_and(|(_, k)| k == c))
+                }) {
+                    Some(ix) => self.open_at(ix),
+                    None => {
+                        self.close_all();
+                        return MenuKey::Ignored;
+                    }
+                },
+            }
+            return MenuKey::Handled;
+        };
+        let rows = self.rows_of(open);
+        // A submenu is open: its items.
+        if let Some(s) = self.keyboard.sub
+            && let Some(MenuRow::Submenu { items, .. }) = rows.get(s)
+        {
+            let items = items.clone();
+            match key {
+                "down" => {
+                    self.keyboard.sub_row =
+                        Self::step(items.len(), self.keyboard.sub_row, true, |_| true)
+                }
+                "up" => {
+                    self.keyboard.sub_row =
+                        Self::step(items.len(), self.keyboard.sub_row, false, |_| true)
+                }
+                "home" => self.keyboard.sub_row = (!items.is_empty()).then_some(0),
+                "end" => self.keyboard.sub_row = items.len().checked_sub(1),
+                "left" | "escape" => {
+                    self.keyboard.sub = None;
+                    self.keyboard.sub_row = None;
+                }
+                "right" => {
+                    self.keyboard.sub = None;
+                    self.open_at((open + 1) % n);
+                }
+                "enter" | "space" => {
+                    if let Some(r) = self.keyboard.sub_row {
+                        return self.choose(open, items[r].0);
+                    }
+                }
+                _ => {
+                    if let Some(c) = letter {
+                        let labels: Vec<&str> = items.iter().map(|(_, l)| *l).collect();
+                        if let Some(r) = access_keys(&labels, &[])
+                            .iter()
+                            .position(|k| k.is_some_and(|(_, k)| k == c))
+                        {
+                            return self.choose(open, items[r].0);
+                        }
+                    }
+                }
+            }
+            return MenuKey::Handled;
+        }
+        match key {
+            "down" => {
+                self.keyboard.row = Self::step(rows.len(), self.keyboard.row, true, |i| {
+                    Self::selectable(&rows[i])
+                })
+            }
+            "up" => {
+                self.keyboard.row = Self::step(rows.len(), self.keyboard.row, false, |i| {
+                    Self::selectable(&rows[i])
+                })
+            }
+            "home" => {
+                self.keyboard.row =
+                    Self::step(rows.len(), None, true, |i| Self::selectable(&rows[i]))
+            }
+            "end" => {
+                self.keyboard.row =
+                    Self::step(rows.len(), None, false, |i| Self::selectable(&rows[i]))
+            }
+            "left" => self.open_at((open + n - 1) % n),
+            "right" => match self
+                .keyboard
+                .row
+                .and_then(|r| rows.get(r).map(|row| (r, row)))
+            {
+                Some((r, MenuRow::Submenu { items, .. })) => self.open_sub(r, items.len()),
+                _ => self.open_at((open + 1) % n),
+            },
+            "escape" => {
+                // The menu closes; the bar keeps the keyboard on its title (a second Escape leaves it).
+                self.open = None;
+                self.keyboard.title = open;
+                self.keyboard.row = None;
+            }
+            "enter" | "space" => match self
+                .keyboard
+                .row
+                .and_then(|r| rows.get(r).map(|row| (r, row)))
+            {
+                Some((r, MenuRow::Submenu { items, .. })) => self.open_sub(r, items.len()),
+                Some((_, MenuRow::Entry { ix, .. })) => return self.choose(open, *ix),
+                _ => {}
+            },
+            _ => {
+                if let Some(c) = letter {
+                    let labels: Vec<&str> = rows.iter().map(|r| r.label().unwrap_or("")).collect();
+                    if let Some(r) = access_keys(&labels, &[])
+                        .iter()
+                        .position(|k| k.is_some_and(|(_, k)| k == c))
+                    {
+                        self.keyboard.row = Some(r);
+                        match &rows[r] {
+                            MenuRow::Submenu { items, .. } => self.open_sub(r, items.len()),
+                            MenuRow::Entry { ix, .. } => return self.choose(open, *ix),
+                            MenuRow::Separator => {}
+                        }
+                    }
+                }
+            }
+        }
+        MenuKey::Handled
+    }
+
+    /// The menu bar's key handling with its effects: notify, and run the chosen item.
+    pub fn handle_key(
+        &mut self,
+        keystroke: &Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let before = (self.open, self.keyboard, self.alt_held);
+        let outcome = self.key(keystroke);
+        if before != (self.open, self.keyboard, self.alt_held) {
+            cx.notify();
+        }
+        match outcome {
+            MenuKey::Ignored => false,
+            MenuKey::Handled => true,
+            MenuKey::Run(action) => {
+                window.dispatch_action(Box::new(action), cx);
+                true
+            }
+        }
+    }
+
+    /// A label with its access key underlined while access keys show.
+    fn label_element(&self, label: &'static str, key: Option<(usize, char)>) -> AnyElement {
+        match key.filter(|_| self.shows_access_keys()) {
+            Some((at, _)) => {
+                let end = label[at..].chars().next().map_or(at, |c| at + c.len_utf8());
+                StyledText::new(label)
+                    .with_highlights([(
+                        at..end,
+                        HighlightStyle {
+                            underline: Some(UnderlineStyle {
+                                thickness: px(1.),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                    )])
+                    .into_any_element()
+            }
+            None => div().child(label).into_any_element(),
+        }
+    }
+
+    fn render_item_row(
+        &self,
+        menu: usize,
+        ix: usize,
+        label: &'static str,
+        key: Option<(usize, char)>,
+        highlighted: bool,
+        id: (&'static str, usize),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = &self.theme;
         let ty = t.typography;
-        let menu = &self.menus[ix];
-        let title = menu.title;
-        let rows = menu
-            .entries
-            .iter()
-            .enumerate()
-            .map(|(row, entry)| match entry {
-                MenuEntry::Separator => div()
-                    .h(px(1.))
-                    .my_1()
-                    .mx_2()
-                    .bg(t.popup_border)
-                    .into_any_element(),
-                entry => {
-                    let checked = self.entry_checked(entry);
-                    let (label, command, args) = entry.action(checked).expect("not a separator");
-                    let enabled = self.enabled(command, &args);
-                    let shortcut = shortcut_for(&self.keymap, command, &args).unwrap_or_default();
-                    let selector = format!("menu-item-{title}-{label}");
+        let title = self.menus[menu].title;
+        let entry = &self.menus[menu].entries[ix];
+        let checked = self.entry_checked(entry);
+        let (full, command, args) = entry.action(checked).expect("not a separator");
+        let enabled = self.enabled(command, &args);
+        let shortcut = shortcut_for(&self.keymap, command, &args).unwrap_or_default();
+        let selector = format!("menu-item-{title}-{full}");
+        let probed = crate::bounds_canvas(self.probe.as_ref(), selector.clone());
+        let mut el = div()
+            .id(id)
+            .role(if entry.check_key().is_some() {
+                gpui::Role::MenuItemCheckBox
+            } else {
+                gpui::Role::MenuItem
+            })
+            .aria_label(label)
+            .relative()
+            .children(probed)
+            .debug_selector(move || selector.clone())
+            .flex()
+            .flex_row()
+            .items_center()
+            .h(px(24.))
+            .pl_6()
+            .pr_3()
+            .gap_8()
+            .children(checked.then(|| div().absolute().left(px(8.)).child("\u{2713}")))
+            .child(div().flex_1().child(self.label_element(label, key)))
+            .child(div().text_size(ty.small).child(shortcut));
+        if highlighted {
+            el = el.bg(t.menu_hover);
+        }
+        if enabled {
+            let action = RunCommand::new(command, args);
+            el = el
+                .text_color(t.menu_text)
+                .cursor_pointer()
+                .hover(|s| s.bg(t.menu_hover))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.close_all();
+                    cx.notify();
+                    window.dispatch_action(Box::new(action.clone()), cx);
+                }));
+        } else {
+            el = el.text_color(t.text_disabled);
+        }
+        el.into_any_element()
+    }
+
+    fn popup_frame(&self, id: &'static str) -> gpui::Stateful<gpui::Div> {
+        let t = &self.theme;
+        div()
+            .id(id)
+            .role(gpui::Role::Menu)
+            .occlude()
+            .flex()
+            .flex_col()
+            .min_w(px(240.))
+            .py_1()
+            .bg(t.popup_background)
+            .border_1()
+            .border_color(t.popup_border)
+            .shadow_md()
+            .text_size(t.typography.ui)
+    }
+
+    fn render_popup(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.theme;
+        let title = self.menus[ix].title;
+        let rows = self.rows_of(ix);
+        let labels: Vec<&str> = rows.iter().map(|r| r.label().unwrap_or("")).collect();
+        let keys = access_keys(&labels, &[]);
+        let mut top = px(4.);
+        let mut elements = Vec::new();
+        for (row, r) in rows.iter().enumerate() {
+            let highlighted = self.keyboard.row == Some(row);
+            match r {
+                MenuRow::Separator => {
+                    top += px(9.);
+                    elements.push(
+                        div()
+                            .h(px(1.))
+                            .my_1()
+                            .mx_2()
+                            .bg(t.popup_border)
+                            .into_any_element(),
+                    );
+                }
+                MenuRow::Entry { ix: e, label } => {
+                    top += px(24.);
+                    elements.push(self.render_item_row(
+                        ix,
+                        *e,
+                        label,
+                        keys[row],
+                        highlighted,
+                        ("menu-item", row),
+                        cx,
+                    ));
+                }
+                MenuRow::Submenu { label, items } => {
+                    let row_top = top;
+                    top += px(24.);
+                    let open = self.keyboard.sub == Some(row);
+                    let selector = format!("menu-submenu-{title}-{label}");
                     let probed = crate::bounds_canvas(self.probe.as_ref(), selector.clone());
                     let mut el = div()
-                        .id(("menu-item", row))
+                        .id(("menu-submenu", row))
+                        .role(gpui::Role::MenuItem)
+                        .aria_label(*label)
                         .relative()
                         .children(probed)
                         .debug_selector(move || selector.clone())
@@ -531,40 +1189,62 @@ impl MenuBar {
                         .pl_6()
                         .pr_3()
                         .gap_8()
-                        .children(checked.then(|| div().absolute().left(px(8.)).child("\u{2713}")))
-                        .child(div().flex_1().child(label))
-                        .child(div().text_size(ty.small).child(shortcut));
-                    if enabled {
-                        let action = RunCommand::new(command, args);
-                        el = el
-                            .text_color(t.menu_text)
-                            .cursor_pointer()
-                            .hover(|s| s.bg(t.menu_hover))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open = None;
+                        .text_color(t.menu_text)
+                        .cursor_pointer()
+                        .hover(|s| s.bg(t.menu_hover))
+                        .child(div().flex_1().child(self.label_element(label, keys[row])))
+                        .child(div().child("\u{25B8}"))
+                        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                            if *hovered && this.keyboard.sub != Some(row) {
+                                this.keyboard.row = Some(row);
+                                this.keyboard.sub = Some(row);
+                                this.keyboard.sub_row = None;
                                 cx.notify();
-                                window.dispatch_action(Box::new(action.clone()), cx);
-                            }));
-                    } else {
-                        el = el.text_color(t.text_disabled);
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.keyboard.row = Some(row);
+                            this.keyboard.sub = Some(row);
+                            cx.notify();
+                        }));
+                    if highlighted || open {
+                        el = el.bg(t.menu_hover);
                     }
-                    el.into_any_element()
+                    elements.push(el.into_any_element());
+                    if open {
+                        let sub_labels: Vec<&str> = items.iter().map(|(_, l)| *l).collect();
+                        let sub_keys = access_keys(&sub_labels, &[]);
+                        let sub_rows: Vec<AnyElement> = items
+                            .iter()
+                            .enumerate()
+                            .map(|(i, (e, l))| {
+                                self.render_item_row(
+                                    ix,
+                                    *e,
+                                    l,
+                                    sub_keys[i],
+                                    self.keyboard.sub_row == Some(i),
+                                    ("menu-subitem", i),
+                                    cx,
+                                )
+                            })
+                            .collect();
+                        elements.push(
+                            deferred(
+                                div()
+                                    .absolute()
+                                    .top(row_top - px(4.))
+                                    .left(px(238.))
+                                    .child(self.popup_frame("menu-subpopup").children(sub_rows)),
+                            )
+                            .with_priority(3)
+                            .into_any_element(),
+                        );
+                    }
                 }
-            })
-            .collect::<Vec<_>>();
-        div()
-            .id("menu-popup")
-            .occlude()
-            .flex()
-            .flex_col()
-            .min_w(px(240.))
-            .py_1()
-            .bg(t.popup_background)
-            .border_1()
-            .border_color(t.popup_border)
-            .shadow_md()
-            .text_size(ty.ui)
-            .children(rows)
+            }
+        }
+        self.popup_frame("menu-popup").relative().children(elements)
     }
 }
 
@@ -573,58 +1253,78 @@ impl Render for MenuBar {
         let t = self.theme;
         let ty = t.typography;
         let open = self.open;
-        let titles = self.menus.iter().enumerate().map(|(ix, m)| {
-            let title = m.title;
-            let is_open = open == Some(ix);
-            let mut el = div()
-                .id(("menu", ix))
-                .debug_selector(move || format!("menu-{title}"))
-                .relative()
-                .flex()
-                .items_center()
-                .h_full()
-                .px_2()
-                .cursor_pointer()
-                .hover(|s| s.bg(t.menu_hover))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| {
-                        this.open = if this.open == Some(ix) {
-                            None
-                        } else {
-                            Some(ix)
-                        };
-                        cx.notify();
-                    }),
-                )
-                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                    if *hovered && this.open.is_some() && this.open != Some(ix) {
-                        this.open = Some(ix);
-                        cx.notify();
-                    }
-                }))
-                .children(crate::bounds_canvas(
-                    self.probe.as_ref(),
-                    format!("menu-{title}"),
-                ))
-                .child(title);
-            if is_open {
-                el = el.bg(t.menu_hover).child(
-                    deferred(
-                        div()
-                            .absolute()
-                            .top(ty.menu_bar_height)
-                            .left_0()
-                            .child(self.render_popup(ix, cx)),
+        let title_keys = self.title_keys();
+        let kb_title = (self.keyboard.active && open.is_none()).then_some(self.keyboard.title);
+        let titles: Vec<_> = self
+            .menus
+            .iter()
+            .enumerate()
+            .map(|(ix, m)| {
+                let title = m.title;
+                let is_open = open == Some(ix);
+                let mut el = div()
+                    .id(("menu", ix))
+                    .role(gpui::Role::MenuItem)
+                    .aria_label(title)
+                    .debug_selector(move || format!("menu-{title}"))
+                    .relative()
+                    .flex()
+                    .items_center()
+                    .h_full()
+                    .px_2()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(t.menu_hover))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            if this.open == Some(ix) {
+                                this.close_all();
+                            } else {
+                                this.open = Some(ix);
+                                this.keyboard.row = None;
+                                this.keyboard.sub = None;
+                                this.keyboard.sub_row = None;
+                            }
+                            cx.notify();
+                        }),
                     )
-                    .with_priority(2),
-                );
-            }
-            el
-        });
+                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                        if *hovered && this.open.is_some() && this.open != Some(ix) {
+                            this.open = Some(ix);
+                            this.keyboard.row = None;
+                            this.keyboard.sub = None;
+                            this.keyboard.sub_row = None;
+                            cx.notify();
+                        }
+                    }))
+                    .children(crate::bounds_canvas(
+                        self.probe.as_ref(),
+                        format!("menu-{title}"),
+                    ))
+                    .child(self.label_element(title, title_keys[ix]));
+                if kb_title == Some(ix) {
+                    el = el.bg(t.menu_hover);
+                }
+                if is_open {
+                    el = el.bg(t.menu_hover).child(
+                        deferred(
+                            div()
+                                .absolute()
+                                .top(ty.menu_bar_height)
+                                .left_0()
+                                .child(self.render_popup(ix, cx)),
+                        )
+                        .with_priority(2),
+                    );
+                }
+                el
+            })
+            .collect();
 
         let mut bar = div()
             .id("menu-bar")
+            .role(gpui::Role::MenuBar)
+            .aria_label("Menu bar")
             .flex()
             .flex_row()
             .items_center()
@@ -652,7 +1352,7 @@ impl Render for MenuBar {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(|this, _, _, cx| {
-                                    this.open = None;
+                                    this.close_all();
                                     cx.notify();
                                 }),
                             ),
@@ -724,7 +1424,10 @@ mod tests {
             .collect();
         assert!(shortcuts.contains(&("Workspace", Some("Ctrl+Alt+L"))));
         assert!(shortcuts.contains(&("Error List", Some("Ctrl+\\, Ctrl+E"))));
-        assert!(shortcuts.contains(&("Command Palette", None)));
+        // Brief 0078.
+        assert!(shortcuts.contains(&("Command Palette", Some("Ctrl+Shift+P"))));
+        assert!(shortcuts.contains(&("Feature Search", Some("Ctrl+Q"))));
+        assert!(shortcuts.contains(&("Full Screen", Some("Shift+Alt+Enter"))));
         assert!(shortcuts.contains(&("Other Windows > Web Browser", None)));
         // Brief 0041.
         assert!(shortcuts.contains(&("Terminal", Some("Ctrl+`"))));
@@ -992,5 +1695,180 @@ mod tests {
         assert_eq!(item.1, "eludite.debug.attach");
         assert_eq!(item.2, json!({"adapter": "javascript"}));
         assert_eq!(shortcut_for(&keymap, item.1, &item.2), None);
+    }
+
+    fn ks(text: &str) -> Keystroke {
+        Keystroke::parse(text).unwrap()
+    }
+
+    fn bar() -> MenuBar {
+        MenuBar::new(
+            vs_menus(),
+            crate::keymap::vs_keymap(),
+            Theme::default(),
+            Rc::new(|_| true),
+        )
+    }
+
+    /// Brief 0078: ` > ` labels become submenus at the place of their first item.
+    #[test]
+    fn labels_with_a_parent_become_submenus() {
+        let debug = vs_menus().into_iter().find(|m| m.title == "Debug").unwrap();
+        let rows = menu_rows(&debug.entries);
+        let windows = rows
+            .iter()
+            .find_map(|r| match r {
+                MenuRow::Submenu {
+                    label: "Windows",
+                    items,
+                } => Some(items.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let labels: Vec<_> = windows.iter().map(|(_, l)| *l).collect();
+        assert_eq!(labels[0], "Breakpoints");
+        assert!(labels.contains(&"Locals"));
+        assert!(labels.contains(&"Call Stack"));
+        // Each child points at its entry, whose full label is unchanged.
+        for (ix, l) in &windows {
+            assert_eq!(
+                debug.entries[*ix].label().unwrap(),
+                format!("Windows > {l}")
+            );
+        }
+        let view = vs_menus().into_iter().find(|m| m.title == "View").unwrap();
+        assert!(menu_rows(&view.entries).iter().any(|r| matches!(
+            r,
+            MenuRow::Submenu { label: "Other Windows", items } if items.len() >= 3
+        )));
+        // Rows never mix: no submenu row is also an entry.
+        assert!(menu_rows(&view.entries).iter().all(|r| match r {
+            MenuRow::Entry { label, .. } => !label.contains(" > "),
+            _ => true,
+        }));
+    }
+
+    #[test]
+    fn access_keys_are_unique_and_visual_studios_for_the_titles() {
+        let titles: Vec<&str> = MENU_TITLES.to_vec();
+        let keys: Vec<char> = access_keys(&titles, &TITLE_KEYS)
+            .into_iter()
+            .map(|k| k.unwrap().1)
+            .collect();
+        assert_eq!(keys, ['f', 'e', 'v', 'g', 'b', 'd', 's', 't', 'h']);
+        for m in vs_menus() {
+            let rows = menu_rows(&m.entries);
+            let labels: Vec<&str> = rows.iter().filter_map(MenuRow::label).collect();
+            let mut k: Vec<char> = access_keys(&labels, &[])
+                .into_iter()
+                .flatten()
+                .map(|k| k.1)
+                .collect();
+            let n = k.len();
+            k.sort_unstable();
+            k.dedup();
+            assert_eq!(k.len(), n, "{}", m.title);
+        }
+        // A word's first letter first; the offset is the underlined character's.
+        assert_eq!(
+            access_keys(&["Save", "Save All"], &[]),
+            [Some((0, 's')), Some((5, 'a'))]
+        );
+    }
+
+    #[test]
+    fn alt_letter_opens_a_menu_and_arrows_move_into_a_submenu() {
+        let mut m = bar();
+        assert_eq!(m.key(&ks("down")), MenuKey::Ignored, "inactive bar");
+        assert_eq!(m.key(&ks("alt-d")), MenuKey::Handled);
+        assert_eq!(m.open_menu(), Some("Debug"));
+        assert!(m.shows_access_keys());
+        assert_eq!(m.keyboard_focus().1, Some("Start Debugging"));
+        m.key(&ks("down"));
+        assert_eq!(m.keyboard_focus().1, Some("Start Without Debugging"));
+        m.key(&ks("up"));
+        m.key(&ks("up"));
+        // Up from the first row wraps to the last: the Windows submenu.
+        assert_eq!(m.keyboard_focus().1, Some("Windows"));
+        assert_eq!(m.key(&ks("right")), MenuKey::Handled);
+        assert_eq!(m.open_submenu(), Some("Windows"));
+        assert_eq!(m.keyboard_focus().2, Some("Breakpoints"));
+        m.key(&ks("down"));
+        assert_eq!(m.keyboard_focus().2, Some("Exception Settings"));
+        m.key(&ks("left"));
+        assert_eq!(m.open_submenu(), None);
+        m.key(&ks("enter"));
+        assert_eq!(m.open_submenu(), Some("Windows"));
+        m.key(&ks("end"));
+        let last = m.keyboard_focus().2.unwrap();
+        match m.key(&ks("enter")) {
+            MenuKey::Run(action) => {
+                assert_eq!(action.command.as_ref(), "eludite.view.show");
+                assert_eq!(
+                    action.args["id"],
+                    json!(last.to_lowercase().replace(' ', "_"))
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!m.is_active());
+        assert_eq!(m.open_menu(), None);
+    }
+
+    #[test]
+    fn the_alt_tap_left_right_and_escape() {
+        let mut m = bar();
+        m.key(&ks("alt"));
+        assert!(m.is_active());
+        assert_eq!(m.keyboard_focus().0, Some("File"));
+        m.key(&ks("right"));
+        m.key(&ks("right"));
+        assert_eq!(m.keyboard_focus().0, Some("View"));
+        m.key(&ks("left"));
+        m.key(&ks("left"));
+        m.key(&ks("left"));
+        assert_eq!(m.keyboard_focus().0, Some("Help"));
+        m.key(&ks("down"));
+        assert_eq!(m.open_menu(), Some("Help"));
+        m.key(&ks("right"));
+        assert_eq!(m.open_menu(), Some("File"), "Right wraps to the first menu");
+        m.key(&ks("escape"));
+        assert_eq!(m.open_menu(), None);
+        assert_eq!(m.keyboard_focus().0, Some("File"));
+        m.key(&ks("escape"));
+        assert!(!m.is_active());
+        // A letter opens the title with that access key while the bar has the keyboard; Ctrl keys close the menus.
+        m.key(&ks("alt"));
+        m.key(&ks("s"));
+        assert_eq!(m.open_menu(), Some("Test"));
+        assert_eq!(m.key(&ks("ctrl-s")), MenuKey::Ignored);
+        assert!(!m.is_active());
+        // A second Alt tap leaves the bar.
+        m.key(&ks("alt"));
+        m.key(&ks("alt"));
+        assert!(!m.is_active());
+        // An unknown Alt+letter goes on to the bindings.
+        assert_eq!(m.key(&ks("alt-z")), MenuKey::Ignored);
+    }
+
+    #[test]
+    fn an_item_access_key_runs_it_and_a_disabled_item_does_nothing() {
+        let mut m = bar();
+        m.key(&ks("alt-b"));
+        assert_eq!(m.open_menu(), Some("Build"));
+        // Build, Rebuild, Clean, Cancel: B, R, C, a.
+        match m.key(&ks("r")) {
+            MenuKey::Run(a) => assert_eq!(a.command.as_ref(), "eludite.build.rebuild"),
+            other => panic!("{other:?}"),
+        }
+        let mut m = MenuBar::new(
+            vs_menus(),
+            crate::keymap::vs_keymap(),
+            Theme::default(),
+            Rc::new(|c| c != "eludite.build.rebuild"),
+        );
+        m.key(&ks("alt-b"));
+        assert_eq!(m.key(&ks("r")), MenuKey::Handled);
+        assert_eq!(m.open_menu(), Some("Build"));
     }
 }

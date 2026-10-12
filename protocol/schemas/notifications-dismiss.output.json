@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/notifications-dismiss.output.json",
+  "title": "eludite.notifications.dismiss output",
+  "type": "object",
+  "properties": {
+    "dismissed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unread": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "dismissed",
+    "unread"
+  ],
+  "additionalProperties": false
+}

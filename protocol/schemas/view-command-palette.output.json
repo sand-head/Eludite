@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-command-palette.output.json",
+  "title": "eludite.view.command_palette output",
+  "type": "object",
+  "properties": {
+    "opened": {
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": [
+        "commands",
+        "features"
+      ]
+    },
+    "rows": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many rows the query matches."
+    }
+  },
+  "required": [
+    "opened",
+    "mode",
+    "rows"
+  ],
+  "additionalProperties": false
+}

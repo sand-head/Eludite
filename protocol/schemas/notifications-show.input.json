@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/notifications-show.input.json",
+  "title": "eludite.notifications.show input",
+  "description": "Show or hide the Notifications pane (View > Notifications, the status bar's bell); showing it marks every item read.",
+  "type": "object",
+  "properties": {
+    "visible": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/keymap-set.output.json",
+  "title": "eludite.keymap.set output",
+  "type": "object",
+  "properties": {
+    "keys": {
+      "type": "string"
+    },
+    "display": {
+      "type": "string"
+    },
+    "command": {
+      "type": "string"
+    },
+    "replaced": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "string",
+            "description": "GPUI keystrokes, chords separated by spaces (`ctrl-k ctrl-c`)."
+          },
+          "display": {
+            "type": "string",
+            "description": "As Visual Studio shows it (`Ctrl+K, Ctrl+C`)."
+          },
+          "command": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object"
+          },
+          "scope": {
+            "enum": [
+              "global",
+              "editor"
+            ]
+          },
+          "source": {
+            "enum": [
+              "preset",
+              "user"
+            ]
+          }
+        },
+        "required": [
+          "keys",
+          "display",
+          "command",
+          "args",
+          "scope",
+          "source"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "keys",
+    "display",
+    "command",
+    "replaced"
+  ],
+  "additionalProperties": false
+}

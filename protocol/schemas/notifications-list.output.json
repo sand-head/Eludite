@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/notifications-list.output.json",
+  "title": "eludite.notifications.list output",
+  "type": "object",
+  "properties": {
+    "unread": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "title": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "description": "What raised it: `update`, `build`, `crash`, `host`, `server` or another module's name."
+          },
+          "time": {
+            "type": "string",
+            "description": "When it was raised, RFC 3339 in UTC."
+          },
+          "read": {
+            "type": "boolean"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "label",
+                "command",
+                "args"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "message",
+          "severity",
+          "source",
+          "time",
+          "read",
+          "actions"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "unread",
+    "items"
+  ],
+  "additionalProperties": false
+}

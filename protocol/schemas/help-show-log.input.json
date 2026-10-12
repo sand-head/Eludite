@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/help-show-log.input.json",
+  "title": "eludite.help.show_log input",
+  "description": "Help > Show Log: open the shell's log file (`eludite.log`, what Eludite wrote to stderr this run and before) as a document.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

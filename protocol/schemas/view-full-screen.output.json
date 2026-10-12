@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-full-screen.output.json",
+  "title": "eludite.view.full_screen output",
+  "type": "object",
+  "properties": {
+    "full_screen": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "full_screen"
+  ],
+  "additionalProperties": false
+}

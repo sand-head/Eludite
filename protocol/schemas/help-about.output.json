@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/help-about.output.json",
+  "title": "eludite.help.about output",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "channel": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "build": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "commit": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "os": {
+      "type": "string"
+    },
+    "arch": {
+      "type": "string"
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "description": "eludite-host, Roslyn, netcoredbg and the .NET SDK, where known this run."
+    },
+    "license": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string",
+      "description": "What Copy Info copies."
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "os",
+    "arch",
+    "components",
+    "license",
+    "text"
+  ],
+  "additionalProperties": false
+}

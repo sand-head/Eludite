@@ -6,6 +6,8 @@
   "type": "object",
   "additionalProperties": false,
   "x-eludite-sections": [
+    "Environment > General",
+    "Environment > Fonts and Colors",
     "Environment > Keyboard",
     "Projects and Solutions > Build and Run",
     "Debugging > General",
@@ -28,16 +30,54 @@
     "Text Editor > Resources"
   ],
   "properties": {
+    "workbench.theme": {
+      "description": "The color theme (brief 0078; Tools > Theme): `dark` (Eludite Dark), `light` (Eludite Light), `classic` (Visual Studio Blue) or the id of a user theme, a file `<id>.json` in the `themes` folder of Eludite's config directory (the format is docs/user/themes.md and protocol/schemas/theme.json). Every window recolors when it changes; an unknown id is Eludite Dark. The command-line option `--theme` picks the theme of that run instead.",
+      "type": "string",
+      "default": "dark",
+      "x-eludite-section": "Environment > General",
+      "x-eludite-label": "Color theme",
+      "x-eludite-editor": "text"
+    },
+    "workbench.uiFontFamily": {
+      "description": "The font family of menus, tabs, tool windows and dialogs (brief 0078). Empty: Eludite's own Instrument Sans. The editor's font is the text editor's setting.",
+      "type": "string",
+      "default": "",
+      "x-eludite-section": "Environment > Fonts and Colors",
+      "x-eludite-label": "Environment font (empty: Instrument Sans)",
+      "x-eludite-editor": "text"
+    },
+    "workbench.uiFontSize": {
+      "description": "The size of the environment's text in pixels before the scale (brief 0078); secondary text keeps its distance from it.",
+      "type": "integer",
+      "minimum": 8,
+      "maximum": 32,
+      "default": 12,
+      "x-eludite-section": "Environment > Fonts and Colors",
+      "x-eludite-label": "Environment font size (pixels)"
+    },
+    "workbench.uiScale": {
+      "description": "The environment's scale in percent (brief 0078): the text, the menu bar, tabs, tool window headers and the status bar grow with it, on top of the display's own scale.",
+      "type": "integer",
+      "minimum": 50,
+      "maximum": 300,
+      "default": 100,
+      "x-eludite-section": "Environment > Fonts and Colors",
+      "x-eludite-label": "Environment scale (percent)"
+    },
     "keyboard.preset": {
-      "description": "The keyboard mapping scheme. Only Visual Studio's exists (PLAN.md 8); the Rider and VS Code presets come with the keymap editor.",
+      "description": "The keyboard mapping scheme (brief 0078): Visual Studio's (the default), Rider's IntelliJ scheme, or Visual Studio Code's. The person's own bindings, `keybindings.json` in Eludite's config directory (an array of {\"key\", \"command\", \"args\"?, \"when\"?}, edited on this page), apply on top of it. Changing it rebinds at once.",
       "enum": [
-        "visualStudio"
+        "visualStudio",
+        "rider",
+        "vsCode"
       ],
       "default": "visualStudio",
       "x-eludite-section": "Environment > Keyboard",
       "x-eludite-label": "Apply the following additional keyboard mapping scheme",
       "x-eludite-enum-labels": [
-        "Visual Studio"
+        "Visual Studio",
+        "Rider (IntelliJ)",
+        "Visual Studio Code"
       ]
     },
     "updates.channel": {

@@ -2,7 +2,8 @@
 //!
 //! Public API:
 //! - [`Theme`]: color tokens and typography; `dark()` (default),
-//!   `light()`, `classic()`.
+//!   `light()`, `classic()`; [`theme`] (brief 0078): the active theme ([`ActiveTheme`], a GPUI global), the theme file
+//!   format and the themes folder, the UI font and scale.
 //! - [`keymap`]: the key binding table ([`vs_keymap`]) and [`RunCommand`], the
 //!   one GPUI action keys and menus dispatch; the shell turns it into a
 //!   command-bus invocation.
@@ -52,7 +53,7 @@ pub mod popup;
 pub mod startup;
 pub mod status;
 pub mod test_explorer;
-mod theme;
+pub mod theme;
 pub mod title_bar;
 pub mod transcript;
 pub mod tree;
@@ -69,13 +70,17 @@ pub use keymap::{
     EDITOR_COMMAND_KEYS, KeyBindingSpec, RunCommand, SHELL_CONTEXT, bind_keymap, shortcut_for,
     vs_keymap,
 };
+// Brief 0078: presets, the person's bindings, the menus' keyboard and submenus, the active theme.
+pub use keymap::{ActiveBinding, BindingScope, BindingSource, KeymapPreset, UserBinding};
 pub use menu::{
     MENU_TITLES, Menu, MenuBar, MenuEntry, WORKSPACE_GIT_ITEMS, WORKSPACE_TERMINAL_ITEM,
     menu_bar_with, vs_menus,
 };
+pub use menu::{MenuKey, MenuRow, menu_rows};
 pub use popup::CompletionKind;
 pub use status::{SlotAlign, StatusBar, slot_selector, slots, status_toggle};
 pub use test_explorer::{TestGlyph, test_row, toolbar_button};
+pub use theme::{ActiveTheme, ThemeEntry};
 pub use theme::{Theme, Typography};
 pub use title_bar::TitleBar;
 pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row, tree_row_with_badge, tree_row_with_icon};

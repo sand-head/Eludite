@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/commands-list.input.json",
+  "title": "eludite.commands.list input",
+  "description": "The commands a person can run from the palette: every registered command with its title, its category (the title's part before `: `), its current shortcut in the active keymap and the arguments of the variant (View > Workspace is eludite.view.show with `{\"id\": \"workspace\"}`). `query` filters fuzzily on the title and category, best first; `features: true` adds the menu items (`kind: menu`, with their path) and the Options pages (`kind: options`).",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string"
+    },
+    "features": {
+      "type": "boolean"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    }
+  },
+  "additionalProperties": false
+}

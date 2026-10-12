@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/theme-list.input.json",
+  "title": "eludite.theme.list input",
+  "description": "The color themes Tools > Theme can pick: the built-in ones and every file of `<config>/eludite/themes/`, the active one (the setting `workbench.theme`), and the files that did not load and why.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

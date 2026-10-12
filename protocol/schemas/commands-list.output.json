@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/commands-list.output.json",
+  "title": "eludite.commands.list output",
+  "type": "object",
+  "properties": {
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object"
+          },
+          "shortcut": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "command",
+              "menu",
+              "options"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The one string input the palette asks for before it runs the command."
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "category",
+          "args",
+          "shortcut",
+          "kind",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "commands"
+  ],
+  "additionalProperties": false
+}

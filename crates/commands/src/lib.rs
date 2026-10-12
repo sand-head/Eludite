@@ -69,6 +69,8 @@ pub mod solution;
 pub mod terminal;
 pub mod test;
 pub mod update;
+// Brief 0078: the palette, the keymap, themes, full screen, help, notifications and window layouts.
+pub mod ux;
 pub mod view;
 pub mod workspace;
 pub mod workspace_tree;

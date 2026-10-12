@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-apply-window-layout.output.json",
+  "title": "eludite.view.apply_window_layout output",
+  "type": "object",
+  "properties": {
+    "applied": {
+      "type": "boolean"
+    },
+    "name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "applied",
+    "name"
+  ],
+  "additionalProperties": false
+}

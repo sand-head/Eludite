@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/help-open-logs-folder.input.json",
+  "title": "eludite.help.open_logs_folder input",
+  "description": "Help > Open Logs Folder: show the folder of the shell's log and crash reports (`<state dir>/eludite/logs`) in the system's file manager.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

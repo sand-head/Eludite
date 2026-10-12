@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/theme-set.output.json",
+  "title": "eludite.theme.set output",
+  "type": "object",
+  "properties": {
+    "active": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "active"
+  ],
+  "additionalProperties": false
+}

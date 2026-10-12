@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/help-keyboard-shortcuts.output.json",
+  "title": "eludite.help.keyboard_shortcuts output",
+  "type": "object",
+  "properties": {
+    "markdown": {
+      "type": "string"
+    },
+    "path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "markdown",
+    "path"
+  ],
+  "additionalProperties": false
+}

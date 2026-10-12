@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-manage-window-layouts.output.json",
+  "title": "eludite.view.manage_window_layouts output",
+  "type": "object",
+  "properties": {
+    "layouts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slot": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 9,
+            "description": "Ctrl+Alt+<slot> applies it; the first nine layouts in save order have one."
+          }
+        },
+        "required": [
+          "name",
+          "slot"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "opened": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "layouts",
+    "opened"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/help-report-problem.output.json",
+  "title": "eludite.help.report_problem output",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string"
+    },
+    "opened": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "url",
+    "opened"
+  ],
+  "additionalProperties": false
+}

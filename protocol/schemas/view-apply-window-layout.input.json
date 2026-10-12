@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-apply-window-layout.input.json",
+  "title": "eludite.view.apply_window_layout input",
+  "description": "Window > Apply Window Layout (Ctrl+Alt+1 to 9): arrange the tool windows as the saved layout `name` or `slot` says; the open documents stay. Without either, the Manage Window Layouts dialog opens to pick one.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "slot": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9
+    }
+  },
+  "additionalProperties": false
+}

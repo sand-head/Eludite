@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/keymap-set.input.json",
+  "title": "eludite.keymap.set input",
+  "description": "Bind `keys` to `command` (with `args`) in `scope` (Tools > Options > Environment > Keyboard's Assign): written to the person's keybindings.json, applied at once. Whatever had those keys in that scope loses them; the output lists it (Visual Studio's \"Shortcut currently used by\").",
+  "type": "object",
+  "properties": {
+    "keys": {
+      "type": "string",
+      "description": "`ctrl-k ctrl-c` or `Ctrl+K, Ctrl+C`."
+    },
+    "command": {
+      "type": "string"
+    },
+    "args": {
+      "type": "object"
+    },
+    "scope": {
+      "enum": [
+        "global",
+        "editor"
+      ],
+      "default": "global"
+    }
+  },
+  "required": [
+    "keys",
+    "command"
+  ],
+  "additionalProperties": false
+}

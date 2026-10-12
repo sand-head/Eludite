@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-full-screen.input.json",
+  "title": "eludite.view.full_screen input",
+  "description": "View > Full Screen (Shift+Alt+Enter): toggle the main window's full screen, or set it with `enabled`. The menu bar stays while full screen, so the same item leaves it.",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/help-keyboard-shortcuts.input.json",
+  "title": "eludite.help.keyboard_shortcuts input",
+  "description": "The keyboard shortcut reference of the active keymap as Markdown (Help > Keyboard Shortcuts), grouped by category; `open: true` (the menu's) also opens it as a document.",
+  "type": "object",
+  "properties": {
+    "open": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

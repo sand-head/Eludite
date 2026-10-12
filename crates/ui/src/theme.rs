@@ -1,10 +1,16 @@
 use gpui::{Pixels, Rgba, px, rgb};
+use serde::{Deserialize, Serialize};
 
 /// Color tokens. Field names describe roles, not widgets. Dark and Light are Eludite's own palette, taken from the
 /// mark: green-tinted neutrals from the crystal's shell, teal for focus, selection and the status bar, amber for the
 /// active-tab marker and the current item. Classic approximates Visual Studio 2022's Blue (PLAN.md 8).
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Brief 0078: every color token is a key of a theme file (`docs/user/themes.md`); the serde derive is how files are
+/// read, so a token another brief adds is in the format with no change here.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Theme {
+    /// The theme's id: `dark`, `light`, `classic`, or a user theme's file name without `.json`.
+    #[serde(skip)]
     pub name: &'static str,
     /// Document area background.
     pub background: Rgba,
@@ -95,6 +101,7 @@ pub struct Theme {
     pub editor_line_number_active: Rgba,
     pub editor_current_line: Rgba,
     pub editor_find_match: Rgba,
+    #[serde(skip)]
     pub typography: Typography,
 }
 
@@ -342,6 +349,191 @@ impl Default for Typography {
     }
 }
 
+// ---- Brief 0078: the active theme, the theme file format, user themes, the UI font and scale. --------------------
+
+/// The theme every view of the main window draws with: one global, set by the shell from `workbench.theme` (and
+/// `--theme`), changed live. Views read it with [`active`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActiveTheme(pub Theme);
+
+impl gpui::Global for ActiveTheme {}
+
+/// The active theme ([`Theme::default`] until the shell sets one).
+pub fn active(cx: &gpui::App) -> Theme {
+    cx.try_global::<ActiveTheme>()
+        .map(|t| t.0)
+        .unwrap_or_default()
+}
+
+/// Make `theme` the active theme and redraw every window.
+pub fn set_active(cx: &mut gpui::App, theme: Theme) {
+    cx.set_global(ActiveTheme(theme));
+    cx.refresh_windows();
+}
+
+/// The built-in themes' ids and names, in Tools > Theme's order.
+pub const BUILT_IN: [(&str, &str); 3] = [
+    ("dark", "Eludite Dark"),
+    ("light", "Eludite Light"),
+    ("classic", "Classic"),
+];
+
+/// A theme Tools > Theme can pick: a built-in one or a file of the themes folder.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeEntry {
+    /// What `workbench.theme` says: `dark`, or the file name without `.json`.
+    pub id: &'static str,
+    /// What the menu and the Options page show (the file's `name`).
+    pub label: String,
+    pub theme: Theme,
+    /// The file, for a user theme.
+    pub path: Option<std::path::PathBuf>,
+}
+
+/// The built-in themes as entries.
+pub fn built_in_entries() -> Vec<ThemeEntry> {
+    BUILT_IN
+        .iter()
+        .map(|(id, label)| ThemeEntry {
+            id,
+            label: (*label).to_owned(),
+            theme: Theme::by_name(id).unwrap_or_default(),
+            path: None,
+        })
+        .collect()
+}
+
+/// The theme folder in Eludite's config directory: `<config>/eludite/themes/`.
+pub const THEMES_DIR: &str = "themes";
+
+/// Parse a theme file (`docs/user/themes.md`): `{"name", "extends"?: "dark" | "light" | "classic", "colors": {token:
+/// "#rrggbb" or "#rrggbbaa"}}`. Tokens the file leaves out are the base theme's; an unknown token or a bad color is
+/// an error, so a typo does not go unnoticed.
+pub fn parse_theme_file(id: &str, text: &str) -> Result<ThemeEntry, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("not JSON: {e}"))?;
+    let obj = value.as_object().ok_or("a theme file is a JSON object")?;
+    let label = obj
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or(id)
+        .to_owned();
+    let base = match obj.get("extends") {
+        None | Some(serde_json::Value::Null) => Theme::dark(),
+        Some(serde_json::Value::String(b)) => Theme::by_name(b)
+            .ok_or_else(|| format!("`extends` must be `dark`, `light` or `classic`, not `{b}`"))?,
+        Some(_) => return Err("`extends` must be a string".into()),
+    };
+    for key in obj.keys() {
+        if !["name", "extends", "colors", "$schema"].contains(&key.as_str()) {
+            return Err(format!("unknown field `{key}`"));
+        }
+    }
+    let mut tokens = serde_json::to_value(base).map_err(|e| e.to_string())?;
+    let map = tokens.as_object_mut().ok_or("theme tokens")?;
+    if let Some(colors) = obj.get("colors") {
+        let colors = colors.as_object().ok_or("`colors` must be an object")?;
+        for (k, v) in colors {
+            if !map.contains_key(k) {
+                return Err(format!("unknown color token `{k}`"));
+            }
+            let text = v
+                .as_str()
+                .ok_or_else(|| format!("`{k}` must be a color string"))?;
+            Rgba::try_from(text)
+                .map_err(|_| format!("`{k}`: `{text}` is not #rrggbb or #rrggbbaa"))?;
+            map.insert(k.clone(), v.clone());
+        }
+    }
+    let mut theme: Theme = serde_json::from_value(tokens).map_err(|e| e.to_string())?;
+    let id = crate::keymap::intern(id);
+    theme.name = id;
+    theme.typography = base.typography;
+    Ok(ThemeEntry {
+        id,
+        label,
+        theme,
+        path: None,
+    })
+}
+
+/// The tokens of `theme` as a theme file's `colors` (every token: the format's reference, and a starting point).
+pub fn theme_colors(theme: &Theme) -> serde_json::Value {
+    serde_json::to_value(theme).unwrap_or_default()
+}
+
+/// Every `*.json` in `dir`, sorted by file name: the themes that parse, and an error per file that does not
+/// (`path: message`). A missing folder has no themes and no errors. A file named like a built-in theme is refused.
+pub fn load_theme_dir(dir: &std::path::Path) -> (Vec<ThemeEntry>, Vec<String>) {
+    let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+            })
+            .collect(),
+        Err(_) => return (Vec::new(), Vec::new()),
+    };
+    files.sort();
+    let mut themes = Vec::new();
+    let mut errors = Vec::new();
+    for path in files {
+        let id = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if BUILT_IN.iter().any(|(b, _)| *b == id) {
+            errors.push(format!(
+                "{}: `{id}` is a built-in theme's id; rename the file",
+                path.display()
+            ));
+            continue;
+        }
+        match std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| parse_theme_file(&id, &text))
+        {
+            Ok(mut entry) => {
+                entry.path = Some(path);
+                themes.push(entry);
+            }
+            Err(e) => errors.push(format!("{}: {e}", path.display())),
+        }
+    }
+    (themes, errors)
+}
+
+impl Typography {
+    /// The UI font family and size and the environment's scale (Options > Environment > Fonts and Colors): the UI
+    /// sizes and the chrome's heights scale with `scale`, the UI text size is `ui_size` (the others keep their
+    /// distance from it). An empty family keeps the embedded one.
+    pub fn with_ui(self, family: &str, ui_size: f32, scale: f32) -> Self {
+        let scale = scale.clamp(0.5, 3.0);
+        let ui_size = ui_size.clamp(6.0, 48.0);
+        let d = ui_size - f32::from(self.ui);
+        let s = |p: Pixels| px((f32::from(p) * scale).round());
+        let t = |p: Pixels| px(((f32::from(p) + d) * scale).max(6.0));
+        Self {
+            ui_font: if family.trim().is_empty() {
+                self.ui_font
+            } else {
+                crate::keymap::intern(family.trim())
+            },
+            ui: t(self.ui),
+            small: t(self.small),
+            body: t(self.body),
+            menu_bar_height: s(self.menu_bar_height),
+            tab_height: s(self.tab_height),
+            panel_header_height: s(self.panel_header_height),
+            status_bar_height: s(self.status_bar_height),
+            ..self
+        }
+    }
+}
+
 /// WCAG relative luminance contrast between two colors.
 #[cfg(test)]
 pub(crate) fn contrast(a: Rgba, b: Rgba) -> f32 {
@@ -502,5 +694,94 @@ mod tests {
     fn typography_is_ordered() {
         let ty = Typography::default();
         assert!(ty.small < ty.ui && ty.ui < ty.body);
+    }
+
+    /// Brief 0078: a theme file overrides tokens of its base theme; every token is in the format.
+    #[test]
+    fn a_theme_file_extends_a_built_in_theme() {
+        let e = parse_theme_file(
+            "midnight",
+            r##"{"name": "Midnight", "extends": "light", "colors": {"background": "#000000", "accent": "#ff000080"}}"##,
+        )
+        .unwrap();
+        assert_eq!(e.id, "midnight");
+        assert_eq!(e.theme.name, "midnight");
+        assert_eq!(e.label, "Midnight");
+        assert_eq!(e.theme.background, rgb(0x000000));
+        assert!((e.theme.accent.a - 128.0 / 255.0).abs() < 1e-3);
+        // Untouched tokens are Light's.
+        assert_eq!(e.theme.panel, Theme::light().panel);
+        assert_eq!(e.theme.typography, Typography::default());
+        // No `extends`: Dark.
+        let d = parse_theme_file("x", r#"{"colors": {}}"#).unwrap();
+        assert_eq!(d.theme.panel, Theme::dark().panel);
+        assert_eq!(d.label, "x");
+        // Every token round-trips through the format.
+        let all = theme_colors(&Theme::classic());
+        let text = serde_json::json!({"extends": "dark", "colors": all}).to_string();
+        let c = parse_theme_file("c", &text).unwrap().theme;
+        assert_eq!(
+            Theme {
+                name: "classic",
+                ..c
+            },
+            Theme::classic()
+        );
+    }
+
+    #[test]
+    fn a_broken_theme_file_says_why() {
+        for (text, why) in [
+            ("{", "not JSON"),
+            (r#"{"extends": "solarized"}"#, "`extends`"),
+            (
+                r##"{"colors": {"backgrund": "#000000"}}"##,
+                "unknown color token `backgrund`",
+            ),
+            (r#"{"colors": {"background": "black"}}"#, "`background`"),
+            (r#"{"colours": {}}"#, "unknown field `colours`"),
+        ] {
+            let e = parse_theme_file("t", text).unwrap_err();
+            assert!(e.contains(why), "{text}: {e}");
+        }
+    }
+
+    #[test]
+    fn the_themes_folder_lists_good_files_and_reports_bad_ones() {
+        let dir = std::env::temp_dir().join(format!("eludite-themes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("b.json"), r#"{"name": "B", "colors": {}}"#).unwrap();
+        std::fs::write(dir.join("a.json"), r#"{"name": "A", "extends": "classic"}"#).unwrap();
+        std::fs::write(dir.join("broken.json"), "{").unwrap();
+        std::fs::write(dir.join("dark.json"), "{}").unwrap();
+        std::fs::write(dir.join("notes.txt"), "x").unwrap();
+        let (themes, errors) = load_theme_dir(&dir);
+        let ids: Vec<_> = themes.iter().map(|t| t.id).collect();
+        assert_eq!(ids, ["a", "b"]);
+        assert_eq!(
+            themes[0].path.as_deref(),
+            Some(dir.join("a.json").as_path())
+        );
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors.iter().any(|e| e.contains("broken.json")));
+        assert!(errors.iter().any(|e| e.contains("built-in")));
+        assert_eq!(
+            load_theme_dir(&dir.join("missing")),
+            (Vec::new(), Vec::new())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_ui_font_and_scale() {
+        let base = Typography::default();
+        assert_eq!(base.with_ui("", 12.0, 1.0), base);
+        let big = base.with_ui("Segoe UI", 14.0, 1.5);
+        assert_eq!(big.ui_font, "Segoe UI");
+        assert_eq!(big.ui, px(21.));
+        assert_eq!(big.small, px(19.5));
+        assert_eq!(big.menu_bar_height, px(36.));
+        assert!(big.small < big.ui && big.ui < big.body);
     }
 }

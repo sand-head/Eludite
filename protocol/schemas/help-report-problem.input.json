@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/help-report-problem.input.json",
+  "title": "eludite.help.report_problem input",
+  "description": "Help > Report a Problem: open the issue tracker's new issue form in the system browser with the version information filled in. Eludite sends nothing; the person reads and submits the form. `open: false` only answers the URL.",
+  "type": "object",
+  "properties": {
+    "open": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "additionalProperties": false
+}
