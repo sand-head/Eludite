@@ -78,6 +78,9 @@ install -m 644 "$repo/LICENSE" "$dest/LICENSE"
 # The embedded fonts' licenses (Instrument Sans and JetBrains Mono, SIL Open Font License 1.1; crates/ui/fonts/).
 mkdir -p "$dest/licenses/fonts"
 install -m 644 "$repo/crates/ui/fonts/InstrumentSans-OFL.txt" "$repo/crates/ui/fonts/JetBrainsMono-OFL.txt" "$dest/licenses/fonts/"
+# Brief 0080: the user documentation for reading offline (Help > View Help opens it on GitHub at the build's commit).
+mkdir -p "$dest/docs"
+install -m 644 "$repo"/docs/user/*.md "$dest/docs/"
 {
   sed -e "s/@VERSION@/$version/g" -e "s/@OS@/$os/g" -e "s/@ARCH@/$arch/g" -e "s/@EXE@/$exe/g" "$here/README-shell.in"
   echo

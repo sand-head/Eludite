@@ -49,5 +49,6 @@ Files
     cef/LICENSE.txt          CEF's license (BSD-3-Clause)
     cef/CREDITS.html         Chromium's third-party licenses
     THIRD-PARTY-CRATES.txt   the Rust crates linked into the two executables, with their licenses
+    docs/                    the user documentation: start with docs/getting-started.md
 
 H.264 and AAC media do not play (CEF's build without proprietary codecs).

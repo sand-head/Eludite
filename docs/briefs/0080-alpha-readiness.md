@@ -48,7 +48,7 @@ CI proves a packaged archive works end to end.
 - `docs/user/` (new): `README.md`, `getting-started.md`, `features.md`, `keyboard.md`, `troubleshooting.md`,
   `known-limitations.md`.
 - `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/config.yml` (new).
-- `crates/eludite/tests/package_smoke.rs` (new, gated on `ELUDITE_PACKAGE_ARCHIVE`).
+- `crates/lsp/tests/package_smoke.rs` (new, gated on `ELUDITE_PACKAGE_ARCHIVE`).
 - This brief and `docs/briefs/0080-report.md`.
 
 Not `README.md`, `CLAUDE.md`, `docs/briefs/README.md` or `docs/PLAN.md` (the report's Integration notes carry their
@@ -124,7 +124,7 @@ lines), nothing of brief 0065 (netcoredbg), 0072 (`welcome.rs` beyond the hook, 
   About dialog (brief 0078). `eludite-host --version` prints its version and exits.
 
 **Packaged smoke test.**
-- `crates/eludite/tests/package_smoke.rs`, skipped unless `ELUDITE_PACKAGE_ARCHIVE` names an archive (fails instead
+- `crates/lsp/tests/package_smoke.rs`, skipped unless `ELUDITE_PACKAGE_ARCHIVE` names an archive (fails instead
   when `ELUDITE_REQUIRE` lists `package`): unpacks it into a temp folder, runs `eludite --version` from it with an
   isolated `HOME`, then starts the packaged `eludite-host --stdio` with no `ELUDITE_ROSLYN_LS` and no Roslyn cache,
   speaks the host protocol to it (`eludite/initialize` reports the version and a configured language server,

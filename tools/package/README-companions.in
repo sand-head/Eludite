@@ -6,10 +6,11 @@ copies.
 
     eludite-host/              The .NET host: the project system, builds, NuGet, the test bridge and the Roslyn proxy. A
                                framework-dependent build: it runs on the .NET 10 runtime, which the .NET SDK installs
-                               (https://dot.net; the repository's global.json names the version). C# IntelliSense also
-                               needs the Roslyn language server, which the host looks for at ELUDITE_ROSLYN_LS, then
-                               under ~/.cache/eludite/roslyn, where the repository's tools/roslyn-pin/build.sh builds the
-                               pinned commit.
+                               (https://dot.net; the repository's global.json names the version).
+    eludite-host/roslyn/       The Roslyn language server (Microsoft.CodeAnalysis.LanguageServer, MIT;
+                               licenses/roslyn/), built from source at Eludite's pin with Visual Basic composed in: C#
+                               and Visual Basic IntelliSense. The setting languageServers.roslynPath (Tools > Options >
+                               Text Editor > C# and Visual Basic) or ELUDITE_ROSLYN_LS would point the host at another.
     eludite-dbg-mono/          Debugs .NET Framework programs under Mono on Linux and macOS: eludite-dbg-mono.exe runs on
                                the Mono installed on the machine. Not used on Windows.
     eludite-claude-acp@EXE@    The Agent Client Protocol adapter for Claude Code: Eludite runs it to talk to your installed

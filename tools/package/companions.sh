@@ -7,7 +7,13 @@
 #   DIR/eludite-host/           the .NET host: `dotnet publish` of dotnet/src/Eludite.Host in Release, framework-dependent
 #                               (the apphost `eludite-host`, `eludite-host.dll` and its dependencies). It runs on the
 #                               .NET 10 runtime installed on the machine, which the SDK global.json names brings; the host
-#                               builds projects with that SDK anyway.
+#                               builds projects with that SDK anyway. Published with -p:Version=<the workspace version>
+#                               (brief 0080), so `eludite-host --version` and the status bar agree with the shell.
+#   DIR/eludite-host/roslyn/    the Roslyn language server (Microsoft.CodeAnalysis.LanguageServer, MIT) built from source
+#                               at tools/roslyn-pin's pin (ADR-0015, brief 0080), from ELUDITE_ROSLYN_DIR (the server's
+#                               output folder; CI's roslyn job) else tools/roslyn-pin's default output; with Roslyn's
+#                               License.txt and THIRD-PARTY-NOTICES.txt in DIR/licenses/roslyn/. Missing, it fails,
+#                               unless ELUDITE_PACKAGE_NO_ROSLYN=1 (a development package without C# IntelliSense).
 #   DIR/eludite-dbg-mono/       the Mono soft-debugger DAP server (debuggers/mono, net472) and its dependencies; the shell
 #                               runs it under the Mono it locates (.NET Framework debugging on Linux and macOS).
 #   DIR/eludite-claude-acp      the Claude Code ACP adapter (agents/claude-acp, its own cargo workspace), release build,
@@ -18,7 +24,8 @@
 #                               `providers`.
 #
 # Pinned external tools stay located at run time, never packaged (CLAUDE.md, tools/): netcoredbg, rust-analyzer, lldb-dap,
-# the Roslyn language server, vscode-js-debug, the web language servers and Chrome. Build output goes to stderr; nothing
+# vscode-js-debug, the web language servers and Chrome. The Roslyn language server is built from its pinned source and
+# shipped (ADR-0015). Build output goes to stderr; nothing
 # is printed on stdout. linux.sh --with-companions and shell.sh call this.
 set -euo pipefail
 
@@ -27,7 +34,7 @@ into=
 while [ $# -gt 0 ]; do
   case "$1" in
     --into) into=${2:?--into needs a folder}; shift 2 ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "companions.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -37,11 +44,38 @@ done
 exe=
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) exe=.exe ;; esac
 
-echo "companions.sh: dotnet publish Eludite.Host (Release) into eludite-host/" >&2
+# Brief 0080: the host carries the release version (Cargo.toml's, which CI's version.sh --set wrote).
+version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$repo/Cargo.toml" | head -n 1)
+echo "companions.sh: dotnet publish Eludite.Host $version (Release) into eludite-host/" >&2
 rm -rf "${into:?}/eludite-host"
 dotnet publish "$repo/dotnet/src/Eludite.Host/Eludite.Host.csproj" --configuration Release --nologo \
-  --output "$into/eludite-host" >&2
+  "-p:Version=$version" --output "$into/eludite-host" >&2
 [ -f "$into/eludite-host/eludite-host.dll" ] || { echo "companions.sh: no eludite-host.dll was published" >&2; exit 1; }
+
+# Brief 0080, ADR-0015: the Roslyn language server beside the host, where RoslynProcessLauncher.Locate finds it.
+roslyn_src=${ROSLYN_SRC_DIR:-$HOME/.cache/eludite/roslyn}
+roslyn=${ELUDITE_ROSLYN_DIR:-$roslyn_src/artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/Release/net10.0}
+roslyn_dll=Microsoft.CodeAnalysis.LanguageServer.dll
+if [ -f "$roslyn/$roslyn_dll" ]; then
+  echo "companions.sh: the Roslyn language server from $roslyn into eludite-host/roslyn/" >&2
+  mkdir -p "$into/eludite-host/roslyn"
+  cp -R "$roslyn/." "$into/eludite-host/roslyn/"
+  # The licenses sit beside the server in CI's artifact, else in the clone's root.
+  mkdir -p "$into/licenses/roslyn"
+  for notice in License.txt THIRD-PARTY-NOTICES.txt; do
+    for from in "$roslyn/$notice" "$roslyn_src/$notice"; do
+      if [ -f "$from" ]; then install -m 644 "$from" "$into/licenses/roslyn/$notice"; break; fi
+    done
+    [ -f "$into/licenses/roslyn/$notice" ] || { echo "companions.sh: no Roslyn $notice beside $roslyn or in $roslyn_src" >&2; exit 1; }
+  done
+  rm -f "$into/eludite-host/roslyn/License.txt" "$into/eludite-host/roslyn/THIRD-PARTY-NOTICES.txt"
+elif [ "${ELUDITE_PACKAGE_NO_ROSLYN:-}" = 1 ]; then
+  echo "companions.sh: WARNING: no Roslyn language server at $roslyn; this package has no C# or Visual Basic IntelliSense" >&2
+else
+  echo "companions.sh: no $roslyn_dll in $roslyn: run tools/roslyn-pin/build.sh, set ELUDITE_ROSLYN_DIR to the server's" \
+    "output folder, or set ELUDITE_PACKAGE_NO_ROSLYN=1 to package without it" >&2
+  exit 1
+fi
 
 echo "companions.sh: dotnet publish Eludite.Debugger.Mono (Release) into eludite-dbg-mono/" >&2
 rm -rf "${into:?}/eludite-dbg-mono"

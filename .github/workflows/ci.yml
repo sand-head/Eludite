@@ -20,8 +20,52 @@ env:
   # timing budgets are reported, never asserted, and hang bounds are three times longer. Only behavior fails a build.
 
 jobs:
+  # Brief 0080, ADR-0015: the pinned Roslyn language server (tools/roslyn-pin), built from source once per pin and
+  # patch set, cached, and handed to the other jobs as the artifact roslyn-server: the server's output folder plus
+  # Roslyn's License.txt and THIRD-PARTY-NOTICES.txt. The server is framework-dependent (`dotnet <dll>`), so the Linux
+  # build serves every platform. The packages ship it as eludite-host/roslyn/; the tests find it at ELUDITE_ROSLYN_LS.
+  roslyn:
+    name: roslyn
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the Roslyn language server
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/roslyn-server
+          key: roslyn-server-${{ hashFiles('tools/roslyn-pin/COMMIT', 'tools/roslyn-pin/*.patch', 'tools/roslyn-pin/build.sh', 'tools/roslyn-pin/build.ps1') }}
+
+      # Roslyn's own build downloads the SDK its global.json pins into the clone; about 6 minutes cold.
+      - name: Build the Roslyn language server
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          dll="$(tools/roslyn-pin/build.sh)"
+          src="${ROSLYN_SRC_DIR:-$HOME/.cache/eludite/roslyn}"
+          mkdir -p ~/roslyn-server
+          cp -R "$(dirname "$dll")/." ~/roslyn-server/
+          cp "$src/License.txt" "$src/THIRD-PARTY-NOTICES.txt" ~/roslyn-server/
+
+      - name: Check the server
+        run: |
+          test -f ~/roslyn-server/Microsoft.CodeAnalysis.LanguageServer.dll
+          test -f ~/roslyn-server/License.txt
+          test -f ~/roslyn-server/Microsoft.CodeAnalysis.VisualBasic.Features.dll
+          du -sh ~/roslyn-server
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roslyn-server
+          path: ~/roslyn-server
+          if-no-files-found: error
+          retention-days: 7
+
   rust:
     name: rust (${{ matrix.os }})
+    # Brief 0080: the real-host tests on Linux run against the Roslyn server built by the roslyn job.
+    needs: [roslyn]
     runs-on: ${{ matrix.os }}
     # About 20 minutes warm and under an hour cold: a hung test fails the job instead of holding the runner for six hours.
     timeout-minutes: 120
@@ -104,6 +148,22 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: corpus/tests/build.ps1
+
+      # Brief 0080: crates/lsp/tests/real_host.rs runs against the real eludite-host (dotnet/src/Eludite.Host/bin/Debug)
+      # and, for its Roslyn tests, the server from the roslyn job; both are named in ELUDITE_REQUIRE below, so a broken
+      # build fails the job instead of skipping those tests silently.
+      - name: Download the Roslyn language server
+        if: runner.os == 'Linux'
+        uses: actions/download-artifact@v4
+        with:
+          name: roslyn-server
+          path: ${{ runner.temp }}/roslyn-server
+
+      - name: Build eludite-host
+        if: runner.os == 'Linux'
+        run: |
+          dotnet build dotnet/src/Eludite.Host/Eludite.Host.csproj
+          echo "ELUDITE_ROSLYN_LS=${{ runner.temp }}/roslyn-server/Microsoft.CodeAnalysis.LanguageServer.dll" >> "$GITHUB_ENV"
 
       - name: Format
         run: cargo fmt --check
@@ -211,7 +271,7 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 75
         env:
-          ELUDITE_REQUIRE: netcoredbg,chrome,cef,js-debug,lldb-dap
+          ELUDITE_REQUIRE: netcoredbg,chrome,cef,js-debug,lldb-dap,host,roslyn
         run: xvfb-run -a cargo test --workspace --no-fail-fast ${{ env.CEF_FEATURES }}
 
       - name: Test
@@ -270,22 +330,38 @@ jobs:
 
   dotnet:
     name: dotnet (${{ matrix.os }})
+    # Brief 0080: the Roslyn tests (RoslynIntegrationTests, CodeLensTests, VisualBasicTests) run on Linux against the
+    # server the roslyn job built.
+    needs: [roslyn]
     runs-on: ${{ matrix.os }}
     # About 5 minutes: a hung test fails the job instead of holding the runner for six hours.
     timeout-minutes: 45
+    # Brief 0080: macOS is new to this matrix; until its first green run it reports without blocking the packages.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     env:
       # No MSBuild node outlives a build to hold files the next step (or a test's own build) needs, notably on Windows.
       MSBUILDDISABLENODEREUSE: "1"
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+
+      - name: Download the Roslyn language server
+        if: runner.os == 'Linux'
+        uses: actions/download-artifact@v4
+        with:
+          name: roslyn-server
+          path: ${{ runner.temp }}/roslyn-server
+
+      - name: Use the Roslyn language server
+        if: runner.os == 'Linux'
+        run: echo "ELUDITE_ROSLYN_LS=${{ runner.temp }}/roslyn-server/Microsoft.CodeAnalysis.LanguageServer.dll" >> "$GITHUB_ENV"
 
       # eludite-dbg-mono's tests debug a program under Mono (brief 0022); without Mono they skip, as on Windows.
       - name: Install Mono
@@ -352,10 +428,12 @@ jobs:
   # request's archives carry none and are development builds to the updater.
   package:
     name: package (${{ matrix.os }})
-    needs: [rust, dotnet, build-id]
+    needs: [rust, dotnet, build-id, roslyn]
     timeout-minutes: 90
     env:
       CHANNEL_ARGS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && format('--channel unstable --build {0}', needs.build-id.outputs.id) || '' }}
+      # Brief 0080: `eludite --version` and Help > View Help name the commit even without build.json.
+      ELUDITE_COMMIT: ${{ github.sha }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -407,6 +485,20 @@ jobs:
           path: ~/.cache/eludite/cef
           key: cef-${{ runner.os }}-${{ hashFiles('tools/cef/PIN') }}
 
+      # Brief 0080, ADR-0015: companions.sh lays the Roslyn language server out as eludite-host/roslyn/ from
+      # ELUDITE_ROSLYN_DIR, with its licenses in licenses/roslyn/.
+      - name: Download the Roslyn language server
+        uses: actions/download-artifact@v4
+        with:
+          name: roslyn-server
+          path: ${{ runner.temp }}/roslyn-server
+
+      - name: Use the Roslyn language server
+        run: |
+          dir="$RUNNER_TEMP/roslyn-server"
+          if command -v cygpath >/dev/null 2>&1; then dir="$(cygpath -u "$RUNNER_TEMP")/roslyn-server"; fi
+          echo "ELUDITE_ROSLYN_DIR=$dir" >> "$GITHUB_ENV"
+
       # The archives, build.json, the MSI and the app itself (CARGO_PKG_VERSION) carry this run's version. Set after
       # the caches are restored: their keys hash Cargo.toml.
       - name: Set the version
@@ -451,7 +543,7 @@ jobs:
           if ($install.ExitCode -ne 0) { Get-Content $log -Tail 80; throw "MSI install failed: $($install.ExitCode)" }
           try {
             $folder = Join-Path $env:ProgramFiles 'Eludite'
-            foreach ($file in @('eludite.exe', 'eludite-host/eludite-host.dll', 'eludite-claude-acp.exe', 'LICENSE')) {
+            foreach ($file in @('eludite.exe', 'eludite-host/eludite-host.dll', 'eludite-host/roslyn/Microsoft.CodeAnalysis.LanguageServer.dll', 'licenses/roslyn/License.txt', 'docs/getting-started.md', 'eludite-claude-acp.exe', 'LICENSE')) {
               if (-not (Test-Path (Join-Path $folder $file))) { throw "MSI missing $file" }
             }
             if (Test-Path (Join-Path $folder 'build.json')) { throw 'MSI must not enable the archive self-updater' }
@@ -519,6 +611,18 @@ jobs:
             ELUDITE_CHROME_NO_SANDBOX=1 \
             cargo test -p eludite-chromium --features cef --test package -- --nocapture
 
+      # Brief 0080's smoke test (crates/lsp/tests/package_smoke.rs): the tarball, unpacked with its own HOME and no
+      # ELUDITE_ROSLYN_LS or Roslyn cache, starts its eludite-host, which finds Roslyn beside itself, loads a console
+      # project and completes `Console.` with WriteLine; the test corpus is built so discovery is checked too.
+      - name: Smoke test C# IntelliSense from the package (Linux)
+        if: runner.os == 'Linux'
+        env:
+          ELUDITE_REQUIRE: package
+        run: |
+          corpus/tests/build.sh --no-cargo
+          ELUDITE_PACKAGE_ARCHIVE="$(ls "${{ runner.temp }}"/package/eludite-*.tar.gz)" \
+            cargo test -p eludite-lsp --test package_smoke -- --nocapture
+
   # The unstable channel's release (brief 0055, tools/package/RELEASE.md): on a push to main, once the three archives
   # are up, the pre-release unstable-<build id> at this commit with the archives and SHA256SUMS over them, which a
   # packaged Eludite reads to update itself. Older unstable releases beyond the newest 30 (the page the updater reads)
@@ -531,6 +635,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Brief 0080: the history and tags, for the notes' list of changes since the previous unstable release.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           pattern: eludite-*
@@ -554,9 +663,35 @@ jobs:
           VERSION: ${{ needs.build-id.outputs.version }}
         run: |
           tag="unstable-$BUILD"
-          notes="Eludite $VERSION, unstable build $BUILD of main at ${GITHUB_SHA}: every green build of main, for Eludite's self-updater (tools/package/RELEASE.md). Unpack an archive and run eludite; it updates itself from this channel once you say so."
+          # Brief 0080: what changed since the previous unstable release (main's first-parent subjects, at most 50),
+          # and where the user documentation is.
+          previous="$(git tag --list 'unstable-*' --sort=-creatordate | head -n 1)"
+          {
+            echo "Eludite $VERSION, unstable build $BUILD of main at ${GITHUB_SHA}: every green build of main, for Eludite's self-updater (tools/package/RELEASE.md). Unpack an archive and run eludite; it updates itself from this channel once you say so."
+            echo
+            echo "Getting started: https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/docs/user/getting-started.md (also in the archive's docs/ folder). Report a problem with the bug template and the output of \`eludite --version\`."
+            echo
+            if [ -n "$previous" ]; then
+              echo "Changes since $previous:"
+              echo
+              # A merged pull request is listed by its title (the merge commit's first body line).
+              git log --first-parent --format='%H' -n 50 "$previous..$GITHUB_SHA" | while read -r c; do
+                title="$(git log -1 --format=%s "$c")"
+                if [ "$(git rev-list --parents -n 1 "$c" | wc -w)" -gt 2 ]; then
+                  body="$(git log -1 --format=%b "$c" | sed -n '/./{p;q;}')"
+                  [ -z "$body" ] || title="$body"
+                fi
+                echo "- $title"
+              done
+            else
+              echo "Changes:"
+              echo
+              git log --first-parent --format='- %s' -n 20 "$GITHUB_SHA"
+            fi
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "Eludite $VERSION (unstable $BUILD)" --notes "$notes" dist/eludite-* dist/SHA256SUMS
+            --title "Eludite $VERSION (unstable $BUILD)" --notes-file "$RUNNER_TEMP/notes.md" dist/eludite-* dist/SHA256SUMS
           echo "::notice::published $tag"
 
       - name: Prune old unstable releases

@@ -22,3 +22,4 @@ Files
     LICENSE                    GNU General Public License, version 3 (Eludite is GPL-3.0-or-later)
     THIRD-PARTY-CRATES.txt     the Rust crates linked into eludite, with their licenses
     licenses/                  the companions' licenses
+    docs/                      the user documentation: start with docs/getting-started.md
