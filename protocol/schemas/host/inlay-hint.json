@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/inlay-hint.json",
+  "title": "textDocument/inlayHint",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::InlayHintRequest, brief 0066). The shell asks for the visible rows and 100 lines around them. The host advertises inlay hints to Roslyn with resolveSupport for tooltip, textEdits and label.tooltip, and answers Roslyn's workspace/configuration so its parameter-name and type hints are on for C# and Visual Basic (host-rpc.md, \"Server-to-client requests from the language server\"); which kinds show is the shell's setting.",
+  "x-eludite-method": "textDocument/inlayHint",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "range",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "range": {
+          "type": "object",
+          "required": [
+            "start",
+            "end"
+          ]
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "The hints, or null.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "required": [
+          "position",
+          "label"
+        ],
+        "properties": {
+          "position": {
+            "type": "object",
+            "required": [
+              "line",
+              "character"
+            ]
+          },
+          "label": {
+            "description": "A string, or label parts ({ value, tooltip?, location?, command? }).",
+            "type": [
+              "string",
+              "array"
+            ]
+          },
+          "kind": {
+            "description": "1 type, 2 parameter.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "tooltip": {
+            "description": "A string or MarkupContent."
+          },
+          "paddingLeft": {
+            "type": "boolean"
+          },
+          "paddingRight": {
+            "type": "boolean"
+          },
+          "textEdits": {
+            "type": "array"
+          },
+          "data": {
+            "description": "Opaque; sent back unchanged in inlayHint/resolve."
+          }
+        }
+      }
+    }
+  }
+}

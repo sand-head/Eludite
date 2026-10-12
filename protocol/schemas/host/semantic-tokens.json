@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/semantic-tokens.json",
+  "title": "textDocument/semanticTokens/full",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::SemanticTokensFull, brief 0066). Params carry eluditeGeneration like every forwarded request. The answer is the whole document's tokens with a resultId the next full/delta request quotes. The host advertises semantic tokens to Roslyn with full, delta and range requests, formats [relative], no overlapping or multiline tokens and augmentsSyntaxTokens; Roslyn then uses its 'pure LSP' legend: the standard LSP token types followed by its custom names (recordClass, delegate, field, constant, extensionMethod, controlKeyword, operatorOverloaded, stringEscapeCharacter, stringVerbatim, excludedCode, punctuation, regex*, json*, xmlDocComment*) and the modifiers static, ReassignedVariable and deprecated.",
+  "x-eludite-method": "textDocument/semanticTokens/full",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "The tokens, or null.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "resultId": {
+          "type": "string"
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

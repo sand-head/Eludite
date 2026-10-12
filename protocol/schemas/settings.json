@@ -11,6 +11,8 @@
     "Debugging > General",
     "Text Editor > Rust",
     "Text Editor > All Languages > CodeLens",
+    "Text Editor > All Languages > Advanced",
+    "Text Editor > All Languages > Inlay Hints",
     "Test > General",
     "Agents",
     "Web Browser",
@@ -337,6 +339,226 @@
         "All indicators",
         "References only",
         "Tests only",
+        "Off"
+      ]
+    },
+    "editor.semanticHighlighting": {
+      "description": "Color code by the language server's classifications (brief 0066): class, interface, struct, enum and type parameter names, locals, parameters, fields, properties, methods, extension methods, static members, string escapes, regex and JSON inside strings, and code excluded by #if, painted over the syntax colors once the server answers; unused code (an unnecessary using, an unread assignment) faded. Off keeps the syntax colors only. editor.languages.<language>.semanticHighlighting overrides it for one language.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > Advanced",
+      "x-eludite-label": "Use semantic highlighting from the language server"
+    },
+    "editor.inlayHints.enabled": {
+      "description": "Show inline hints (brief 0066): parameter names at call sites and inferred types (var, lambda parameters, let bindings), from the language server, drawn in the line as chips that are not text: the caret skips them and copy never includes them. Alt+F1 (eludite.editor.toggle_inlay_hints) shows or hides them for the session. editor.languages.<language>.inlayHints overrides it for one language.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "Display inline hints"
+    },
+    "editor.inlayHints.parameterNames": {
+      "description": "Show the parameter name hints (`count:` before an argument) while inline hints are on.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "Display inline parameter name hints"
+    },
+    "editor.inlayHints.types": {
+      "description": "Show the inferred type hints (`: int` after a var, a lambda parameter or a let binding) while inline hints are on.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "Display inline type hints"
+    },
+    "editor.languages.csharp.semanticHighlighting": {
+      "description": "Semantic highlighting in C# documents: `default` follows editor.semanticHighlighting; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Advanced",
+      "x-eludite-label": "C#: semantic highlighting",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.vb.semanticHighlighting": {
+      "description": "Semantic highlighting in Visual Basic documents: `default` follows editor.semanticHighlighting; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Advanced",
+      "x-eludite-label": "Visual Basic: semantic highlighting",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.fsharp.semanticHighlighting": {
+      "description": "Semantic highlighting in F# documents: `default` follows editor.semanticHighlighting; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Advanced",
+      "x-eludite-label": "F#: semantic highlighting",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.rust.semanticHighlighting": {
+      "description": "Semantic highlighting in Rust documents: `default` follows editor.semanticHighlighting; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Advanced",
+      "x-eludite-label": "Rust: semantic highlighting",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.typescript.semanticHighlighting": {
+      "description": "Semantic highlighting in TypeScript documents: `default` follows editor.semanticHighlighting; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Advanced",
+      "x-eludite-label": "TypeScript: semantic highlighting",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.javascript.semanticHighlighting": {
+      "description": "Semantic highlighting in JavaScript documents: `default` follows editor.semanticHighlighting; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Advanced",
+      "x-eludite-label": "JavaScript: semantic highlighting",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.csharp.inlayHints": {
+      "description": "Inline hints in C# documents: `default` follows editor.inlayHints.enabled; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "C#: inline hints",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.vb.inlayHints": {
+      "description": "Inline hints in Visual Basic documents: `default` follows editor.inlayHints.enabled; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "Visual Basic: inline hints",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.fsharp.inlayHints": {
+      "description": "Inline hints in F# documents: `default` follows editor.inlayHints.enabled; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "F#: inline hints",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.rust.inlayHints": {
+      "description": "Inline hints in Rust documents: `default` follows editor.inlayHints.enabled; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "Rust: inline hints",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.typescript.inlayHints": {
+      "description": "Inline hints in TypeScript documents: `default` follows editor.inlayHints.enabled; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "TypeScript: inline hints",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
+        "Off"
+      ]
+    },
+    "editor.languages.javascript.inlayHints": {
+      "description": "Inline hints in JavaScript documents: `default` follows editor.inlayHints.enabled; `on` or `off` overrides it.",
+      "enum": [
+        "default",
+        "on",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > Inlay Hints",
+      "x-eludite-label": "JavaScript: inline hints",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "On",
         "Off"
       ]
     },

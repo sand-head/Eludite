@@ -814,6 +814,155 @@ forwarded_request!(
     CodeLens
 );
 
+// Brief 0066: semantic tokens and inlay hints (schemas `protocol/schemas/host/semantic-tokens*.json` and
+// `inlay-hint*.json`).
+
+/// `textDocument/semanticTokens/full` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+/// `textDocument/semanticTokens/full/delta` params: the `resultId` of the answer the edits apply to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensDeltaParams {
+    pub text_document: TextDocumentIdentifier,
+    pub previous_result_id: String,
+}
+
+/// `textDocument/semanticTokens/range` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensRangeParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+}
+
+/// LSP `SemanticTokens`: five integers per token, relative to the previous one (line delta, start delta, length,
+/// type index, modifier bits), in the server's legend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokens {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_id: Option<String>,
+    pub data: Vec<u32>,
+}
+
+/// One edit of a delta: replace `delete_count` integers at `start` with `data`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensEdit {
+    pub start: u32,
+    pub delete_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Vec<u32>>,
+}
+
+/// LSP `SemanticTokensDelta`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensDelta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_id: Option<String>,
+    pub edits: Vec<SemanticTokensEdit>,
+}
+
+/// The answer to `full/delta`: the edits, or (a server may) the whole array again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SemanticTokensDeltaResult {
+    Delta(SemanticTokensDelta),
+    Tokens(SemanticTokens),
+}
+
+forwarded_request!(
+    /// `textDocument/semanticTokens/full` (brief 0066).
+    SemanticTokensFull,
+    "textDocument/semanticTokens/full",
+    SemanticTokensParams,
+    Option<SemanticTokens>
+);
+forwarded_request!(
+    /// `textDocument/semanticTokens/full/delta` (brief 0066).
+    SemanticTokensFullDelta,
+    "textDocument/semanticTokens/full/delta",
+    SemanticTokensDeltaParams,
+    Option<SemanticTokensDeltaResult>
+);
+forwarded_request!(
+    /// `textDocument/semanticTokens/range` (brief 0066).
+    SemanticTokensRange,
+    "textDocument/semanticTokens/range",
+    SemanticTokensRangeParams,
+    Option<SemanticTokens>
+);
+
+/// `textDocument/inlayHint` params: the hints of `range`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InlayHintParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+}
+
+/// One part of a hint's label.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InlayHintLabelPart {
+    pub value: String,
+    /// A string or `MarkupContent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tooltip: Option<Value>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+/// A hint's label: a string, or parts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum InlayHintLabel {
+    String(String),
+    Parts(Vec<InlayHintLabelPart>),
+}
+
+/// LSP `InlayHint`. `kind` is 1 for a type, 2 for a parameter. `data` is opaque and goes back unchanged in
+/// `inlayHint/resolve`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InlayHint {
+    pub position: Position,
+    pub label: InlayHintLabel,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u8>,
+    /// A string or `MarkupContent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tooltip: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding_left: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding_right: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+forwarded_request!(
+    /// `textDocument/inlayHint` (brief 0066).
+    InlayHintRequest,
+    "textDocument/inlayHint",
+    InlayHintParams,
+    Option<Vec<InlayHint>>
+);
+forwarded_request!(
+    /// `inlayHint/resolve` (brief 0066): the tooltip of a hint.
+    ResolveInlayHint,
+    "inlayHint/resolve",
+    InlayHint,
+    InlayHint
+);
+
 /// `workspace/applyEdit`, the request the host sends the shell (host-rpc.md, "Messages the host sends"). Not
 /// generational in the forwarded sense: the host adds `eluditeGeneration` itself, and the shell answers it.
 #[derive(Debug)]
@@ -1412,6 +1561,42 @@ mod tests {
                 id: Id::String("x".into()),
             },
             json!({"id": "x"}),
+        );
+    }
+    #[test]
+    fn semantic_tokens_and_inlay_hints() {
+        round_trip(
+            &SemanticTokens {
+                result_id: Some("3".into()),
+                data: vec![0, 4, 5, 1, 0],
+            },
+            json!({"resultId": "3", "data": [0, 4, 5, 1, 0]}),
+        );
+        let delta: SemanticTokensDeltaResult = serde_json::from_value(
+            json!({"resultId": "4", "edits": [{"start": 5, "deleteCount": 0, "data": [1, 0, 3, 2, 1]}]}),
+        )
+        .unwrap();
+        assert!(matches!(delta, SemanticTokensDeltaResult::Delta(ref d) if d.edits[0].start == 5));
+        let whole: SemanticTokensDeltaResult =
+            serde_json::from_value(json!({"data": [0, 0, 1, 0, 0]})).unwrap();
+        assert!(matches!(whole, SemanticTokensDeltaResult::Tokens(_)));
+        let hint: InlayHint = serde_json::from_value(json!({
+            "position": {"line": 3, "character": 12},
+            "label": [{"value": "count"}, {"value": ":"}],
+            "kind": 2, "paddingRight": true, "data": {"id": 9}
+        }))
+        .unwrap();
+        assert!(matches!(hint.label, InlayHintLabel::Parts(ref p) if p.len() == 2));
+        assert_eq!(hint.kind, Some(2));
+        let back = serde_json::to_value(&hint).unwrap();
+        assert_eq!(back["data"], json!({"id": 9}));
+        assert_eq!(back["paddingRight"], json!(true));
+        round_trip(
+            &InlayHintParams {
+                text_document: doc(),
+                range: range(),
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}, "range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}}}),
         );
     }
 }

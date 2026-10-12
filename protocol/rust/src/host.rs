@@ -73,6 +73,10 @@ pub mod methods {
     pub const NUGET_UPDATE: &str = "eludite/nuget/update";
     /// Host-to-shell notification (brief 0052): the language server asked for fresh lenses.
     pub const CODE_LENS_REFRESH: &str = "eludite/codeLens/refresh";
+    /// Host-to-shell notification (brief 0066): the language server asked for fresh semantic tokens.
+    pub const SEMANTIC_TOKENS_REFRESH: &str = "eludite/semanticTokens/refresh";
+    /// Host-to-shell notification (brief 0066): the language server asked for fresh inlay hints.
+    pub const INLAY_HINT_REFRESH: &str = "eludite/inlayHint/refresh";
     /// Host-to-shell request: credentials for a private feed, during an interactive call.
     pub const NUGET_CREDENTIALS: &str = "eludite/nuget/credentials";
     /// The project property pages' catalog with its values (brief 0049).
@@ -144,6 +148,12 @@ pub mod methods {
         "textDocument/diagnostic",
         "textDocument/codeLens",
         "codeLens/resolve",
+        // Brief 0066: semantic tokens (full and range moved here from the untyped list) and inlay hints.
+        "textDocument/semanticTokens/full",
+        "textDocument/semanticTokens/full/delta",
+        "textDocument/semanticTokens/range",
+        "textDocument/inlayHint",
+        "inlayHint/resolve",
     ];
 
     /// Forwarded LSP notifications typed in [`crate::lsp`] (`$/cancelRequest` is handled by the host itself).
@@ -159,8 +169,6 @@ pub mod methods {
         "textDocument/typeDefinition",
         "textDocument/implementation",
         "textDocument/documentHighlight",
-        "textDocument/semanticTokens/full",
-        "textDocument/semanticTokens/range",
         "textDocument/formatting",
     ];
 
@@ -183,6 +191,9 @@ pub mod methods {
         NUGET_UPDATE,
         NUGET_CREDENTIALS,
         CODE_LENS_REFRESH,
+        // Brief 0066.
+        SEMANTIC_TOKENS_REFRESH,
+        INLAY_HINT_REFRESH,
     ];
 
     /// The requests among [`HOST_TO_SHELL`]: the shell answers them.
@@ -651,6 +662,24 @@ impl NotificationType for CodeLensRefreshNotification {
 pub struct CodeLensRefreshParams {
     #[serde(rename = "eluditeGeneration")]
     pub generation: Generation,
+}
+
+/// `eludite/semanticTokens/refresh` (host to shell, brief 0066): the language server sent
+/// `workspace/semanticTokens/refresh`; the params are the generation current when it arrived.
+#[derive(Debug)]
+pub enum SemanticTokensRefreshNotification {}
+impl NotificationType for SemanticTokensRefreshNotification {
+    const METHOD: &'static str = methods::SEMANTIC_TOKENS_REFRESH;
+    type Params = CodeLensRefreshParams;
+}
+
+/// `eludite/inlayHint/refresh` (host to shell, brief 0066): the language server sent `workspace/inlayHint/refresh`;
+/// the params are the generation current when it arrived.
+#[derive(Debug)]
+pub enum InlayHintRefreshNotification {}
+impl NotificationType for InlayHintRefreshNotification {
+    const METHOD: &'static str = methods::INLAY_HINT_REFRESH;
+    type Params = CodeLensRefreshParams;
 }
 
 // Build (brief 0017): `eludite/build/*`, see host-rpc.md "Build".

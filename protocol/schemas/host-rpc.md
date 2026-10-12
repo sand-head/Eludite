@@ -581,6 +581,11 @@ requests additionally carry `eluditeGeneration`.
 | `codeAction/resolve` | request | [resolve](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#codeAction_resolve) | Typed since brief 0015; schema [code-action-resolve.json](host/code-action-resolve.json). Params are a `CodeAction` plus `eluditeGeneration` |
 | `textDocument/codeLens` | request | [codeLens](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_codeLens) | Typed since brief 0052; schema [code-lens.json](host/code-lens.json). Result `CodeLens[]` or `null`, with the Roslyn lens commands mapped by the host (see "CodeLens" below) |
 | `codeLens/resolve` | request | [resolve](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#codeLens_resolve) | Typed since brief 0052; schema [code-lens-resolve.json](host/code-lens-resolve.json). Params are a `CodeLens` plus `eluditeGeneration`; the result's command is mapped as for `textDocument/codeLens` |
+| `textDocument/semanticTokens/full` | request | [semanticTokens](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_semanticTokens) | Typed since brief 0066 (forwarded untyped before); schema [semantic-tokens.json](host/semantic-tokens.json). Result `SemanticTokens` or `null`; decoded with the legend in the server's capabilities (`eludite/languageServer/status`) |
+| `textDocument/semanticTokens/full/delta` | request | [semanticTokens](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_semanticTokens) | Typed since brief 0066; schema [semantic-tokens-delta.json](host/semantic-tokens-delta.json). Params quote the last answer's `resultId`; result `SemanticTokensDelta`, `SemanticTokens` or `null` |
+| `textDocument/semanticTokens/range` | request | [semanticTokens](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_semanticTokens) | Typed since brief 0066 (forwarded untyped before); schema [semantic-tokens-range.json](host/semantic-tokens-range.json). The visible rows of a long document first |
+| `textDocument/inlayHint` | request | [inlayHint](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_inlayHint) | Typed since brief 0066; schema [inlay-hint.json](host/inlay-hint.json). Result `InlayHint[]` or `null` for the range asked |
+| `inlayHint/resolve` | request | [resolve](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#inlayHint_resolve) | Typed since brief 0066; schema [inlay-hint-resolve.json](host/inlay-hint-resolve.json). Params are an `InlayHint` plus `eluditeGeneration`; the result carries its tooltip |
 | `textDocument/documentSymbol` | request | [documentSymbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentSymbol) | Hierarchical `DocumentSymbol[]` (the host advertises hierarchical support) |
 | `workspace/symbol` | request | [workspace symbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_symbol) | |
 | `textDocument/diagnostic` | request | [pull diagnostics](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_diagnostic) | The shell may pull itself; it usually relies on the host's published diagnostics |
@@ -699,8 +704,6 @@ JSON. Requests still require `eluditeGeneration`.
 | `textDocument/typeDefinition` | request, forwarded, untyped |
 | `textDocument/implementation` | request, forwarded, untyped |
 | `textDocument/documentHighlight` | request, forwarded, untyped |
-| `textDocument/semanticTokens/full` | request, forwarded, untyped |
-| `textDocument/semanticTokens/range` | request, forwarded, untyped |
 | `textDocument/formatting` | request, forwarded, untyped |
 | `textDocument/didSave` | notification, forwarded, untyped |
 | `workspace/didChangeWatchedFiles` | notification, forwarded, untyped |
@@ -722,6 +725,8 @@ Any other method returns -32601 (MethodNotFound) and is not forwarded.
 | `eludite/build/finished` | notification | [build-finished.json](host/build-finished.json) | `{ buildId, generation, target, path, result, exitCode, elapsedMs, summary, projects, diagnostics, binlog?, message? }` |
 | `eludite/test/update` | notification | [test-update.json](host/test-update.json) | `{ runId, generation, seq, kind, container?, tests?, results?, text?, launch?, processId?, state?, count?, summary?, elapsedMs?, message? }` |
 | `eludite/codeLens/refresh` | notification | [code-lens-refresh.json](host/code-lens-refresh.json) | `{ eluditeGeneration }`: the language server sent `workspace/codeLens/refresh` (brief 0052) |
+| `eludite/semanticTokens/refresh` | notification | [semantic-tokens-refresh.json](host/semantic-tokens-refresh.json) | `{ eluditeGeneration }`: the language server sent `workspace/semanticTokens/refresh` (brief 0066) |
+| `eludite/inlayHint/refresh` | notification | [inlay-hint-refresh.json](host/inlay-hint-refresh.json) | `{ eluditeGeneration }`: the language server sent `workspace/inlayHint/refresh` (brief 0066) |
 | `eludite/nuget/update` | notification | [nuget-update.json](host/nuget-update.json) | `{ operation, generation, seq, kind, text?, message?, packages? }` |
 | `eludite/nuget/credentials` | request | [nuget-credentials.json](host/nuget-credentials.json) | `{ operation?, source, url, host, proxy, isRetry, message? }`; result `{ username?, password?, remember?, canceled? }` or `null` |
 
@@ -797,13 +802,14 @@ Answered by the host, never relayed:
 
 | Method | Host answer |
 |---|---|
-| `workspace/configuration` | `projects.dotnet_enable_file_based_programs = false`; `null` (Roslyn default) for every other section. Shell-supplied settings are future work. |
+| `workspace/configuration` | `projects.dotnet_enable_file_based_programs = false`; since brief 0066, `true` for Roslyn's inlay hint switches in C# and Visual Basic (`csharp\|inlay_hints.<name>` and `visual_basic\|inlay_hints.<name>` for `dotnet_enable_inlay_hints_for_parameters`, `dotnet_enable_inlay_hints_for_literal_parameters`, `dotnet_enable_inlay_hints_for_indexer_parameters`, `dotnet_enable_inlay_hints_for_object_creation_parameters`, `dotnet_enable_inlay_hints_for_other_parameters`, `csharp_enable_inlay_hints_for_types`, `csharp_enable_inlay_hints_for_implicit_variable_types`, `csharp_enable_inlay_hints_for_lambda_parameter_types`, `csharp_enable_inlay_hints_for_implicit_object_creation`): the shell filters hints by kind with its own settings; `null` (Roslyn default) for every other section. |
 | `client/registerCapability`, `client/unregisterCapability` | `null` (accepted, ignored) |
 | `window/workDoneProgress/create` | `null` |
 | `window/showMessageRequest` | `null` (no modal UI) |
 | `workspace/diagnostic/refresh` | `null`, and the host re-pulls diagnostics for every open document |
 | `workspace/codeLens/refresh` | `null` at once, and the host sends the shell `eludite/codeLens/refresh` with the current generation (brief 0052) |
-| `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | `null`; not relayed (no consumer yet) |
+| `workspace/semanticTokens/refresh` | `null` at once, and the host sends the shell `eludite/semanticTokens/refresh` with the current generation (brief 0066) |
+| `workspace/inlayHint/refresh` | `null` at once, and the host sends the shell `eludite/inlayHint/refresh` with the current generation (brief 0066) |
 
 `workspace/applyEdit` is not answered by the host: it is relayed to the shell (see "Messages the host sends").
 
@@ -824,7 +830,11 @@ plaintext, `signatureHelp`, `definition`, `references`, `publishDiagnostics`, pu
 `textDocument.codeAction` with `codeActionLiteralSupport` (the kinds `quickfix`, `refactor`, `refactor.extract`,
 `refactor.inline`, `refactor.rewrite`, `source`, `source.organizeImports`), `resolveSupport` for `edit`,
 `dataSupport`, `isPreferredSupport` and `disabledSupport`; and `textDocument.rename` with `prepareSupport`. Since brief 0052 also: `textDocument.codeLens` and
-`workspace.codeLens.refreshSupport`. The server's resulting capabilities reach the shell in `eludite/languageServer/status`.
+`workspace.codeLens.refreshSupport`. Since brief 0066 also: `textDocument.semanticTokens` (`requests.full.delta`, `requests.range`,
+`formats` `relative`, the standard token types and modifiers, `overlappingTokenSupport` and `multilineTokenSupport`
+false, `augmentsSyntaxTokens` true), `workspace.semanticTokens.refreshSupport`, `textDocument.inlayHint` with
+`resolveSupport` (`tooltip`, `textEdits`, `label.tooltip`), `workspace.inlayHint.refreshSupport`, and
+`textDocument.publishDiagnostics.tagSupport` (`Unnecessary`, `Deprecated`). The server's resulting capabilities reach the shell in `eludite/languageServer/status`.
 
 ## Generic language servers and Cargo (brief 0019)
 
@@ -863,7 +873,7 @@ renders a result from a previous server instance (CLAUDE.md invariant 12).
 |---|---|
 | Lifecycle | `initialize`, `initialized`, `shutdown`, `exit` |
 | Document sync | `textDocument/didOpen`, `didChange` (incremental, UTF-16), `didSave`, `didClose`, `workspace/didChangeWatchedFiles` |
-| Requests | `textDocument/completion`, `completionItem/resolve`, `textDocument/hover`, `textDocument/signatureHelp`, `textDocument/definition`, `textDocument/references`, `textDocument/prepareRename`, `textDocument/rename`, `textDocument/codeAction`, `codeAction/resolve`, `textDocument/codeLens`, `codeLens/resolve` |
+| Requests | `textDocument/completion`, `completionItem/resolve`, `textDocument/hover`, `textDocument/signatureHelp`, `textDocument/definition`, `textDocument/references`, `textDocument/prepareRename`, `textDocument/rename`, `textDocument/codeAction`, `codeAction/resolve`, `textDocument/codeLens`, `codeLens/resolve`, `textDocument/semanticTokens/full`, `textDocument/semanticTokens/full/delta`, `textDocument/semanticTokens/range`, `textDocument/inlayHint`, `inlayHint/resolve` (brief 0066) |
 | Pull diagnostics | `textDocument/diagnostic`, sent by the client itself (below), never by the editor features |
 | Cancellation | `$/cancelRequest` |
 
@@ -894,7 +904,7 @@ without the generation. The shell recognizes these lens commands; a lens with an
 | request | `window/workDoneProgress/create`, `client/registerCapability`, `client/unregisterCapability` | `null` (accepted) |
 | request | `workspace/diagnostic/refresh` | `null`, and every open document is pulled again |
 | request | `workspace/codeLens/refresh` | `null`, and the shell requests the lenses of the server's open documents again (brief 0052) |
-| request | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | `null` |
+| request | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | `null`, and the shell asks for the server's open documents' tokens or hints again (brief 0066) |
 | request | anything else | -32601 (MethodNotFound) |
 
 **Push and pull.** The editor features take one diagnostics list per document, as the host delivers them. The

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/semantic-tokens-range.json",
+  "title": "textDocument/semanticTokens/range",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::SemanticTokensRange, brief 0066). The shell asks for the visible rows (and 100 lines around them) of a document over 2,000 lines first, then for the whole document.",
+  "x-eludite-method": "textDocument/semanticTokens/range",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "range",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "range": {
+          "type": "object",
+          "required": [
+            "start",
+            "end"
+          ]
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "The tokens of the range, or null.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "resultId": {
+          "type": "string"
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

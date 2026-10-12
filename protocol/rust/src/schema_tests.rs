@@ -165,6 +165,8 @@ fn every_schema_file_names_a_documented_method() {
         methods::NUGET_UPDATE,
         methods::NUGET_CREDENTIALS,
         methods::CODE_LENS_REFRESH,
+        methods::SEMANTIC_TOKENS_REFRESH,
+        methods::INLAY_HINT_REFRESH,
     ]) {
         assert!(seen.contains(*m), "no schema file for {m}");
     }
@@ -202,6 +204,7 @@ fn host_rpc_md_lists_exactly_the_rust_method_sets() {
         "window/showMessageRequest",
         "workspace/diagnostic/refresh",
         "workspace/semanticTokens/refresh",
+        "workspace/inlayHint/refresh",
         "workspace/codeLens/refresh",
     ]
     .iter()
@@ -539,6 +542,11 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<lsp::DocumentDiagnosticRequest>(),
         req::<lsp::CodeLensRequest>(),
         req::<lsp::ResolveCodeLens>(),
+        req::<lsp::SemanticTokensFull>(),
+        req::<lsp::SemanticTokensFullDelta>(),
+        req::<lsp::SemanticTokensRange>(),
+        req::<lsp::InlayHintRequest>(),
+        req::<lsp::ResolveInlayHint>(),
     ];
     let names: BTreeSet<_> = typed.iter().map(|(m, _)| *m).collect();
     let listed: BTreeSet<_> = methods::FORWARDED_TYPED_REQUESTS.iter().copied().collect();
@@ -2195,4 +2203,130 @@ fn resx_messages_conform_to_their_schemas() {
         v,
         json!({"generation": 4, "path": "x", "status": "none", "modifier": "none"})
     );
+}
+
+#[test]
+fn semantic_token_and_inlay_hint_messages_conform_to_their_schemas() {
+    use crate::typed::{NotificationType, RequestType};
+    for (file, method) in [
+        ("semantic-tokens.json", lsp::SemanticTokensFull::METHOD),
+        ("semantic-tokens-delta.json", lsp::SemanticTokensFullDelta::METHOD),
+        ("semantic-tokens-range.json", lsp::SemanticTokensRange::METHOD),
+        ("inlay-hint.json", lsp::InlayHintRequest::METHOD),
+        ("inlay-hint-resolve.json", lsp::ResolveInlayHint::METHOD),
+    ] {
+        assert_eq!(load(file)["x-eludite-method"], method, "{file}");
+        assert!(methods::FORWARDED_TYPED_REQUESTS.contains(&method));
+        assert!(!methods::FORWARDED_UNTYPED_REQUESTS.contains(&method));
+    }
+    for (file, method) in [
+        (
+            "semantic-tokens-refresh.json",
+            host::SemanticTokensRefreshNotification::METHOD,
+        ),
+        (
+            "inlay-hint-refresh.json",
+            host::InlayHintRefreshNotification::METHOD,
+        ),
+    ] {
+        assert_eq!(load(file)["x-eludite-method"], method, "{file}");
+        assert!(methods::HOST_TO_SHELL.contains(&method));
+        assert!(!methods::HOST_TO_SHELL_REQUESTS.contains(&method));
+        conforms(file, "params", &host::CodeLensRefreshParams { generation: 3 });
+        rejects(file, "params", json!({}));
+    }
+    let doc = lsp::TextDocumentIdentifier {
+        uri: "file:///s/Program.cs".into(),
+    };
+    let range = lsp::Range {
+        start: lsp::Position {
+            line: 0,
+            character: 0,
+        },
+        end: lsp::Position {
+            line: 120,
+            character: 0,
+        },
+    };
+    let with = |params| host::WithGeneration {
+        params,
+        generation: 2,
+    };
+    conforms(
+        "semantic-tokens.json",
+        "params",
+        &with(lsp::SemanticTokensParams {
+            text_document: doc.clone(),
+        }),
+    );
+    rejects("semantic-tokens.json", "params", json!({"eluditeGeneration": 2}));
+    let tokens: <lsp::SemanticTokensFull as RequestType>::Result = Some(lsp::SemanticTokens {
+        result_id: Some("1".into()),
+        data: vec![0, 0, 5, 15, 0, 0, 6, 7, 2, 0],
+    });
+    conforms("semantic-tokens.json", "result", &tokens);
+    conforms("semantic-tokens.json", "result", &Value::Null);
+    conforms(
+        "semantic-tokens-delta.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::SemanticTokensDeltaParams {
+                text_document: doc.clone(),
+                previous_result_id: "1".into(),
+            },
+            generation: 2,
+        },
+    );
+    let delta: <lsp::SemanticTokensFullDelta as RequestType>::Result =
+        Some(lsp::SemanticTokensDeltaResult::Delta(lsp::SemanticTokensDelta {
+            result_id: Some("2".into()),
+            edits: vec![lsp::SemanticTokensEdit {
+                start: 5,
+                delete_count: 5,
+                data: Some(vec![0, 6, 9, 7, 2]),
+            }],
+        }));
+    conforms("semantic-tokens-delta.json", "result", &delta);
+    conforms(
+        "semantic-tokens-range.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::SemanticTokensRangeParams {
+                text_document: doc.clone(),
+                range,
+            },
+            generation: 2,
+        },
+    );
+    conforms("semantic-tokens-range.json", "result", &tokens);
+    conforms(
+        "inlay-hint.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::InlayHintParams {
+                text_document: doc.clone(),
+                range,
+            },
+            generation: 2,
+        },
+    );
+    let hint: lsp::InlayHint = serde_json::from_value(json!({
+        "position": {"line": 4, "character": 20},
+        "label": "count:",
+        "kind": 2,
+        "paddingRight": true,
+        "data": {"resultId": 1, "listIndex": 0}
+    }))
+    .unwrap();
+    let hints: <lsp::InlayHintRequest as RequestType>::Result = Some(vec![hint.clone()]);
+    conforms("inlay-hint.json", "result", &hints);
+    conforms(
+        "inlay-hint-resolve.json",
+        "params",
+        &host::WithGeneration {
+            params: hint.clone(),
+            generation: 2,
+        },
+    );
+    conforms("inlay-hint-resolve.json", "result", &hint);
 }

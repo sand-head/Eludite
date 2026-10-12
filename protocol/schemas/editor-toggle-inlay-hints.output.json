@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-toggle-inlay-hints.output.json",
+  "title": "eludite.editor.toggle_inlay_hints output",
+  "description": "Whether inlay hints show now, and how many the document shows at this moment (hints arrive from the server a moment after they are turned on).",
+  "type": "object",
+  "required": [
+    "enabled",
+    "hints"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The document counted, when one is open.",
+      "type": "string",
+      "minLength": 1
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "hints": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

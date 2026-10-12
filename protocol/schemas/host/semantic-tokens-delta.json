@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/semantic-tokens-delta.json",
+  "title": "textDocument/semanticTokens/full/delta",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::SemanticTokensFullDelta, brief 0066). previousResultId is the resultId of the last answer for the document from the same server generation; the answer is edits to that answer's data (each replaces deleteCount integers at start with data), or the whole data again. An answer whose edits do not fit the kept data is discarded and full asked for.",
+  "x-eludite-method": "textDocument/semanticTokens/full/delta",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "previousResultId",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "previousResultId": {
+          "type": "string"
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "SemanticTokensDelta, SemanticTokens, or null.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "resultId": {
+          "type": "string"
+        },
+        "edits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "start",
+              "deleteCount"
+            ],
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "deleteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "data": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

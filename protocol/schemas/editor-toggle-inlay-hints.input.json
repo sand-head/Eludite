@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-toggle-inlay-hints.input.json",
+  "title": "eludite.editor.toggle_inlay_hints input",
+  "description": "Show or hide inlay hints (Edit > IntelliSense > Toggle Inline Hints, Alt+F1; brief 0066): the inline parameter names and inferred types the language server reports, drawn as chips that are not text. It flips whether hints show in every editor for this session; the settings editor.inlayHints.* are unchanged. With `enabled` it sets the state instead of flipping it.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document whose hints the output counts. Omit for the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "enabled": {
+      "description": "Show (true) or hide (false) the hints; omit to flip.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/inlay-hint-resolve.json",
+  "title": "inlayHint/resolve",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::ResolveInlayHint, brief 0066). Params are an InlayHint as received (data unchanged) plus eluditeGeneration; the result is the hint with its tooltip.",
+  "x-eludite-method": "inlayHint/resolve",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "position",
+        "label",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "position": {
+          "type": "object"
+        },
+        "label": {
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "data": {
+          "description": "Opaque, as received."
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "position",
+        "label"
+      ],
+      "properties": {
+        "position": {
+          "type": "object",
+          "required": [
+            "line",
+            "character"
+          ]
+        },
+        "label": {
+          "description": "A string, or label parts ({ value, tooltip?, location?, command? }).",
+          "type": [
+            "string",
+            "array"
+          ]
+        },
+        "kind": {
+          "description": "1 type, 2 parameter.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "tooltip": {
+          "description": "A string or MarkupContent."
+        },
+        "paddingLeft": {
+          "type": "boolean"
+        },
+        "paddingRight": {
+          "type": "boolean"
+        },
+        "textEdits": {
+          "type": "array"
+        },
+        "data": {
+          "description": "Opaque; sent back unchanged in inlayHint/resolve."
+        }
+      }
+    }
+  }
+}

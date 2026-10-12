@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/inlay-hint-refresh.json",
+  "title": "eludite/inlayHint/refresh (host to shell)",
+  "description": "Brief 0066: the language server sent workspace/inlayHint/refresh. The host answers the server null at once and tells the shell with this notification; the shell asks for its open documents' hints again. eluditeGeneration is the generation current when the refresh arrived; the shell ignores one for another generation.",
+  "x-eludite-method": "eludite/inlayHint/refresh",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "eluditeGeneration"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
