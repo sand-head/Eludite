@@ -57,6 +57,8 @@ pub mod diagnostics;
 pub mod files;
 pub mod forge;
 pub mod git;
+// Brief 0074: Start Without Debugging with Hot Reload and Apply Code Changes.
+pub mod hot_reload;
 mod id;
 pub mod nuget;
 pub mod policy;

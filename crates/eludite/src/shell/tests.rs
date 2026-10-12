@@ -142,6 +142,13 @@ pub(super) fn setup_services(
     // The store resolves the tool-path settings from its own environment (captured once, empty here), and applying the
     // settings at startup writes them into the debug setup. A test that located a real adapter passes it in `debug`;
     // the store gets it as that variable, as the real environment would hand it over.
+    // Brief 0074: the debugger's tests watch Ctrl+F5's console program in the Output window (`debug.console`
+    // `output`); brief 0074's own tests set `integratedTerminal`.
+    if debug.is_some() {
+        let user = root.join(USER_SETTINGS);
+        std::fs::create_dir_all(user.parent().unwrap()).unwrap();
+        std::fs::write(&user, r#"{"debug.console": "output"}"#).unwrap();
+    }
     let mut settings = crate::settings::SettingsSetup::isolated(Some(root.join(USER_SETTINGS)));
     if let Some(d) = &debug {
         for (name, value) in [

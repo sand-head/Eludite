@@ -60,19 +60,6 @@ pub struct PublishProfile {
     pub publish_dir: Option<String>,
 }
 
-/// The elements [`PublishProfile`] reads and writes, in the order a new element is added.
-const NAMES: [&str; 9] = [
-    "Configuration",
-    "PublishDir",
-    "PublishProtocol",
-    "TargetFramework",
-    "RuntimeIdentifier",
-    "SelfContained",
-    "PublishSingleFile",
-    "PublishReadyToRun",
-    "PublishTrimmed",
-];
-
 /// The byte range of the text of the first `<name>...</name>` (no attributes) in `xml`.
 fn element_range(xml: &str, name: &str) -> Option<(usize, usize)> {
     let open = format!("<{name}>");
@@ -246,7 +233,6 @@ impl PublishProfile {
             ("PublishReadyToRun", b(self.ready_to_run)),
             ("PublishTrimmed", b(self.trimmed)),
         ];
-        debug_assert_eq!(values.len(), NAMES.len());
         let mut out = xml.to_owned();
         for (name, value) in values {
             let current = element(&out, name).map(|v| xml_unescape(&v));

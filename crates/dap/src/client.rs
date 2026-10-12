@@ -50,7 +50,8 @@ pub type EventSink = Arc<dyn Fn(ClientEvent) + Send + Sync>;
 
 /// Answers the adapter's reverse requests (brief 0038: vscode-js-debug's `startDebugging`), on the client's reader
 /// thread, so it must not block: `Some` is the answer (its body, or a refusal's message), `None` refuses the request
-/// as unsupported (`runInTerminal`, and every reverse request of a client started without a handler).
+/// as unsupported (every reverse request of a client started without a handler). The shell's handler also answers
+/// `runInTerminal` with a Terminal window tab (brief 0074).
 pub type ReverseHandler = Arc<dyn Fn(&str, &Value) -> Option<Result<Value, String>> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -390,8 +391,9 @@ fn reader_loop(
                 command,
                 arguments,
             } => {
-                // Reverse requests: the handler's answer (`startDebugging`, brief 0038); the others (`runInTerminal`)
-                // are refused, so the adapter does not wait forever.
+                // Reverse requests: the handler's answer (`startDebugging`, brief 0038; `runInTerminal`, brief 0074's
+                // Terminal window tab); a request the handler does not take is refused, so the adapter does not wait
+                // forever.
                 let answer = reverse
                     .as_ref()
                     .and_then(|h| h(&command, arguments.as_ref().unwrap_or(&Value::Null)))

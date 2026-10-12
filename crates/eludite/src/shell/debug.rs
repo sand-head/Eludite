@@ -648,6 +648,12 @@ pub enum DebugMsg {
         generation: u64,
         code: Option<i32>,
     },
+    /// Brief 0074: Ctrl+F5's console program runs in this Terminal window tab (its process id).
+    TerminalRun {
+        generation: u64,
+        terminal: String,
+        pid: u32,
+    },
     /// The launch's browser step (brief 0037): the session's page now, a line for the Output window's Debug source,
     /// and the time from Kestrel's listening line to the page opened.
     Browser {
@@ -694,6 +700,7 @@ impl DebugMsg {
             | DebugMsg::Client { generation, .. }
             | DebugMsg::Output { generation, .. }
             | DebugMsg::ProgramExited { generation, .. }
+            | DebugMsg::TerminalRun { generation, .. }
             | DebugMsg::Browser { generation, .. }
             | DebugMsg::StartChild { generation, .. }
             | DebugMsg::AdapterVersion { generation, .. }
@@ -1158,6 +1165,8 @@ pub struct Debugger {
     processes: Option<ProcessesOutput>,
     /// Ctrl+F5 programs an attach left running: no session kills them.
     background_runs: Vec<RunHandle>,
+    /// Brief 0074: the Terminal window tab Ctrl+F5's console program runs in, while it runs.
+    terminal_run: Option<String>,
     /// The Attach to Process dialog, while open.
     pub attach_dialog: Option<gpui::Entity<windows::AttachDialog>>,
     /// The Startup Projects dialog, while open (brief 0028).
@@ -1254,6 +1263,7 @@ impl Debugger {
                 restart_pending: None,
                 processes: None,
                 background_runs: Vec::new(),
+                terminal_run: None,
                 attach_dialog: None,
                 startup_dialog: None,
                 menu: Arc::default(),
@@ -2784,6 +2794,7 @@ impl LaunchChoice {
 }
 
 /// Resolve the project to run and its launch configuration (on the launch thread: it reads files).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn resolve_launch(
     hint: Option<&str>,
     profile: Option<&str>,
@@ -2806,6 +2817,38 @@ pub(super) fn resolve_launch(
         profile.or(selected.as_deref()),
         &configuration,
         framework.as_deref(),
+    )
+}
+
+// ----- Brief 0074: the launch plan from the host's evaluation -----
+
+/// [`resolve_launch`] as a [`launch::LaunchPlan`]: the project's evaluated run target (`ask`, the host's
+/// `eludite/project/runTarget`) when the host answers, else the project file read as text; Executable profiles and
+/// the refused profile kinds (brief 0074).
+pub(super) fn resolve_plan(
+    hint: Option<&str>,
+    profile: Option<&str>,
+    projects: &[PathBuf],
+    solution_dir: Option<&Path>,
+    startup: Option<&Path>,
+    choice: &LaunchChoice,
+    ask: Option<&super::run_terminal::RunTargetAsk>,
+) -> Result<launch::LaunchPlan, String> {
+    let project = resolve_project(hint, projects, solution_dir, startup)?;
+    let (configuration, framework, selected) = choice.for_project(&project);
+    let selected = selected.filter(|s| {
+        project
+            .parent()
+            .and_then(|d| launch::read_launch_settings(d).ok())
+            .is_some_and(|ps| ps.iter().any(|p| &p.name == s))
+    });
+    let evaluated = ask.and_then(|a| a(&project, &configuration, framework.as_deref()));
+    launch::launch_plan_in(
+        &project,
+        profile.or(selected.as_deref()),
+        &configuration,
+        framework.as_deref(),
+        evaluated.as_ref(),
     )
 }
 
@@ -2883,6 +2926,12 @@ struct LaunchJob {
     browser: BrowserStep,
     /// The configuration, framework and profile the toolbar chose (brief 0049).
     choice: LaunchChoice,
+    /// Brief 0074: asks the host what `dotnet run` would run; `None` reads the project file.
+    evaluate: Option<super::run_terminal::RunTargetAsk>,
+    /// Brief 0074: console programs run in a Terminal window tab (`debug.console` `integratedTerminal`); also answers
+    /// DAP's `runInTerminal`.
+    terminal: Option<Arc<super::terminal::TerminalService>>,
+    console_in_terminal: bool,
     tx: UnboundedSender<DebugMsg>,
 }
 
@@ -2903,6 +2952,9 @@ fn launch_thread(job: LaunchJob) {
         config: test_config,
         browser,
         choice,
+        evaluate,
+        terminal,
+        console_in_terminal,
         tx,
     } = job;
     let fail = |message: String| {
@@ -2920,6 +2972,9 @@ fn launch_thread(job: LaunchJob) {
         native.cargo.as_ref(),
     );
     let mut native_launch = None;
+    // Brief 0074: Ctrl+F5's command when the plan has one, and whether the program is a console program.
+    let mut run_override: Option<(String, Vec<String>)> = None;
+    let mut console = false;
     let package = if test_config.is_some() { None } else { package };
     let config = match (&package, test_config) {
         (_, Some(c)) => c,
@@ -2942,15 +2997,24 @@ fn launch_thread(job: LaunchJob) {
                     .into(),
             );
         }
-        (None, None) => match resolve_launch(
+        // Brief 0074: the evaluated run target, Executable profiles, refused profile kinds.
+        (None, None) => match resolve_plan(
             hint.as_deref(),
             profile.as_deref(),
             &projects,
             solution_dir.as_deref(),
             startup.as_deref(),
             &choice,
+            evaluate.as_ref(),
         ) {
-            Ok(c) => c,
+            Ok(p) => {
+                if debug && let Some(why) = &p.no_debug {
+                    return fail(why.clone());
+                }
+                run_override = p.run;
+                console = p.console;
+                p.config
+            }
             Err(e) => return fail(e),
         },
     };
@@ -3008,7 +3072,56 @@ fn launch_thread(job: LaunchJob) {
             Ok(c) => c,
             Err(e) => return fail(e),
         };
+        // Brief 0074: the evaluated `RunCommand` (the app host) or an Executable profile's program; `dotnet` is the
+        // located one. A .NET Framework program keeps the Mono rule above.
+        let (cmd, args) = match run_override {
+            Some((c, a)) if config.kind != FrameworkKind::NetFramework => {
+                let c = if c == "dotnet" {
+                    setup.dotnet.clone()
+                } else {
+                    c
+                };
+                (c, a)
+            }
+            _ => (cmd, args),
+        };
         let mono_env = mono.as_ref().map(|m| m.env.clone()).unwrap_or_default();
+        // Brief 0074: a console program runs in a Terminal window tab, with Visual Studio's closing lines.
+        if console
+            && console_in_terminal
+            && planned.is_none()
+            && let Some(service) = &terminal
+        {
+            let mut env: BTreeMap<String, String> = mono_env.iter().cloned().collect();
+            env.extend(config.env.clone());
+            let run = match super::run_terminal::start(
+                service,
+                &name,
+                &cmd,
+                &args,
+                &config.cwd,
+                &env,
+                platform,
+            ) {
+                Ok(r) => r,
+                Err(e) => return fail(e),
+            };
+            session.process_id = Some(i64::from(run.pid));
+            let _ = tx.unbounded_send(DebugMsg::Launched {
+                generation,
+                session: Box::new(session),
+                run: None,
+                plan: browser_plan,
+            });
+            let _ = tx.unbounded_send(DebugMsg::TerminalRun {
+                generation,
+                terminal: run.terminal.clone(),
+                pid: run.pid,
+            });
+            let code = super::run_terminal::wait_for_exit(&run);
+            let _ = tx.unbounded_send(DebugMsg::ProgramExited { generation, code });
+            return;
+        }
         let child = Command::new(&cmd)
             .no_console_window()
             .args(&args)
@@ -3152,7 +3265,14 @@ fn launch_thread(job: LaunchJob) {
     // lldb-dap's pause stops and standard library frames, as the shell expects them (brief 0029).
     let rust_src = native_launch.as_ref().map(|n| n.rust_src.clone());
     let watch = browser.watch.clone();
-    let client = DapClient::start(
+    // Brief 0074: the adapter's `runInTerminal` starts its command in a Terminal window tab.
+    let reverse: Option<eludite_dap::ReverseHandler> = terminal.clone().map(|service| {
+        Arc::new(move |command: &str, args: &Value| {
+            (command == "runInTerminal")
+                .then(|| super::run_terminal::run_in_terminal_answer(&service, args))
+        }) as eludite_dap::ReverseHandler
+    });
+    let client = DapClient::start_with(
         connection,
         Arc::new(move |event| {
             let event = match &rust_src {
@@ -3170,6 +3290,7 @@ fn launch_thread(job: LaunchJob) {
             }
             let _ = sink_tx.unbounded_send(DebugMsg::Client { generation, event });
         }),
+        reverse,
     );
     let _ = tx.unbounded_send(DebugMsg::Connected {
         generation,
@@ -6138,6 +6259,13 @@ impl Shell {
         let solution_dir = self.solution_dir();
         let cargo = self.cargo_context();
         let choice = self.launch_choice();
+        // Brief 0074: the host's evaluation of the launch target, and where console programs run.
+        let evaluate = self
+            .solution
+            .is_some()
+            .then(|| super::run_terminal::host_run_target(self.session.clone()));
+        let console_in_terminal =
+            self.settings.lock().string("debug.console") != super::run_terminal::OUTPUT;
         let d = &mut self.debug;
         if after_build {
             // The session began with the build: same generation, its console lines kept.
@@ -6231,6 +6359,9 @@ impl Shell {
                 d.browser_step(watch, reuse)
             },
             choice,
+            evaluate,
+            terminal: Some(self.terminal.service.clone()),
+            console_in_terminal,
             tx: d.tx.clone(),
         };
         std::thread::Builder::new()
@@ -6300,6 +6431,12 @@ impl Shell {
             if let Some(c) = run.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
                 let _ = c.kill();
             }
+            return;
+        }
+        // Brief 0074: Ctrl+F5's console program in a Terminal window tab ends with the tab's processes; the launch
+        // thread then reports the exit.
+        if let Some(t) = d.terminal_run.clone() {
+            self.terminal.service.end_program(&t);
             return;
         }
         // A browser session's children detach first, and the session itself once they have ended (vscode-js-debug
@@ -7167,6 +7304,8 @@ impl Shell {
 
     fn end_session(&mut self, message: Option<String>, cx: &mut Context<Self>) {
         let d = &mut self.debug;
+        // Brief 0074: the console program's tab stays, with its closing lines.
+        d.terminal_run = None;
         if let Some(c) = d.client.take() {
             c.kill();
         }
@@ -7570,6 +7709,27 @@ impl Shell {
                 if let Some(tab) = opened {
                     self.attach_page_of_server(tab, cx);
                 }
+            }
+            // Brief 0074: the console program's Terminal window tab.
+            DebugMsg::TerminalRun {
+                generation,
+                terminal,
+                pid,
+            } if generation == current => {
+                self.debug
+                    .launched
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(pid);
+                if self.debug.model.mode == Mode::Stopping {
+                    self.terminal.service.end_program(&terminal);
+                } else {
+                    self.debug.model.mode = Mode::RunningWithoutDebugging;
+                }
+                self.debug.console_line(format!(
+                    "The program runs in the Terminal window ({terminal})."
+                ));
+                self.debug.terminal_run = Some(terminal);
             }
             DebugMsg::ProgramExited { generation, code } if generation == current => {
                 self.debug.model.exit_code = code.map(i64::from);

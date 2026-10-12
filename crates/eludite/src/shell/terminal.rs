@@ -589,6 +589,112 @@ impl TerminalService {
         })
     }
 
+    // ----- Brief 0074: a program in a tab of its own (Ctrl+F5's console, DAP's runInTerminal, dotnet watch) -----
+
+    /// Open a tab running `program` with `args` directly on a PTY (no shell profile, no shell integration), named
+    /// `name`, in `cwd`, with `env` added to Eludite's environment (and the located tools first on `PATH` when
+    /// `terminal.inheritToolPaths` is on). The window shows it and takes the focus when `focus`. Returns the tab's id,
+    /// the process id and the terminal.
+    pub fn open_program(
+        &self,
+        name: &str,
+        program: &str,
+        args: &[String],
+        cwd: &Path,
+        env: &BTreeMap<String, String>,
+        focus: bool,
+    ) -> Result<(String, u32, Terminal), CommandError> {
+        if !cwd.is_dir() {
+            return Err(failed(format!("no folder {}", cwd.display())));
+        }
+        let settings = self.state().settings.clone();
+        let tools = settings.inherit_tool_paths.then(|| self.tools());
+        let base_path = (self.setup.env)("PATH");
+        let env = term_env::terminal_env(base_path.as_deref(), tools.as_ref(), env);
+        let size = {
+            let s = self.state();
+            s.active
+                .as_ref()
+                .and_then(|a| s.terminals.iter().find(|e| &e.id == a))
+                .map(|e| e.terminal.size())
+                .unwrap_or(START_SIZE)
+        };
+        let id = {
+            let mut s = self.state();
+            s.next += 1;
+            format!("term{}", s.next)
+        };
+        let events = self.events.clone();
+        let sink_id = id.clone();
+        let terminal = Terminal::spawn(
+            Options {
+                program: program.to_owned(),
+                args: args.to_vec(),
+                env,
+                cwd: Some(cwd.to_path_buf()),
+                cols: size.0,
+                rows: size.1,
+                scrollback: settings.scrollback,
+            },
+            Arc::new(move |e| {
+                let event = match e {
+                    PtyEvent::Changed => TerminalEvent::Changed(sink_id.clone()),
+                    PtyEvent::Bell => TerminalEvent::Bell(sink_id.clone()),
+                    PtyEvent::Exited(code) => TerminalEvent::Exited(sink_id.clone(), code),
+                    PtyEvent::Title(_) => return,
+                };
+                let _ = events.unbounded_send(event);
+            }),
+        )
+        .map_err(|e| failed(format!("{program}: {e}")))?;
+        let pid = terminal.pid();
+        let name = {
+            let s = self.state();
+            let taken = |n: &str| s.terminals.iter().any(|e| e.name == n);
+            let mut n = name.to_owned();
+            let mut k = 2;
+            while taken(&n) {
+                n = format!("{name} ({k})");
+                k += 1;
+            }
+            n
+        };
+        {
+            let mut s = self.state();
+            s.terminals.push(Entry {
+                id: id.clone(),
+                name: name.clone(),
+                profile: String::new(),
+                cwd: cwd.to_path_buf(),
+                terminal: terminal.clone(),
+                split_with: None,
+                agent: None,
+                locked: HashSet::new(),
+                last_send: HashMap::new(),
+            });
+            s.active = Some(id.clone());
+        }
+        self.send_event(TerminalEvent::Opened {
+            id: id.clone(),
+            name,
+            split_with: None,
+            replace: None,
+            focus,
+        });
+        Ok((id, pid, terminal))
+    }
+
+    /// End tab `id`'s process (and the processes it started), keeping the tab; `false` when there is no such tab.
+    pub fn end_program(&self, id: &str) -> bool {
+        match self.handle(id) {
+            Some(t) => {
+                t.close(true);
+                true
+            }
+            None => false,
+        }
+    }
+
     fn list(&self) -> ListOutput {
         let profiles = self.profile_names();
         let s = self.state();

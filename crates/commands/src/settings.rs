@@ -671,6 +671,9 @@ mod tests {
                 "debugger.allowAgentsByDefault",
                 "debugger.launchBrowser",
                 "debugger.attachBrowser",
+                // Brief 0074.
+                "debug.console",
+                "hotReload.restartOnRudeEdit",
                 "debugger.nodePath",
                 "debugger.jsDebugPath",
                 "languageServers.rustAnalyzerPath",
@@ -957,7 +960,7 @@ mod tests {
                 .iter()
                 .all(|x| !x.description.is_empty() && !x.label.is_empty())
         );
-        assert_eq!(s.section("Debugging > General").count(), 10);
+        assert_eq!(s.section("Debugging > General").count(), 12); // Brief 0074 adds debug.console and hotReload.restartOnRudeEdit.
         // Brief 0038: F5 on a web project debugs its page too, by default; js-debug and Node are located.
         assert_eq!(
             s.get("debugger.attachBrowser").unwrap().default,

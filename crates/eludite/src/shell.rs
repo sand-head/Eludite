@@ -69,6 +69,7 @@ pub mod rename;
 pub mod resx;
 #[cfg(test)]
 mod resx_tests;
+pub mod run_terminal;
 #[cfg(test)]
 mod rust_tests;
 pub mod search;

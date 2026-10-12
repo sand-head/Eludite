@@ -172,6 +172,36 @@
       "x-eludite-section": "Debugging > General",
       "x-eludite-label": "Debug the page's JavaScript when a web project starts"
     },
+    "debug.console": {
+      "description": "Where Start Without Debugging (Ctrl+F5) runs a console program (brief 0074): `integratedTerminal` (the default) runs it in a Terminal window tab on a real terminal, so its input, colors, Console.ReadKey and prompts work, and the tab says when it exits and waits for a key, as Visual Studio's console window does; `output` runs it with its output in the Output window's Debug pane and no input. Web projects and Windows (WinExe) programs always use the Output window. Applies to the next start.",
+      "enum": [
+        "integratedTerminal",
+        "output"
+      ],
+      "default": "integratedTerminal",
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Run console programs in",
+      "x-eludite-enum-labels": [
+        "The integrated terminal",
+        "The Output window"
+      ]
+    },
+    "hotReload.restartOnRudeEdit": {
+      "description": "What Hot Reload (Debug > Start Without Debugging with Hot Reload, brief 0074) does when a change cannot be applied to the running program (a rude edit): `prompt` (the default) lets dotnet watch ask in its Terminal window tab; `always` restarts the program at once; `never` keeps it running without the change. Applies to the next start.",
+      "enum": [
+        "prompt",
+        "always",
+        "never"
+      ],
+      "default": "prompt",
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "When a change needs a restart",
+      "x-eludite-enum-labels": [
+        "Ask",
+        "Restart the program",
+        "Keep the program running"
+      ]
+    },
     "debugger.nodePath": {
       "description": "The Node.js executable vscode-js-debug runs on (brief 0038; version 18 or later). Empty: `node` on PATH, then Volta's (`~/.volta/bin/node`), nvm's default (`~/.nvm/alias/default`) and fnm's default (`~/.local/share/fnm/aliases/default`, `~/.fnm/aliases/default`). Located, never bundled. Applies to the next session.",
       "type": "string",
