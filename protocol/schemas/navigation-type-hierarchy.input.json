@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-type-hierarchy.input.json",
+  "title": "eludite.navigation.type_hierarchy input",
+  "description": "View Type Hierarchy: show the type at `line`, `column` (or the caret) in the Type Hierarchy window with its base types and derived types (`textDocument/prepareTypeHierarchy`, `typeHierarchy/supertypes`, `typeHierarchy/subtypes`); expand a node, or navigate to one.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line; the caret when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters); 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "expand": {
+      "description": "Expand node `expand` in `direction` instead of starting again.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "direction": {
+      "description": "`base_types` (default) or `derived_types`.",
+      "enum": [
+        "base_types",
+        "derived_types"
+      ]
+    },
+    "navigate": {
+      "description": "Open node `navigate`.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

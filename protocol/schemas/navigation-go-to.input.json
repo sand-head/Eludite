@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-go-to.input.json",
+  "title": "eludite.navigation.go_to_* input",
+  "description": "Go To Implementation (Ctrl+F12), Go To Type Definition, Go To Base (Alt+Home) and Go To Derived Symbols (Alt+End): ask the document's language server for the targets of the symbol at `line`, `column` (or the caret). One target opens at once (the position before is pushed on the navigation history); several show the picker Go To Definition shows. A new call cancels the previous request; an answer for an older document version or solution generation is dropped.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line; the caret when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters); 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "target": {
+      "description": "Choose target `target` (0-based, in the order of the output's `targets`) of the picker the previous call opened.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

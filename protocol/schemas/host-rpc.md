@@ -702,10 +702,34 @@ JSON. Requests still require `eluditeGeneration`.
 | `textDocument/semanticTokens/full` | request, forwarded, untyped |
 | `textDocument/semanticTokens/range` | request, forwarded, untyped |
 | `textDocument/formatting` | request, forwarded, untyped |
+| `textDocument/prepareCallHierarchy` | request, forwarded, untyped (brief 0071) |
+| `callHierarchy/incomingCalls` | request, forwarded, untyped (brief 0071) |
+| `callHierarchy/outgoingCalls` | request, forwarded, untyped (brief 0071) |
+| `textDocument/prepareTypeHierarchy` | request, forwarded, untyped (brief 0071) |
+| `typeHierarchy/supertypes` | request, forwarded, untyped (brief 0071) |
+| `typeHierarchy/subtypes` | request, forwarded, untyped (brief 0071) |
+| `workspace/textDocumentContent` | request, forwarded, untyped (brief 0071) |
 | `textDocument/didSave` | notification, forwarded, untyped |
 | `workspace/didChangeWatchedFiles` | notification, forwarded, untyped |
 
 Any other method returns -32601 (MethodNotFound) and is not forwarded.
+
+**Navigation (brief 0071).** The shell sends `textDocument/implementation` (Go To Implementation, Ctrl+F12, and Go
+To Derived Symbols), `textDocument/typeDefinition`, `textDocument/documentHighlight` (reference highlighting, after
+the caret rests 200 ms), `textDocument/documentSymbol` (Document Outline, File Structure, the navigation bar) and
+`workspace/symbol` (Go To All) like the brief 0014 requests: after a pending `didChange`, one of each kind in flight
+per window, superseded requests canceled, answers for an older generation or document version dropped. The pinned
+Roslyn (`tools/roslyn-pin/COMMIT`) has LSP handlers for call and type hierarchy
+(`src/LanguageServer/Protocol/Handler/CallHierarchy`, `TypeHierarchy`), so the host forwards
+`textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls`,
+`textDocument/prepareTypeHierarchy`, `typeHierarchy/supertypes` and `typeHierarchy/subtypes` unchanged; the items'
+`data` goes back as given. Go To Base is `typeHierarchy/supertypes` of the prepared item at the caret (Roslyn has no
+LSP request of its own for it). **Source-generated documents**: the pin answers navigation requests into generator
+output with `roslyn-source-generated://<project id>/<hint name>?documentId=...&assembly=...` URIs and serves their
+text through LSP 3.18's `workspace/textDocumentContent` (params `{ uri }`, result `{ text }`); the host announces the
+client capability `workspace.textDocumentContent` so Roslyn registers the scheme, and forwards the request
+unchanged. The shell opens such a URI read-only in a tab titled `<hint name> [generated]` and sends no document
+notifications for it.
 
 ## Messages the host sends
 

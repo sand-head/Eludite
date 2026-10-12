@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-navigation-bar.input.json",
+  "title": "eludite.navigation.navigation_bar input",
+  "description": "The navigation bar above a code editor (Visual Studio's three dropdowns: project, type, member): read it, or choose an entry of the types or members dropdown, which navigates to it. Shown while `editor.navigationBar` is on and the document's server offers symbols.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "select": {
+      "type": "object",
+      "required": [
+        "dropdown",
+        "index"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dropdown": {
+          "description": "Which dropdown.",
+          "enum": [
+            "types",
+            "members"
+          ]
+        },
+        "index": {
+          "description": "The entry (0-based).",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

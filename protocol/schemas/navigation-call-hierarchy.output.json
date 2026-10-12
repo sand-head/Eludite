@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-call-hierarchy.output.json",
+  "title": "eludite.navigation.call_hierarchy output",
+  "description": "The Call Hierarchy window's tree. From another thread the call waits up to 5 s for a pending prepare or expansion.",
+  "type": "object",
+  "required": [
+    "state",
+    "roots"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "`loading`: waiting for the language server; `done`; `none`: nothing at the position; `failed`.",
+      "enum": [
+        "loading",
+        "done",
+        "none",
+        "failed"
+      ]
+    },
+    "roots": {
+      "description": "The members the window shows.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "navigated": {
+      "description": "True when `navigate` opened a location.",
+      "type": "boolean"
+    },
+    "message": {
+      "description": "Why `failed` or `none`.",
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "path",
+        "line",
+        "column"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The node's id in this window (for `expand` and `navigate`).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "description": "The member's name.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Its kind in Visual Studio's words.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "The language server's detail (the containing type, a signature).",
+          "type": "string"
+        },
+        "path": {
+          "description": "The file that holds it.",
+          "type": "string"
+        },
+        "line": {
+          "description": "1-based line of its name.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "description": "1-based column of its name.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "sites": {
+          "description": "Where the call is made (in the caller for Calls To, in this member for Calls From).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "line",
+              "column"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "description": "The file of the call site.",
+                "type": "string"
+              },
+              "line": {
+                "description": "1-based line.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "description": "1-based column.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "text": {
+                "description": "The line's text, trimmed.",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "calls_to": {
+          "description": "Its callers (\"Calls To\"), once expanded; absent until then.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "calls_from": {
+          "description": "What it calls (\"Calls From\"), once expanded; absent until then.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      }
+    }
+  }
+}

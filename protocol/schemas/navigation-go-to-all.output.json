@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-go-to-all.output.json",
+  "title": "eludite.navigation.go_to_all output",
+  "description": "The results of the current query, best first. File results come at once from the index; symbol results stream in from each language server, so `state` is `loading` while a server has not answered (an agent's call waits up to 5 s for all of them).",
+  "type": "object",
+  "required": [
+    "query",
+    "filter",
+    "state",
+    "results",
+    "total",
+    "servers_pending"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "description": "The query the results are for.",
+      "type": "string"
+    },
+    "filter": {
+      "description": "The filter in effect (from the prefix or `filter`).",
+      "enum": [
+        "all",
+        "files",
+        "types",
+        "members",
+        "symbols",
+        "line"
+      ]
+    },
+    "state": {
+      "description": "`loading`: a language server has not answered yet; `done`: every source answered; `navigated`: `select` opened a result.",
+      "enum": [
+        "loading",
+        "done",
+        "navigated"
+      ]
+    },
+    "results": {
+      "description": "The results, best first (at most `max_results`).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "path",
+          "score"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The file name or the symbol's name.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`file`, or the symbol's kind in Visual Studio's words: `class`, `struct`, `interface`, `enum`, `delegate`, `method`, `property`, `field`, `event`, `constructor`, `enum_member`, `constant`, `namespace`, `variable`, `function`, `module`, `type_parameter`, `operator`, `symbol`, or `line`.",
+            "type": "string"
+          },
+          "container": {
+            "description": "Where it is: the containing type or namespace for a symbol, the folder relative to the workspace for a file.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute path of the file that holds it.",
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "description": "1-based line, for a symbol or a line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based column, for a symbol or a line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "score": {
+            "description": "The fuzzy match score (higher ranks first).",
+            "type": "number"
+          },
+          "server": {
+            "description": "The language server that reported a symbol (its status bar name).",
+            "type": "string"
+          }
+        }
+      },
+      "maxItems": 500
+    },
+    "total": {
+      "description": "Results found, before `max_results`.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "servers_pending": {
+      "description": "Language servers that have not answered the query yet.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "message": {
+      "description": "A server's failure, or why `select` did nothing.",
+      "type": "string"
+    }
+  }
+}

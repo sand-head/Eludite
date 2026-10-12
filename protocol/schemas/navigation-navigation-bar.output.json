@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-navigation-bar.output.json",
+  "title": "eludite.navigation.navigation_bar output",
+  "description": "The bar's dropdowns for the document; `type` and `member` are the entries holding the caret.",
+  "type": "object",
+  "required": [
+    "path",
+    "visible",
+    "project",
+    "types",
+    "members",
+    "state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The document.",
+      "type": "string"
+    },
+    "visible": {
+      "description": "Whether the bar is shown for the document.",
+      "type": "boolean"
+    },
+    "project": {
+      "description": "The project the document belongs to (`Miscellaneous Files` outside every project).",
+      "type": "string"
+    },
+    "types": {
+      "description": "The types (and other top-level symbols) of the document, in document order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "line",
+          "column"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The symbol's name (a type's name is qualified by its containing types).",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Its kind in Visual Studio's words.",
+            "type": "string"
+          },
+          "line": {
+            "description": "1-based line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based column.",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "members": {
+      "description": "The members of the selected type, in document order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "line",
+          "column"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The symbol's name (a type's name is qualified by its containing types).",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Its kind in Visual Studio's words.",
+            "type": "string"
+          },
+          "line": {
+            "description": "1-based line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based column.",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "type": {
+      "description": "The selected type (0-based in `types`).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "member": {
+      "description": "The selected member (0-based in `members`).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "state": {
+      "description": "`loading`, `done`, `none` (no symbols) or `failed`.",
+      "enum": [
+        "loading",
+        "done",
+        "none",
+        "failed"
+      ]
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-call-hierarchy.input.json",
+  "title": "eludite.navigation.call_hierarchy input",
+  "description": "View Call Hierarchy (Ctrl+K, Ctrl+T): show the member at `line`, `column` (or the caret) in the Call Hierarchy window with its \"Calls To\" and \"Calls From\" folders (`textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls`); expand a node's folder, or navigate to a node or one of its call sites.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line; the caret when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters); 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "expand": {
+      "description": "Expand node `expand` (its folder `direction`) instead of starting again.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "direction": {
+      "description": "The folder `expand` opens: `calls_to` (default) or `calls_from`.",
+      "enum": [
+        "calls_to",
+        "calls_from"
+      ]
+    },
+    "navigate": {
+      "description": "Open node `navigate` (its call site `site` when given).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "site": {
+      "description": "With `navigate`: the call site (0-based in the node's `sites`).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

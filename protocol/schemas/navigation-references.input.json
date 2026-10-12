@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-references.input.json",
+  "title": "eludite.navigation.references input",
+  "description": "The Find All References window's toolbar and keys: filter by Kind, Group By, search the results, Keep Results (the next search does not replace these results), and step through the references (F8, Shift+F8), opening each. Members left out keep their value.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "kinds": {
+      "description": "The kinds shown (all when empty).",
+      "type": "array",
+      "items": {
+        "enum": [
+          "definition",
+          "read",
+          "write",
+          "reference"
+        ]
+      }
+    },
+    "group_by": {
+      "description": "Group By: Project then File (Visual Studio's default), File, Definition, or a flat list.",
+      "enum": [
+        "project_file",
+        "file",
+        "definition",
+        "none"
+      ]
+    },
+    "search": {
+      "description": "Show only references whose line text, file or project contains this text (case-insensitively).",
+      "type": "string"
+    },
+    "keep": {
+      "description": "Keep Results: when true the current results stay in the window when the next search runs.",
+      "type": "boolean"
+    },
+    "navigate": {
+      "description": "Open the next or previous shown reference (F8, Shift+F8).",
+      "enum": [
+        "next",
+        "previous"
+      ]
+    }
+  }
+}

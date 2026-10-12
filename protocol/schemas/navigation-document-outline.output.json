@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-document-outline.output.json",
+  "title": "eludite.navigation.document_outline output",
+  "description": "The outline of the document. From another thread the call waits up to 5 s for the symbols.",
+  "type": "object",
+  "required": [
+    "path",
+    "state",
+    "symbols",
+    "current"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The document.",
+      "type": "string"
+    },
+    "state": {
+      "description": "`loading`: waiting for the language server; `done`; `none`: the document's server does not offer symbols (or there is none); `failed`.",
+      "enum": [
+        "loading",
+        "done",
+        "none",
+        "failed"
+      ]
+    },
+    "symbols": {
+      "description": "The document's symbols, nested by containment, in document order (filtered by `filter` when given).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/symbol"
+      }
+    },
+    "current": {
+      "description": "The names from the outermost to the innermost symbol holding the caret.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "filter": {
+      "description": "The filter box's text.",
+      "type": "string"
+    },
+    "message": {
+      "description": "Why `failed` or `none`.",
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "symbol": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "line",
+        "column",
+        "end_line",
+        "children"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The symbol's name.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The symbol's kind in Visual Studio's words (see `eludite.navigation.go_to_all`'s `kind`).",
+          "type": "string"
+        },
+        "detail": {
+          "description": "The language server's detail (a signature, a type).",
+          "type": "string"
+        },
+        "line": {
+          "description": "1-based line of the symbol's name.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "description": "1-based column of the symbol's name.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "description": "1-based last line of the symbol's whole range.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "children": {
+          "description": "The symbols it contains.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/symbol"
+          }
+        }
+      }
+    }
+  }
+}

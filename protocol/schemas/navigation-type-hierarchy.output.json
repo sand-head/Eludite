@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-type-hierarchy.output.json",
+  "title": "eludite.navigation.type_hierarchy output",
+  "description": "The Type Hierarchy window's tree.",
+  "type": "object",
+  "required": [
+    "state",
+    "roots"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "`loading`, `done`, `none` or `failed`.",
+      "enum": [
+        "loading",
+        "done",
+        "none",
+        "failed"
+      ]
+    },
+    "roots": {
+      "description": "The types the window shows.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "navigated": {
+      "description": "True when `navigate` opened a location.",
+      "type": "boolean"
+    },
+    "message": {
+      "description": "Why `failed` or `none`.",
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "path",
+        "line",
+        "column"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The node's id in this window.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "description": "The type's name.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Its kind in Visual Studio's words.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "The language server's detail.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The file that holds it (a metadata-as-source file for a framework type).",
+          "type": "string"
+        },
+        "line": {
+          "description": "1-based line.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "description": "1-based column.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "base_types": {
+          "description": "Its base types and interfaces, once expanded.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "derived_types": {
+          "description": "Its derived types and implementations, once expanded.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      }
+    }
+  }
+}

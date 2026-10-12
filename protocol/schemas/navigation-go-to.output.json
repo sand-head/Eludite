@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-go-to.output.json",
+  "title": "eludite.navigation.go_to_* output",
+  "description": "What the Go To command did. From the UI thread this is the state right after the request was sent, usually `loading`; from another thread (an agent) the call waits up to 5 s for the answer.",
+  "type": "object",
+  "required": [
+    "kind",
+    "path",
+    "line",
+    "column",
+    "state",
+    "targets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "description": "Which command: `implementation`, `type_definition`, `base` or `derived`.",
+      "enum": [
+        "implementation",
+        "type_definition",
+        "base",
+        "derived"
+      ]
+    },
+    "path": {
+      "description": "The document the request was made in.",
+      "type": "string"
+    },
+    "line": {
+      "description": "1-based line the request was made at.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column the request was made at.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "description": "`loading`: waiting for the language server; `navigated`: the target is open with the caret on it; `choose`: several targets, the picker is open (choose with `target`); `none`: nothing found; `failed`: the request failed (no language server, the server does not offer it, or an error).",
+      "enum": [
+        "loading",
+        "navigated",
+        "choose",
+        "none",
+        "failed"
+      ]
+    },
+    "targets": {
+      "description": "The targets found, in the language server's order (at most 100).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "line",
+          "column",
+          "metadata",
+          "generated",
+          "title"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Absolute path of the file (or the `roslyn-source-generated://` URI of a source-generated document).",
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "description": "1-based line of the target.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based column of the target.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "metadata": {
+            "description": "True when the target is the language server's metadata-as-source (decompiled) text; it opens read-only.",
+            "type": "boolean"
+          },
+          "generated": {
+            "description": "True when the target is a source-generated document (its text comes from the language server); it opens read-only.",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "The tab title the target opens with (`Foo.cs`, `Foo [from metadata]`, `Foo.g.cs [generated]`).",
+            "type": "string"
+          }
+        }
+      },
+      "maxItems": 100
+    },
+    "navigated": {
+      "type": "object",
+      "required": [
+        "path",
+        "line",
+        "column",
+        "metadata",
+        "generated",
+        "title"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Absolute path of the file (or the `roslyn-source-generated://` URI of a source-generated document).",
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "description": "1-based line of the target.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "description": "1-based column of the target.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "metadata": {
+          "description": "True when the target is the language server's metadata-as-source (decompiled) text; it opens read-only.",
+          "type": "boolean"
+        },
+        "generated": {
+          "description": "True when the target is a source-generated document (its text comes from the language server); it opens read-only.",
+          "type": "boolean"
+        },
+        "title": {
+          "description": "The tab title the target opens with (`Foo.cs`, `Foo [from metadata]`, `Foo.g.cs [generated]`).",
+          "type": "string"
+        }
+      },
+      "description": "Where the caret is now, after `navigated`."
+    },
+    "message": {
+      "description": "Why `failed` or `none`.",
+      "type": "string"
+    }
+  }
+}

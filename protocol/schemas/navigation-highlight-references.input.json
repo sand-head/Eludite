@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-highlight-references.input.json",
+  "title": "eludite.navigation.highlight_references input",
+  "description": "Reference highlighting: highlight the symbol at `line`, `column` (or the caret) and its references in the document (`textDocument/documentHighlight`), as the editor does after the caret rests for 200 ms while `editor.highlightReferences` is on; with `navigate`, move the caret to the next or previous highlighted reference (Ctrl+Shift+Down, Ctrl+Shift+Up), wrapping around.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line; the caret when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters); 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "navigate": {
+      "description": "Move to the next or previous highlighted reference instead of asking again.",
+      "enum": [
+        "next",
+        "previous"
+      ]
+    }
+  }
+}

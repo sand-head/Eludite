@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-file-structure.input.json",
+  "title": "eludite.navigation.file_structure input",
+  "description": "File Structure (Ctrl+F11; Alt+\\, Visual Studio's Go To Member): a popup over the editor listing the document's symbols with a filter box; Up, Down and Enter navigate, Escape closes.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "filter": {
+      "description": "Set the popup's filter text.",
+      "type": "string"
+    },
+    "select": {
+      "description": "Navigate to symbol `select` (0-based, in the depth-first order of the output's flattened `symbols`) and close the popup.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "close": {
+      "description": "Close the popup.",
+      "type": "boolean"
+    }
+  }
+}

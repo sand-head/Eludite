@@ -889,6 +889,20 @@
       "x-eludite-section": "Text Editor > JSON",
       "x-eludite-label": "Format on save"
     },
+    "editor.highlightReferences": {
+      "description": "Highlight the symbol under the caret and its references in the document (brief 0071), as Visual Studio's \"Highlight references to symbol under cursor\": after the caret rests 200 ms, from the language server's textDocument/documentHighlight, read references in one color and written ones in another; Ctrl+Shift+Down and Ctrl+Shift+Up move between them.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > General",
+      "x-eludite-label": "Highlight references to symbol under cursor"
+    },
+    "editor.navigationBar": {
+      "description": "Show the navigation bar above code editors (brief 0071): Visual Studio's project, type and member dropdowns, from the document's symbols, following the caret.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > General",
+      "x-eludite-label": "Navigation bar"
+    },
     "resx.rules.placeholders": {
       "description": "Warn when a translation's format placeholders ({0}, {name}, %s) differ from the neutral value's (proposal 0005). The warning shows on the cell and under the editor's Warnings filter; nothing is refused.",
       "type": "boolean",

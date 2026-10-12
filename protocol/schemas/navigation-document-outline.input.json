@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-document-outline.input.json",
+  "title": "eludite.navigation.document_outline input",
+  "description": "Document Outline (View > Other Windows > Document Outline, Ctrl+Alt+T): the symbols of a document (`textDocument/documentSymbol`) as a tree, the member holding the caret selected; clicking one navigates to it.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "show": {
+      "description": "Show the Document Outline window (the menu and the keys do).",
+      "type": "boolean"
+    },
+    "filter": {
+      "description": "Set the window's filter box: only symbols whose name contains it (case-insensitively), with their containers, are listed.",
+      "type": "string"
+    }
+  }
+}

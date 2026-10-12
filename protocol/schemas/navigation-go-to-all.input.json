@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-go-to-all.input.json",
+  "title": "eludite.navigation.go_to_all input",
+  "description": "Go To All (Ctrl+T, Ctrl+,), Go To File (Ctrl+Shift+T, Ctrl+1 Ctrl+F), Go To Type (Ctrl+1 Ctrl+T), Go To Member (Ctrl+1 Ctrl+M) and Go To Symbol (Ctrl+1 Ctrl+S): search the workspace's files (the Workspace window's tree, ranked by fuzzy match) and the symbols every language server of the workspace reports (`workspace/symbol`). The query may start with Visual Studio's filter prefixes: `f ` files, `t ` types, `m ` members, `# ` symbols, `: ` a line of the active document. A newer query drops the answers of an older one.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "description": "The search text, prefix included. Omit to open the popup (with `open_popup`) or to read the current results.",
+      "type": "string"
+    },
+    "filter": {
+      "description": "Restrict the search, as the prefixes do (a prefix in `query` wins). Default `all`.",
+      "enum": [
+        "all",
+        "files",
+        "types",
+        "members",
+        "symbols",
+        "line"
+      ]
+    },
+    "max_results": {
+      "description": "Results returned at most (default 100, at most 500).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "select": {
+      "description": "Navigate to result `select` (0-based, in the order of the output's `results`) of the current query, as Enter does, and close the popup.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_popup": {
+      "description": "Show the Go To All popup (the keys do). Default false for agents.",
+      "type": "boolean"
+    }
+  }
+}

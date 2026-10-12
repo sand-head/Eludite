@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-highlight-references.output.json",
+  "title": "eludite.navigation.highlight_references output",
+  "description": "The document's highlighted references, in document order. An edit clears them.",
+  "type": "object",
+  "required": [
+    "path",
+    "state",
+    "highlights"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The document.",
+      "type": "string"
+    },
+    "state": {
+      "description": "`loading`: waiting for the language server; `done`: `highlights` is current; `none`: nothing to highlight at the position; `off`: `editor.highlightReferences` is off or the document's server does not offer highlights; `failed`: the request failed.",
+      "enum": [
+        "loading",
+        "done",
+        "none",
+        "off",
+        "failed"
+      ]
+    },
+    "highlights": {
+      "description": "The ranges, in document order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "line",
+          "column",
+          "end_line",
+          "end_column",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "line": {
+            "description": "1-based line of the range's start.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based column of the range's start.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "description": "1-based line of the range's end.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_column": {
+            "description": "1-based column just past the range's end.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "description": "`text` (a textual match or a keyword), `read` or `write`, as the language server reports them. Read and text ranges are filled with the theme's `reference_highlight_read`, write ranges with `reference_highlight_write`.",
+            "enum": [
+              "text",
+              "read",
+              "write"
+            ]
+          }
+        }
+      }
+    },
+    "current": {
+      "description": "The range (0-based in `highlights`) the caret is in, if any.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "message": {
+      "description": "Why `failed` or `off`.",
+      "type": "string"
+    }
+  }
+}
