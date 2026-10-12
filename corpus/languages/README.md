@@ -63,3 +63,9 @@ One unsupported construct per file:
 | File | Construct | Count |
 |---|---|---|
 | `Members.fsi` | Member signatures in a signature file (`new:`, `member`, `static member`, `override`, `with get, set`, `interface` inside a type, a type extension): the signature grammar has only `abstract` members and `val` | 3 |
+
+## C# (`csharp/`)
+
+| File | What it exercises |
+|---|---|
+| `Outlining.cs` | Outlining (brief 0067, `crates/editor/tests/folding.rs`): a run of `using` lines, a namespace, a documentation comment, a class with two `#region`s, a property with accessors, a constructor, a run of line comments, methods with nested `if` and `foreach` blocks, and an expression-bodied member (one line, no fold). |

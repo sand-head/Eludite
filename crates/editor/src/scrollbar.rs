@@ -237,6 +237,17 @@ impl EditorView {
             && track.contains(&p)
         {
             let y = f32::from(p.y);
+            // The thumb first (a drag), then a marker (a jump), else the track (a page).
+            if let Some(t) = bars.vertical_thumb
+                && t.contains(&p)
+            {
+                self.display.drag = Some(ThumbDrag {
+                    vertical: true,
+                    start: y,
+                    thumb_top: f32::from(t.top() - track.top()),
+                });
+                return true;
+            }
             if let Some((_, row)) = bars
                 .markers
                 .iter()
@@ -254,19 +265,11 @@ impl EditorView {
                 return true;
             }
             if let Some(t) = bars.vertical_thumb {
-                if t.contains(&p) {
-                    self.display.drag = Some(ThumbDrag {
-                        vertical: true,
-                        start: y,
-                        thumb_top: f32::from(t.top() - track.top()),
-                    });
-                } else {
-                    // Page toward the click.
-                    let page = f32::from(bars.viewport.height - self.style().line_height).max(1.);
-                    let dir = if p.y < t.top() { -1. } else { 1. };
-                    let y = self.scroll_position().y + px(page * dir);
-                    self.set_scroll_y(y, cx);
-                }
+                // Page toward the click.
+                let page = f32::from(bars.viewport.height - self.style().line_height).max(1.);
+                let dir = if p.y < t.top() { -1. } else { 1. };
+                let y = self.scroll_position().y + px(page * dir);
+                self.set_scroll_y(y, cx);
             }
             return true;
         }

@@ -1102,6 +1102,26 @@ impl AidsLayout {
 }
 
 impl EditorView {
+    /// The outlining margin's expanders as last painted: bounds and fold header row.
+    pub fn expander_hits(&self) -> &[(Bounds<Pixels>, u32)] {
+        &self.display.expander_hits
+    }
+
+    /// The sticky lines as last painted: bounds and header row.
+    pub fn sticky_hits(&self) -> &[(Bounds<Pixels>, u32)] {
+        &self.display.sticky_hits
+    }
+
+    /// The collapsed adornments as last painted: bounds and fold header row.
+    pub fn adornment_hits(&self) -> &[(Bounds<Pixels>, u32)] {
+        &self.display.adornment_hits
+    }
+
+    /// The zoom box at the editor's bottom left, as last painted.
+    pub fn zoom_box(&self) -> Option<Bounds<Pixels>> {
+        self.display.zoom_box
+    }
+
     /// Write the painted layer's geometry back for the mouse.
     pub(crate) fn store_aids(&mut self, a: &mut AidsLayout) {
         self.display.expander_hits = std::mem::take(&mut a.expander_hits);
