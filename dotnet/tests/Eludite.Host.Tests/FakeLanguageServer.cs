@@ -91,7 +91,8 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
         Add(rpc, "initialized", new Action<JsonElement>(p => Record(launch, "initialized", p, 0)));
         Add(rpc, "solution/open", new Action<JsonElement>(p => Record(launch, "solution/open", p, 0)));
         Add(rpc, "project/open", new Action<JsonElement>(p => Record(launch, "project/open", p, 0)));
-        foreach (var method in new[] { "textDocument/didOpen", "textDocument/didChange", "textDocument/didClose", "textDocument/didSave" })
+        // Brief 0079: razor/documentClosed is recorded like the document notifications.
+        foreach (var method in new[] { "textDocument/didOpen", "textDocument/didChange", "textDocument/didClose", "textDocument/didSave", "razor/documentClosed" })
         {
             Add(rpc, method, new Action<JsonElement>(p => Record(launch, method, p, 0)));
         }
@@ -146,6 +147,10 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
     /// <summary>Sends the host <c>workspace/applyEdit</c>, as Roslyn would, and returns the host's answer.</summary>
     public Task<JsonElement> ApplyEditAsync(object parameters, CancellationToken cancellationToken) =>
         _rpc!.InvokeWithParameterObjectAsync<JsonElement>("workspace/applyEdit", parameters, cancellationToken);
+
+    /// <summary>Brief 0079: sends the host any request, as Razor's callbacks do, and returns the host's answer.</summary>
+    public Task<JsonElement> InvokeHostAsync(string method, object parameters, CancellationToken cancellationToken) =>
+        _rpc!.InvokeWithParameterObjectAsync<JsonElement>(method, parameters, cancellationToken);
 
     public Task NotifyProjectsLoadedAsync() => _rpc!.NotifyAsync("workspace/projectInitializationComplete");
 
