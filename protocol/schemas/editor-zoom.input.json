@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-zoom.input.json",
+  "title": "eludite.editor.zoom input",
+  "description": "Set a document's zoom level (the zoom box at the editor's bottom left; Ctrl+wheel).",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "level": {
+      "description": "Percent, 20 to 400; 100 is the font size in Tools > Options > Environment > Fonts and Colors.",
+      "type": "integer",
+      "minimum": 20,
+      "maximum": 400
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "level"
+  ]
+}

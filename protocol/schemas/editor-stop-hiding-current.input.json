@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-stop-hiding-current.input.json",
+  "title": "eludite.editor.stop_hiding_current input",
+  "description": "Stop Hiding Current (Edit > Outlining, Ctrl+M, Ctrl+U): remove the Hide Selection region at the caret, else the outlining of the innermost region at the caret.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

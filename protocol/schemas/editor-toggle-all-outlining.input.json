@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-toggle-all-outlining.input.json",
+  "title": "eludite.editor.toggle_all_outlining input",
+  "description": "Toggle All Outlining (Edit > Outlining, Ctrl+M, Ctrl+L): expand every region when any is collapsed, else collapse them all.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-start-automatic-outlining.input.json",
+  "title": "eludite.editor.start_automatic_outlining input",
+  "description": "Start Automatic Outlining (Edit > Outlining): turn outlining back on after Stop Outlining, every region expanded.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

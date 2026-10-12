@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-toggle-white-space.input.json",
+  "title": "eludite.editor.toggle_white_space input",
+  "description": "View White Space (Edit > Advanced, Ctrl+R, Ctrl+W): show spaces as dots and tabs as arrows, or stop.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "enabled": {
+      "description": "On or off instead of toggling.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

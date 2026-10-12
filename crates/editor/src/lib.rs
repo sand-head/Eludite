@@ -109,33 +109,43 @@
 //! lines are shaped whole, find is ASCII case-insensitive only, and files
 //! must be UTF-8.
 
+mod brace_match;
 mod buffer;
 mod codelens;
 mod debugging;
 pub mod display;
 mod editor;
+// Brief 0067: outlining, word wrap, scroll bars, sticky scroll and the visual aids.
+pub mod folding;
 mod input;
 pub mod intellisense;
 mod popups;
+pub mod scrollbar;
+pub mod sticky;
 pub mod syntax;
 mod view;
+mod visual;
+pub mod wrap;
 
 pub use buffer::{Buffer, LARGE_FILE_THRESHOLD, LineEnding, LoadError};
 pub use debugging::{BreakpointGlyph, ExecutionKind};
 pub use display::{RowHit, VerticalLayout};
 pub use editor::{ClickKind, Editor, FindQuery, Selection, SelectionRange};
 pub use eludite_ui::CompletionKind;
+pub use folding::{DisplayEvent, Fold, FoldKind, FoldRange, FoldSource};
 pub use input::{INPUT_KEY_CONTEXT, InputLayout, TextInput, TextInputEvent};
 pub use intellisense::{
     AcceptedCompletion, CodeLens, CodeLensSnapshot, CompletionEdit, CompletionItem,
     CompletionRequest, CompletionSnapshot, CompletionSource, CompletionTrigger, EditorEvent,
     HoverSnapshot, SignatureHelpData, SignatureInfo, SignatureSnapshot, SignatureTrigger,
 };
+pub use scrollbar::{MarkerKind, ScrollMarker};
 pub use text;
 pub use view::{
     COMPLETION_CONTEXT, COMPLETION_SELECTED_CONTEXT, Decoration, DecorationStyle, EditorStyle,
     EditorView, KEY_CONTEXT, LightbulbKind, SIGNATURES_CONTEXT, default_font_family, key_bindings,
 };
+pub use visual::{DEFAULT_FONT_SIZE, OUTLINING_MARGIN, ZOOM_MAX, ZOOM_MIN};
 /// The text input's actions (context [`INPUT_KEY_CONTEXT`]).
 pub mod input_actions {
     pub use crate::input::{

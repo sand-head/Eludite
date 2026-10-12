@@ -15,7 +15,7 @@
 //!   emits [`EditorEvent::CodeLensActivated`]; the owner opens the References popup or runs the test, anchored at
 //!   [`EditorView::code_lens_bounds`].
 //!
-//! The editor has no folding yet; a lens row belongs to the buffer row below it, so hiding that row will hide it.
+//! A lens row belongs to the buffer row below it, so a collapsed fold hiding that row hides it (brief 0067).
 
 use std::cell::{Ref, RefCell};
 use std::ops::Range;
@@ -68,6 +68,8 @@ struct LayoutCache {
     layout: VerticalLayout,
     /// The buffer row of each of `CodeLenses::rows`, in order.
     rows: Vec<u32>,
+    /// The display map's key (brief 0067).
+    display: (u64, u64),
 }
 
 impl CodeLenses {
@@ -108,6 +110,7 @@ impl EditorView {
             c.epoch == self.lenses.epoch
                 && c.line_height == line_height
                 && &c.version == snapshot.version()
+                && c.display == self.display.layout_key()
         });
         if fresh {
             return;
@@ -122,18 +125,22 @@ impl EditorView {
                     .row
             })
             .collect();
+        // Brief 0067: hidden (folded) and wrapped rows.
+        let (hidden, wraps) = self.display_inputs();
         let layout = VerticalLayout::new(
             f32::from(line_height),
             f32::from(self.lens_height()),
             self.editor.buffer().line_count(),
             rows.clone(),
-        );
+        )
+        .with_display(hidden, wraps);
         *self.lenses.cache.borrow_mut() = Some(LayoutCache {
             version: snapshot.version().clone(),
             epoch: self.lenses.epoch,
             line_height,
             layout,
             rows,
+            display: self.display.layout_key(),
         });
     }
 

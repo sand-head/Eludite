@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-view-state.input.json",
+  "title": "eludite.editor.view_state input",
+  "description": "Read a document's display state: its outlining regions and which are collapsed, word wrap, white space, zoom, the caret, the visible lines and the sticky scroll lines. Changes nothing.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-go-to-brace.input.json",
+  "title": "eludite.editor.go_to_brace input",
+  "description": "Go To Brace (Edit > Advanced, Ctrl+]): move the caret to the bracket matching the one at the caret.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

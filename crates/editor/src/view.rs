@@ -278,6 +278,69 @@ pub(crate) struct LastLayout {
     pub vertical: VerticalLayout,
     /// Where each CodeLens indicator was painted, by lens id.
     pub lens_hits: Vec<(Bounds<Pixels>, u64)>,
+    /// Brief 0067: which wrapped segment each of `rows` is (same order).
+    pub segments: Vec<LaidOut>,
+}
+
+/// One painted segment of a row (brief 0067): which, its byte range of the line, where its display string starts,
+/// and its top in content pixels.
+pub(crate) struct LaidOut {
+    pub segment: u32,
+    pub last_segment: bool,
+    pub range: Range<usize>,
+    pub display_start: usize,
+    pub top: Pixels,
+}
+
+impl LastLayout {
+    /// The index in `rows` of segment `segment` of `row`, if painted.
+    pub fn find_segment(&self, row: u32, segment: u32) -> Option<usize> {
+        self.rows
+            .iter()
+            .zip(&self.segments)
+            .position(|((r, _, _), s)| *r == row && s.segment == segment)
+    }
+
+    /// The index of the painted segment holding byte column `col` of `row`.
+    pub fn segment_at(&self, row: u32, col: usize) -> Option<usize> {
+        self.rows
+            .iter()
+            .zip(&self.segments)
+            .position(|((r, _, _), s)| {
+                *r == row && s.range.start <= col && (col < s.range.end || s.last_segment)
+            })
+    }
+
+    /// The byte column at content x `x` (from the text's left edge) on painted segment `i`; never past a wrapped
+    /// segment's end, which is the next segment's start.
+    pub fn col_for_x(&self, i: usize, x: Pixels) -> usize {
+        let (_, text, shaped) = &self.rows[i];
+        let s = &self.segments[i];
+        let col = from_display(text, s.display_start + shaped.closest_index_for_x(x));
+        if !s.last_segment && col >= s.range.end {
+            return text[..s.range.end]
+                .char_indices()
+                .next_back()
+                .map_or(s.range.start, |(i, _)| i);
+        }
+        col.max(s.range.start)
+    }
+
+    /// The x of byte column `col` on painted segment `i`, from the text's left edge (content pixels).
+    pub fn x_in_segment(&self, i: usize, col: usize) -> Pixels {
+        let (_, text, shaped) = &self.rows[i];
+        let s = &self.segments[i];
+        let col = col.clamp(s.range.start, s.range.end);
+        shaped.x_for_index(to_display(text, col) - s.display_start)
+    }
+
+    /// The window position of the top-left corner of byte column `col` of `row`, if painted.
+    pub fn position_of(&self, row: u32, col: usize) -> Option<Point<Pixels>> {
+        let i = self.segment_at(row, col)?;
+        let x = self.text_left - self.scroll.x + self.x_in_segment(i, col);
+        let y = self.bounds.top() + self.segments[i].top - self.scroll.y;
+        Some(point(x, y))
+    }
 }
 
 /// A GPUI view showing one [`Editor`].
@@ -314,6 +377,8 @@ pub struct EditorView {
     emmet: bool,
     /// CodeLens rows (brief 0052).
     pub(crate) lenses: CodeLenses,
+    /// Brief 0067: outlining, word wrap, scroll bars, sticky scroll and the visual aids.
+    pub(crate) display: crate::visual::DisplayState,
 }
 
 impl EditorView {
@@ -352,8 +417,11 @@ impl EditorView {
             execution: None,
             emmet: false,
             lenses: CodeLenses::default(),
+            display: Default::default(),
         };
         this.schedule_highlight(cx);
+        // Brief 0067: the syntax folds of the opened text.
+        this.refresh_syntax_folds(cx);
         this
     }
 
@@ -396,6 +464,9 @@ impl EditorView {
 
     pub fn set_style(&mut self, style: EditorStyle, cx: &mut Context<Self>) {
         self.style = style;
+        // Brief 0067: the font settings and the zoom apply over any style.
+        self.display.unzoomed = None;
+        self.restyle();
         cx.notify();
     }
 
@@ -606,12 +677,47 @@ impl EditorView {
         self.autoscroll = true;
         self.schedule_highlight(cx);
         self.lens_edited(cx);
+        // Brief 0067: folds follow the text, an edit in hidden text reveals it, the caret stops blinking.
+        self.display_edited(cx);
         cx.notify();
     }
 
     fn moved(&mut self, cx: &mut Context<Self>) {
         self.autoscroll = true;
+        // Brief 0067: a caret moved into hidden text reveals it.
+        self.display_moved(cx);
         cx.notify();
+    }
+
+    // ----- brief 0067: hooks for the display map's modules -----
+
+    pub(crate) fn style_mut(&mut self) -> &mut EditorStyle {
+        &mut self.style
+    }
+
+    /// Horizontal scroll offset in pixels.
+    pub fn set_scroll_x(&mut self, x: Pixels, cx: &mut Context<Self>) {
+        self.scroll.x = x.max(px(0.));
+        self.autoscroll = false;
+        cx.notify();
+    }
+
+    /// Scroll the primary caret into view at the next layout.
+    pub(crate) fn request_autoscroll(&mut self, cx: &mut Context<Self>) {
+        self.autoscroll = true;
+        cx.notify();
+    }
+
+    /// What a caret motion does after the selections moved.
+    pub(crate) fn moved_by_display(&mut self, cx: &mut Context<Self>) {
+        self.moved(cx);
+        self.after_other_change(cx);
+    }
+
+    pub(crate) fn decoration_layers(
+        &self,
+    ) -> impl Iterator<Item = (&&'static str, &Vec<Decoration>)> {
+        self.decorations.iter()
     }
 
     // ----- input: actions -----
@@ -863,15 +969,12 @@ impl EditorView {
         let l = self.layout.as_ref()?;
         let buffer = self.editor.buffer();
         let y = position.y - l.bounds.top() + l.scroll.y;
-        // A point on a lens row maps to the row below it.
-        let row = l
-            .vertical
-            .hit(f32::from(y))
-            .row
-            .min(buffer.line_count() - 1);
+        // A point on a lens row maps to the row below it; on a wrapped row, to its segment (brief 0067).
+        let hit = l.vertical.hit(f32::from(y));
+        let row = hit.row.min(buffer.line_count() - 1);
         let x = (position.x - l.text_left + l.scroll.x).max(px(0.));
-        let col = match l.rows.iter().find(|(r, _, _)| *r == row) {
-            Some((_, text, shaped)) => from_display(text, shaped.closest_index_for_x(x)),
+        let col = match l.find_segment(row, hit.segment) {
+            Some(i) => l.col_for_x(i, x),
             None => {
                 let text = buffer.line(row);
                 byte_for_visual_column(&text, (x / l.char_width).round() as u32)
@@ -886,10 +989,7 @@ impl EditorView {
     pub fn pixel_position_for_offset(&self, offset: usize) -> Option<Point<Pixels>> {
         let l = self.layout.as_ref()?;
         let p = self.editor.buffer().offset_to_point(offset);
-        let (_, text, shaped) = l.rows.iter().find(|(r, _, _)| *r == p.row)?;
-        let x = l.text_left - l.scroll.x + shaped.x_for_index(to_display(text, p.column as usize));
-        let y = l.bounds.top() + px(l.vertical.line_top(p.row)) - l.scroll.y;
-        Some(point(x, y))
+        l.position_of(p.row, p.column as usize)
     }
 
     fn on_mouse_down(
@@ -899,6 +999,10 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus, cx);
+        // Brief 0067: the scroll bars, the outlining margin, adornments, sticky lines and the zoom box.
+        if self.aids_mouse_down(event, cx) {
+            return;
+        }
         if event.button == MouseButton::Left
             && let Some(row) = self.margin_row(event.position)
         {
@@ -956,6 +1060,10 @@ impl EditorView {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        // Brief 0067: a thumb drag, and the adornment's tooltip.
+        if self.aids_mouse_move(event, cx) {
+            return;
+        }
         let lens = self.layout.as_ref().and_then(|l| {
             l.lens_hits
                 .iter()
@@ -980,9 +1088,14 @@ impl EditorView {
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
         self.dragging = false;
+        self.scrollbar_mouse_up();
     }
 
     fn on_scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+        // Brief 0067: Ctrl+wheel zooms.
+        if self.aids_scroll(event, cx) {
+            return;
+        }
         let mut delta = event.delta.pixel_delta(self.style.line_height);
         if event.modifiers.shift && delta.x == px(0.) {
             delta = point(delta.y, px(0.));
@@ -991,6 +1104,9 @@ impl EditorView {
             .max(px(0.))
             .min(self.max_scroll_y());
         self.scroll.x = (self.scroll.x - delta.x).max(px(0.));
+        if self.display.wrap {
+            self.scroll.x = px(0.);
+        }
         self.autoscroll = false;
         self.check_lens_resolve(cx);
         cx.notify();
@@ -1007,13 +1123,27 @@ impl EditorView {
         let lh = self.style.line_height;
         let rows = ((viewport.height / lh).floor() as u32).max(1);
         self.editor.page_rows = rows.saturating_sub(1).max(1);
+        // Brief 0067: wrap at the text area's columns; nothing the caret is on stays hidden.
+        self.set_wrap_columns((text_width / char_width).floor().max(1.) as u32);
+        self.reveal_hidden_carets(cx);
         if self.autoscroll {
             self.autoscroll = false;
             let head = self.editor.primary_head();
-            // The caret's line, and its lens row when scrolling up to it (the member's indicators come into view).
+            // The caret's line, and its lens row when scrolling up to it (the member's indicators come into view);
+            // its wrapped segment with word wrap on (brief 0067).
+            let segment = if self.display.wrap {
+                crate::wrap::segment_of(&self.row_segments(head.row), head.column as usize) as u32
+            } else {
+                0
+            };
             let (slot, top) = {
                 let v = self.vertical_layout();
-                (px(v.slot_top(head.row)), px(v.line_top(head.row)))
+                let slot = if segment == 0 {
+                    v.slot_top(head.row)
+                } else {
+                    v.segment_top(head.row, segment)
+                };
+                (px(slot), px(v.segment_top(head.row, segment)))
             };
             if top < self.scroll.y {
                 self.scroll.y = slot;
@@ -1023,7 +1153,9 @@ impl EditorView {
             let line = self.editor.buffer().line(head.row);
             let x = char_width * visual_column(&line, head.column as usize) as f32;
             let margin = char_width * 4.;
-            if x < self.scroll.x {
+            if self.display.wrap {
+                self.scroll.x = px(0.);
+            } else if x < self.scroll.x {
                 self.scroll.x = (x - margin).max(px(0.));
             } else if x + margin > self.scroll.x + text_width {
                 self.scroll.x = x + margin - text_width;
@@ -1110,31 +1242,61 @@ impl Render for EditorView {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll));
+        // Brief 0067: Up, Down, Page Up, Page Down, Home and End by display row (hidden and wrapped rows).
+        let el = el
+            .on_action(cx.listener(|this, _: &MoveUp, _, cx| this.move_display_rows(-1, false, cx)))
+            .on_action(
+                cx.listener(|this, _: &MoveDown, _, cx| this.move_display_rows(1, false, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectUp, _, cx| this.move_display_rows(-1, true, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectDown, _, cx| this.move_display_rows(1, true, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &PageUp, _, cx| this.page_display_rows(false, false, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &PageDown, _, cx| this.page_display_rows(true, false, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectPageUp, _, cx| {
+                    this.page_display_rows(false, true, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectPageDown, _, cx| {
+                    this.page_display_rows(true, true, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &MoveToLineStart, _, cx| {
+                this.display_home_end(false, false, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &MoveToLineEnd, _, cx| {
+                    this.display_home_end(true, false, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &SelectToLineStart, _, cx| {
+                this.display_home_end(false, true, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SelectToLineEnd, _, cx| {
+                this.display_home_end(true, true, cx)
+            }));
         let el = bind!(el, cx,
             MoveLeft => |e| e.move_left(false), movement;
             MoveRight => |e| e.move_right(false), movement;
-            MoveUp => |e| e.move_up(false), movement;
-            MoveDown => |e| e.move_down(false), movement;
             SelectLeft => |e| e.move_left(true), movement;
             SelectRight => |e| e.move_right(true), movement;
-            SelectUp => |e| e.move_up(true), movement;
-            SelectDown => |e| e.move_down(true), movement;
             MoveWordLeft => |e| e.move_word_left(false), movement;
             MoveWordRight => |e| e.move_word_right(false), movement;
             SelectWordLeft => |e| e.move_word_left(true), movement;
             SelectWordRight => |e| e.move_word_right(true), movement;
-            MoveToLineStart => |e| e.move_home(false), movement;
-            MoveToLineEnd => |e| e.move_end(false), movement;
-            SelectToLineStart => |e| e.move_home(true), movement;
-            SelectToLineEnd => |e| e.move_end(true), movement;
             MoveToStart => |e| e.move_to_start(false), movement;
             MoveToEnd => |e| e.move_to_end(false), movement;
             SelectToStart => |e| e.move_to_start(true), movement;
             SelectToEnd => |e| e.move_to_end(true), movement;
-            PageUp => |e| e.page_up(false), movement;
-            PageDown => |e| e.page_down(false), movement;
-            SelectPageUp => |e| e.page_up(true), movement;
-            SelectPageDown => |e| e.page_down(true), movement;
             SelectAll => |e| e.select_all(), movement;
             AddCaretAbove => |e| e.add_caret_vertical(-1), movement;
             AddCaretBelow => |e| e.add_caret_vertical(1), movement;
@@ -1272,11 +1434,8 @@ impl EntityInputHandler for EditorView {
         let l = self.layout.as_ref()?;
         let s = self.editor.buffer().snapshot();
         let start = s.offset_to_point(utf16_to_range(s, &range_utf16).start);
-        let (_, text, shaped) = l.rows.iter().find(|(r, _, _)| *r == start.row)?;
-        let x =
-            l.text_left - l.scroll.x + shaped.x_for_index(to_display(text, start.column as usize));
-        let y = l.bounds.top() + px(l.vertical.line_top(start.row)) - l.scroll.y;
-        Some(Bounds::new(point(x, y), size(px(1.), l.line_height)))
+        let origin = l.position_of(start.row, start.column as usize)?;
+        Some(Bounds::new(origin, size(px(1.), l.line_height)))
     }
 
     fn character_index_for_point(
@@ -1324,7 +1483,16 @@ struct RowLayout {
     row: u32,
     text: String,
     line: ShapedLine,
-    number: ShapedLine,
+    /// The line number, on a row's first segment only (brief 0067).
+    number: Option<ShapedLine>,
+    // ----- brief 0067: the wrapped segment this is -----
+    segment: u32,
+    last_segment: bool,
+    /// The segment's byte range of `text`, and its start in the display string.
+    range: Range<usize>,
+    display_start: usize,
+    /// Its top in window coordinates.
+    top: Pixels,
 }
 
 /// One lens row as laid out: its text and where each indicator is.
@@ -1354,6 +1522,12 @@ pub struct PrepaintState {
     line_height: Pixels,
     background: Rgba,
     focused: bool,
+    /// Brief 0067: the text area's right and bottom edges, the line numbers' right edge, and the layer over the text.
+    text_right: Pixels,
+    text_bottom: Pixels,
+    numbers_right: Pixels,
+    aids: crate::visual::AidsLayout,
+    has_focus: bool,
 }
 
 fn hsla(c: Rgba) -> Hsla {
@@ -1410,11 +1584,19 @@ impl Element for EditorElement {
             .unwrap_or(font_size * 0.6);
         let digits = line_count.to_string().len().max(3);
         // The breakpoint margin (brief 0018), the light bulb margin (brief 0015), then the line numbers.
-        let gutter_width =
+        let mut gutter_width =
             char_width * (digits as f32 + 2.5) + LIGHTBULB_MARGIN + BREAKPOINT_MARGIN;
-        let text_width = bounds.size.width - gutter_width;
+        // Brief 0067: the outlining margin after the line numbers, the scroll bars at the right and bottom.
+        let outlining = self.view.read(cx).outlining_enabled();
+        if outlining {
+            gutter_width += crate::visual::OUTLINING_MARGIN;
+        }
+        let bar = crate::scrollbar::SCROLLBAR_SIZE;
+        let text_width = (bounds.size.width - gutter_width - bar).max(char_width);
+        let text_height = (bounds.size.height - bar).max(px(1.));
+        let viewport = size(bounds.size.width, text_height);
         self.view.update(cx, |v, cx| {
-            v.prepare_frame(bounds.size, text_width, char_width, cx)
+            v.prepare_frame(viewport, text_width, char_width, cx)
         });
 
         let v = self.view.read(cx);
@@ -1426,10 +1608,12 @@ impl Element for EditorElement {
         // Buffer rows and the lens rows between them (brief 0052).
         let vertical = v.vertical_layout().clone();
         let lens_height = v.lens_height();
-        let visible = vertical.visible_rows(f32::from(scroll.y), f32::from(bounds.size.height));
+        let visible = vertical.visible_rows(f32::from(scroll.y), f32::from(text_height));
         let (first, last) = (visible.start, visible.end.min(line_count));
         let text_left = bounds.left() + gutter_width;
         let row_top = |row: u32| bounds.top() + px(vertical.line_top(row)) - scroll.y;
+        // Brief 0067: wrapped segments at the text area's columns.
+        let wrap_columns = v.display.wrap.then_some(v.display.wrap_columns).flatten();
 
         let selections = v.editor.selections();
         let primary = v.editor.primary_selection();
@@ -1469,7 +1653,11 @@ impl Element for EditorElement {
         let mut rows = Vec::with_capacity((last - first) as usize);
         let mut quads = Vec::new();
         let mut carets = Vec::new();
+        // Brief 0067: hidden rows are skipped, and a wrapped row is laid out one segment at a time.
         for row in first..last {
+            if vertical.is_hidden(row) {
+                continue;
+            }
             let text = buffer.line(row);
             let display = expand_tabs(&text);
             let row_start = snapshot.point_to_offset(text::Point::new(row, 0));
@@ -1483,102 +1671,127 @@ impl Element for EditorElement {
                 &style.syntax,
                 &font,
             );
-            let line = text_system.shape_line(
-                SharedString::from(display.into_owned()),
-                font_size,
-                &runs,
-                None,
-            );
-            let x_of = |offset: usize| -> Pixels {
-                text_left - scroll.x + line.x_for_index(to_display(&text, offset - row_start))
-            };
-            let top = row_top(row);
+            let segments = crate::wrap::segments(&text, wrap_columns);
+            let segment_count = segments.len();
             let active = row == primary_row;
-            if active && primary.is_empty() {
-                quads.push(gpui::outline(
-                    Bounds::new(point(text_left, top), size(text_width, lh)),
-                    hsla(style.current_line_border),
-                    gpui::BorderStyle::Solid,
-                ));
-            }
-            // Find matches and background decorations.
-            for m in &find_matches {
-                if m.start <= row_end && m.end >= row_start && m.start < m.end {
-                    let s = m.start.max(row_start);
-                    let e = m.end.min(row_end);
-                    if s <= e {
+            for (si, seg) in segments.into_iter().enumerate() {
+                let last_segment = si + 1 == segment_count;
+                let ds = to_display(&text, seg.start);
+                let de = if last_segment {
+                    display.len()
+                } else {
+                    to_display(&text, seg.end)
+                };
+                let line = text_system.shape_line(
+                    SharedString::from(display[ds..de].to_owned()),
+                    font_size,
+                    &slice_runs(&runs, ds, de),
+                    None,
+                );
+                let (seg_start, seg_end) = (row_start + seg.start, row_start + seg.end);
+                let x_of = |offset: usize| -> Pixels {
+                    let o = offset.clamp(seg_start, seg_end);
+                    text_left - scroll.x + line.x_for_index(to_display(&text, o - row_start) - ds)
+                };
+                let top = bounds.top() + px(vertical.segment_top(row, si as u32)) - scroll.y;
+                if si == 0 && active && primary.is_empty() {
+                    quads.push(gpui::outline(
+                        Bounds::new(
+                            point(text_left, top),
+                            size(text_width, lh * segment_count as f32),
+                        ),
+                        hsla(style.current_line_border),
+                        gpui::BorderStyle::Solid,
+                    ));
+                }
+                // Find matches and background decorations.
+                for m in &find_matches {
+                    if m.start <= seg_end && m.end >= seg_start && m.start < m.end {
+                        let s = m.start.max(seg_start);
+                        let e = m.end.min(seg_end);
+                        if s <= e {
+                            quads.push(fill(
+                                Bounds::from_corners(point(x_of(s), top), point(x_of(e), top + lh)),
+                                hsla(style.find_match),
+                            ));
+                        }
+                    }
+                }
+                for (r, d) in &decorations {
+                    if let DecorationStyle::Background(color) = d
+                        && r.start <= seg_end
+                        && r.end >= seg_start
+                    {
+                        let s = r.start.max(seg_start);
+                        let e = r.end.min(seg_end);
                         quads.push(fill(
                             Bounds::from_corners(point(x_of(s), top), point(x_of(e), top + lh)),
-                            hsla(style.find_match),
+                            hsla(*color),
                         ));
                     }
                 }
-            }
-            for (r, d) in &decorations {
-                if let DecorationStyle::Background(color) = d
-                    && r.start <= row_end
-                    && r.end >= row_start
-                {
-                    let s = r.start.max(row_start);
-                    let e = r.end.min(row_end);
-                    quads.push(fill(
-                        Bounds::from_corners(point(x_of(s), top), point(x_of(e), top + lh)),
-                        hsla(*color),
-                    ));
-                }
-            }
-            // Selections and carets.
-            for sel in &selections {
-                if !sel.is_empty() && sel.start() <= row_end && sel.end() > row_start {
-                    let s = sel.start().max(row_start);
-                    let e = sel.end().min(row_end);
-                    let mut right = x_of(e);
-                    if sel.end() > row_end {
-                        right += char_width * 0.5; // the selected line break
+                // Selections and carets.
+                for sel in &selections {
+                    if !sel.is_empty() && sel.start() <= seg_end && sel.end() > seg_start {
+                        let s = sel.start().max(seg_start);
+                        let e = sel.end().min(seg_end);
+                        let mut right = x_of(e);
+                        if sel.end() > row_end && last_segment {
+                            right += char_width * 0.5; // the selected line break
+                        }
+                        quads.push(fill(
+                            Bounds::from_corners(point(x_of(s), top), point(right, top + lh)),
+                            hsla(style.selection),
+                        ));
                     }
-                    quads.push(fill(
-                        Bounds::from_corners(point(x_of(s), top), point(right, top + lh)),
-                        hsla(style.selection),
-                    ));
+                    let on_segment = sel.head >= seg_start
+                        && (sel.head < seg_end || (last_segment && sel.head <= row_end));
+                    if on_segment {
+                        carets.push(fill(
+                            Bounds::new(point(x_of(sel.head), top), size(px(2.), lh)),
+                            hsla(style.caret),
+                        ));
+                    }
                 }
-                if sel.head >= row_start && sel.head <= row_end {
-                    carets.push(fill(
-                        Bounds::new(point(x_of(sel.head), top), size(px(2.), lh)),
-                        hsla(style.caret),
-                    ));
-                }
+                let number = (si == 0).then(|| {
+                    let number_color = if active {
+                        style.line_number_active
+                    } else {
+                        style.line_number
+                    };
+                    let number_text = SharedString::from((row + 1).to_string());
+                    text_system.shape_line(
+                        number_text.clone(),
+                        font_size,
+                        &[TextRun {
+                            len: number_text.len(),
+                            font: font.clone(),
+                            color: hsla(number_color),
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        }],
+                        None,
+                    )
+                });
+                rows.push(RowLayout {
+                    row,
+                    text: text.clone(),
+                    line,
+                    number,
+                    segment: si as u32,
+                    last_segment,
+                    range: seg,
+                    display_start: ds,
+                    top,
+                });
             }
-            let number_color = if active {
-                style.line_number_active
-            } else {
-                style.line_number
-            };
-            let number_text = SharedString::from((row + 1).to_string());
-            let number = text_system.shape_line(
-                number_text.clone(),
-                font_size,
-                &[TextRun {
-                    len: number_text.len(),
-                    font: font.clone(),
-                    color: hsla(number_color),
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                }],
-                None,
-            );
-            rows.push(RowLayout {
-                row,
-                text,
-                line,
-                number,
-            });
         }
         let lightbulb = v.lightbulb.as_ref().and_then(|(anchor, kind)| {
             let row = snapshot
                 .offset_to_point(snapshot.offset_for_anchor(anchor))
                 .row;
-            (first..last).contains(&row).then(|| {
+            ((first..last).contains(&row) && !vertical.is_hidden(row)).then(|| {
                 let size = (lh - px(4.)).min(px(14.));
                 let top = row_top(row) + (lh - size) / 2.;
                 (
@@ -1607,8 +1820,7 @@ impl Element for EditorElement {
                 let row = snapshot
                     .offset_to_point(snapshot.offset_for_anchor(anchor))
                     .row;
-                (first..last)
-                    .contains(&row)
+                ((first..last).contains(&row) && !vertical.is_hidden(row))
                     .then(|| (margin_cell(row), *glyph))
             })
             .collect();
@@ -1616,15 +1828,16 @@ impl Element for EditorElement {
             let row = snapshot
                 .offset_to_point(snapshot.offset_for_anchor(&r.start))
                 .row;
-            (first..last)
-                .contains(&row)
+            ((first..last).contains(&row) && !vertical.is_hidden(row))
                 .then(|| (margin_cell(row), *kind))
         });
         // CodeLens rows: the indicators at the member's indentation, separated by bars, in the lens colour and a
         // smaller size; a test's outcome glyph in its own colour; the indicator under the mouse underlined.
         let mut lenses = Vec::new();
         let mut lens_hits = Vec::new();
-        let lens_items = v.lens_rows_in(first..last);
+        let mut lens_items = v.lens_rows_in(first..last);
+        // Brief 0067: a hidden row's lens row is hidden with it.
+        lens_items.retain(|(row, _)| !vertical.is_hidden(*row));
         if !lens_items.is_empty() {
             let lens_font = window.text_style().font();
             let lens_size = (font_size * 0.85).round();
@@ -1645,8 +1858,8 @@ impl Element for EditorElement {
             for (row, items) in lens_items {
                 // The member's indentation, from its line as laid out above.
                 let indent = rows
-                    .get(row.saturating_sub(first) as usize)
-                    .filter(|r| r.row == row)
+                    .iter()
+                    .find(|r| r.row == row && r.segment == 0)
                     .map_or(0, |r| {
                         visual_column(&r.text, r.text.len() - r.text.trim_start().len())
                     });
@@ -1690,7 +1903,46 @@ impl Element for EditorElement {
                 });
             }
         }
+        // Brief 0067: the outlining margin, adornments, white space, guides, sticky lines and scroll bars.
+        let text_right = bounds.right() - bar;
+        let text_bottom = bounds.top() + text_height;
+        let aids = {
+            let laid: Vec<crate::visual::LaidSegment<'_>> = rows
+                .iter()
+                .map(|r| crate::visual::LaidSegment {
+                    row: r.row,
+                    segment: r.segment,
+                    last_segment: r.last_segment,
+                    top: r.top,
+                    text: &r.text,
+                    range: r.range.clone(),
+                    line: &r.line,
+                })
+                .collect();
+            let geometry = crate::visual::FrameGeometry {
+                bounds,
+                text_left,
+                text_right,
+                text_bottom,
+                char_width,
+                scroll,
+                font: font.clone(),
+            };
+            v.layout_aids(&geometry, &laid, &vertical, window)
+        };
+        let has_focus = v.focus.is_focused(window);
+        let numbers_right = text_left
+            - if outlining {
+                crate::visual::OUTLINING_MARGIN
+            } else {
+                px(0.)
+            };
         PrepaintState {
+            text_right,
+            text_bottom,
+            numbers_right,
+            aids,
+            has_focus,
             rows,
             lenses,
             lens_hits,
@@ -1706,7 +1958,7 @@ impl Element for EditorElement {
             scroll,
             line_height: lh,
             background: style.theme.background,
-            focused: v.focus.is_focused(window),
+            focused: v.focus.is_focused(window) && v.caret_visible(),
         }
     }
 
@@ -1729,19 +1981,13 @@ impl Element for EditorElement {
         window.paint_quad(fill(bounds, hsla(state.background)));
         let lh = state.line_height;
         let text_left = bounds.left() + state.gutter_width;
-        let vertical = &state.vertical;
-        let row_top = |row: u32| bounds.top() + px(vertical.line_top(row)) - state.scroll.y;
         for r in &state.rows {
-            let x = text_left - state.char_width * 1.5 - r.number.width();
-            r.number
-                .paint(
-                    point(x, row_top(r.row)),
-                    lh,
-                    TextAlign::Left,
-                    None,
-                    window,
-                    cx,
-                )
+            let Some(number) = &r.number else {
+                continue;
+            };
+            let x = state.numbers_right - state.char_width * 1.5 - number.width();
+            number
+                .paint(point(x, r.top), lh, TextAlign::Left, None, window, cx)
                 .ok();
         }
         for (b, glyph) in &state.glyphs {
@@ -1824,8 +2070,10 @@ impl Element for EditorElement {
             dark.b *= 0.6;
             window.paint_quad(fill(base, hsla(dark)));
         }
-        let text_bounds =
-            Bounds::from_corners(point(text_left, bounds.top()), bounds.bottom_right());
+        let text_bounds = Bounds::from_corners(
+            point(text_left, bounds.top()),
+            point(state.text_right, state.text_bottom),
+        );
         window.with_content_mask(
             Some(ContentMask {
                 bounds: text_bounds,
@@ -1837,7 +2085,7 @@ impl Element for EditorElement {
                 for r in &state.rows {
                     r.line
                         .paint(
-                            point(text_left - state.scroll.x, row_top(r.row)),
+                            point(text_left - state.scroll.x, r.top),
                             lh,
                             TextAlign::Left,
                             None,
@@ -1858,6 +2106,8 @@ impl Element for EditorElement {
                         )
                         .ok();
                 }
+                // Brief 0067: white space, wrap glyphs, adornments and brace highlights.
+                state.aids.paint_in_text(window, cx);
                 if state.focused {
                     for q in state.carets.drain(..) {
                         window.paint_quad(q);
@@ -1865,11 +2115,24 @@ impl Element for EditorElement {
                 }
             },
         );
+        // Brief 0067: the outlining margin, sticky lines, scroll bars and the tooltip, over everything else.
+        state.aids.paint_over(window, cx);
         for l in &state.lenses {
             for h in &l.hitboxes {
                 window.set_cursor_style(CursorStyle::PointingHand, h);
             }
         }
+        let segments = state
+            .rows
+            .iter()
+            .map(|r| LaidOut {
+                segment: r.segment,
+                last_segment: r.last_segment,
+                range: r.range.clone(),
+                display_start: r.display_start,
+                top: r.top - bounds.top() + state.scroll.y,
+            })
+            .collect();
         let rows = std::mem::take(&mut state.rows)
             .into_iter()
             .map(|r| (r.row, r.text, r.line))
@@ -1884,8 +2147,16 @@ impl Element for EditorElement {
             lightbulb: state.lightbulb.map(|(b, _)| b),
             vertical: std::mem::take(&mut state.vertical),
             lens_hits: std::mem::take(&mut state.lens_hits),
+            segments,
         };
-        self.view.update(cx, |v, _| v.layout = Some(layout));
+        let has_focus = state.has_focus;
+        let mut aids = std::mem::take(&mut state.aids);
+        self.view.update(cx, |v, cx| {
+            v.layout = Some(layout);
+            // Brief 0067.
+            v.store_aids(&mut aids);
+            v.ensure_blink(has_focus, cx);
+        });
     }
 }
 
@@ -1976,4 +2247,52 @@ fn text_runs(
         });
     }
     runs
+}
+
+/// The runs of `runs` (over a whole display line) cut to the display range `start..end` (brief 0067: one wrapped
+/// segment).
+fn slice_runs(runs: &[TextRun], start: usize, end: usize) -> Vec<TextRun> {
+    if start == 0 && runs.iter().map(|r| r.len).sum::<usize>() == end {
+        return runs.to_vec();
+    }
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    for r in runs {
+        let (s, e) = (at, at + r.len);
+        at = e;
+        let (s, e) = (s.max(start), e.min(end));
+        if s < e {
+            out.push(TextRun {
+                len: e - s,
+                ..r.clone()
+            });
+        }
+    }
+    if out.is_empty() {
+        let mut r = runs.first().cloned().expect("a line has a run");
+        r.len = end - start;
+        out.push(r);
+    }
+    out
+}
+
+/// The syntax-colored runs of `row` for a sticky line (brief 0067).
+pub(crate) fn sticky_runs(
+    view: &EditorView,
+    row: u32,
+    text: &str,
+    display: &str,
+    font: &gpui::Font,
+) -> Vec<TextRun> {
+    let snapshot = view.editor.buffer().snapshot();
+    let row_start = snapshot.point_to_offset(text::Point::new(row, 0));
+    text_runs(
+        text,
+        display,
+        view.syntax.highlights.spans(row),
+        &[],
+        row_start,
+        &view.style.syntax,
+        font,
+    )
 }

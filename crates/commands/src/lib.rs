@@ -59,6 +59,8 @@ pub mod forge;
 pub mod git;
 mod id;
 pub mod nuget;
+// Brief 0067: the editor view's `eludite.editor.*` (outlining, word wrap, white space, braces, zoom).
+pub mod outlining;
 pub mod policy;
 pub mod project;
 mod registry;

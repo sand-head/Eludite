@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-expand-current-region.input.json",
+  "title": "eludite.editor.expand_current_region input",
+  "description": "Expand Current Region (Edit > Outlining, Ctrl+M, Ctrl+E): expand the collapsed region whose first line holds the caret.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

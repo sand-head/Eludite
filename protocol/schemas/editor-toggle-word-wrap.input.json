@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-toggle-word-wrap.input.json",
+  "title": "eludite.editor.toggle_word_wrap input",
+  "description": "Word Wrap (Edit > Advanced, Ctrl+E, Ctrl+W): turn word wrap on or off in a document.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "enabled": {
+      "description": "On or off instead of toggling.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

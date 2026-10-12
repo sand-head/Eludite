@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-hide-selection.input.json",
+  "title": "eludite.editor.hide_selection input",
+  "description": "Hide Selection (Edit > Outlining, Ctrl+M, Ctrl+H): collapse the selected lines under the first one, until Stop Hiding Current or the caret enters them.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

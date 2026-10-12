@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-collapse-to-definitions.input.json",
+  "title": "eludite.editor.collapse_to_definitions input",
+  "description": "Collapse to Definitions (Edit > Outlining, Ctrl+M, Ctrl+O): collapse every member (methods, properties, constructors, functions) and #region, expand everything else.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-collapse-all-outlining.input.json",
+  "title": "eludite.editor.collapse_all_outlining input",
+  "description": "Collapse All Outlining (Edit > Outlining, Ctrl+M, Ctrl+A): collapse every region.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

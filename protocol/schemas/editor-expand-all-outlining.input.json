@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-expand-all-outlining.input.json",
+  "title": "eludite.editor.expand_all_outlining input",
+  "description": "Expand All Outlining (Edit > Outlining, Ctrl+M, Ctrl+X): expand every region, Hide Selection's included.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

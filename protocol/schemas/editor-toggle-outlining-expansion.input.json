@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-toggle-outlining-expansion.input.json",
+  "title": "eludite.editor.toggle_outlining_expansion input",
+  "description": "Toggle Outlining Expansion (Edit > Outlining, Ctrl+M, Ctrl+M): collapse the innermost region at the caret, or expand it when it is collapsed.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line whose innermost region toggles instead of the caret's (a collapsed region's header line toggles that region).",
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}
