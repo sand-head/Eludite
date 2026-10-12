@@ -34,7 +34,9 @@
 //! `file-sln` (a page of projects), `file-toml` (a page of keys), `file-ts` (TS), `file-js` (JS), `file-html` (a page
 //! with `<>`), `file-css` (a page with `#`), `file-razor` (`@`), `file-cshtml` (a page with `@`), `file-aspx` (a page
 //! with a globe), `file-image` (a picture), `file-text` (a page of lines), `file-shell` (a console with a prompt),
-//! `file-yaml` (a page of indented keys), `file-lock` (a page with a pin: a lockfile), `file` (a page). The search
+//! `file-yaml` (a page of indented keys), `file-lock` (a page with a pin: a lockfile), `file` (a page). Brief 0073: `project-vb` and `project-fsharp` (the
+//! project square with VB or F#), `file-vb` and `file-fs` (the letters), `file-excluded` (a dashed page: not in the
+//! project). The search
 //! box: `search` (a magnifier) and `clear` (a cross).
 
 use std::borrow::Cow;
@@ -128,6 +130,16 @@ icons! {
     CargoTargetBench => "cargo-target-bench",
     /// `.cs`.
     FileCs => "file-cs",
+    /// Brief 0073: a Visual Basic project (`.vbproj`: a square with VB).
+    ProjectVb => "project-vb",
+    /// Brief 0073: an F# project (`.fsproj`: a square with F#).
+    ProjectFSharp => "project-fsharp",
+    /// Brief 0073: `.vb`.
+    FileVb => "file-vb",
+    /// Brief 0073: `.fs`, `.fsi`, `.fsx`.
+    FileFs => "file-fs",
+    /// Brief 0073: a file or folder on disk that is not in the project (Show All Files: a dashed page).
+    FileExcluded => "file-excluded",
     /// `.rs`.
     FileRs => "file-rs",
     /// `.json`.
@@ -206,6 +218,10 @@ impl Icon {
             FileXml | FileHtml => t.icon_xml,
             ProjectUnavailable | CargoTargets | FileToml | FileImage | FileText | FileShell
             | FileLock | File | Search | Clear => t.icon_muted,
+            // Brief 0073: Visual Basic in the dependencies blue, F# in the solution purple.
+            ProjectVb | FileVb => t.icon_dependencies,
+            ProjectFSharp | FileFs => t.icon_solution,
+            FileExcluded => t.icon_muted,
         }
     }
 }

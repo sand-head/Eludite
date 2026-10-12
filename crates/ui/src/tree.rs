@@ -134,6 +134,31 @@ pub fn tree_row_with_icon(
     row(theme, id, lead, badge, label, style, on_toggle)
 }
 
+/// Brief 0073: [`tree_row_with_icon`] with any element in the label's place (the Workspace window's inline rename box).
+/// Multi-selection is the caller's: every selected row is drawn with `style.selected`; a drop target or a cut row is
+/// styled on the returned element.
+pub fn tree_row_with_element(
+    theme: &Theme,
+    id: impl Into<SharedString>,
+    lead: Option<(Icon, Rgba)>,
+    label: AnyElement,
+    style: TreeRowStyle,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let lead = lead.map(|(i, color)| {
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .w(px(16.))
+            .h(px(16.))
+            .child(icon(i, color))
+            .into_any_element()
+    });
+    row(theme, id, lead, None, label, style, on_toggle)
+}
+
 fn row(
     theme: &Theme,
     id: SharedString,

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-edit-project-file.output.json",
+  "title": "eludite.workspace.edit_project_file output",
+  "description": "The project file opened.",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string"
+    }
+  }
+}

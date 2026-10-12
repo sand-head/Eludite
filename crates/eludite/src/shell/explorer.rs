@@ -363,6 +363,7 @@ pub fn kind_name(kind: &NodeKind) -> &'static str {
         NodeKind::Package { .. } => "package",
         NodeKind::Framework => "framework",
         NodeKind::ProjectReference => "project_reference",
+        NodeKind::Excluded { .. } => "excluded",
     }
 }
 
@@ -461,6 +462,9 @@ pub fn row_icon(row: &Row, test_project: bool) -> Icon {
         NodeKind::Project { error: Some(_), .. } => Icon::ProjectUnavailable,
         NodeKind::Project { web: true, .. } => Icon::ProjectWeb,
         NodeKind::Project { .. } if test_project => Icon::ProjectCSharpTest,
+        // Brief 0073: Visual Basic and F# projects by their project file.
+        NodeKind::Project { .. } if has_extension(row, "vbproj") => Icon::ProjectVb,
+        NodeKind::Project { .. } if has_extension(row, "fsproj") => Icon::ProjectFSharp,
         NodeKind::Project { .. } => Icon::ProjectCSharp,
         NodeKind::Folder if row.expanded => Icon::FolderOpen,
         NodeKind::Folder => Icon::Folder,
@@ -485,7 +489,17 @@ pub fn row_icon(row: &Row, test_project: bool) -> Icon {
             TargetKind::Bench => Icon::CargoTargetBench,
         },
         NodeKind::File { .. } => file_icon(row.file_type().unwrap_or(FileType::Other)),
+        NodeKind::Excluded { dir: true } => Icon::Folder,
+        NodeKind::Excluded { dir: false } => Icon::FileExcluded,
     }
+}
+
+/// Whether the row's path has extension `ext` (case-insensitive).
+fn has_extension(row: &Row, ext: &str) -> bool {
+    row.path
+        .as_deref()
+        .and_then(Path::extension)
+        .is_some_and(|e| e.eq_ignore_ascii_case(ext))
 }
 
 /// The icon of a file type.
@@ -493,6 +507,8 @@ pub fn file_icon(t: FileType) -> Icon {
     match t {
         FileType::CSharp => Icon::FileCs,
         FileType::Rust => Icon::FileRs,
+        FileType::VisualBasic => Icon::FileVb,
+        FileType::FSharp => Icon::FileFs,
         FileType::Json => Icon::FileJson,
         FileType::Markdown => Icon::FileMd,
         FileType::Xml => Icon::FileXml,

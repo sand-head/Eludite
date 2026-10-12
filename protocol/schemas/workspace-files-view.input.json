@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-view.input.json",
+  "title": "eludite.workspace.view input",
+  "description": "The Workspace window's switches and actions (brief 0073). Each switch given is set; the answer holds the switches as they are after the call. `collapseAll` collapses every node but the root; `syncActive` reveals and selects the active document's node (Sync with Active Document, Ctrl+[, S); `refresh` lists the workspace again and has the host re-evaluate the projects.",
+  "type": "object",
+  "required": [],
+  "additionalProperties": false,
+  "properties": {
+    "showAllFiles": {
+      "description": "Show All Files: also list what is on disk under a project's folder but not in the project (bin and obj too), muted.",
+      "type": "boolean"
+    },
+    "fileNesting": {
+      "description": "File Nesting: nest files by Visual Studio's default rules (appsettings.Development.json under appsettings.json). On by default.",
+      "type": "boolean"
+    },
+    "trackActiveItem": {
+      "description": "Track Active Item: reveal the active document's node whenever the active document changes. On by default.",
+      "type": "boolean"
+    },
+    "collapseAll": {
+      "type": "boolean"
+    },
+    "syncActive": {
+      "type": "boolean"
+    },
+    "refresh": {
+      "type": "boolean"
+    }
+  }
+}

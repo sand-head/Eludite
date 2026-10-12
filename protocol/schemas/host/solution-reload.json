@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-reload.json",
+  "title": "eludite/solution/reload",
+  "description": "The Workspace window's watcher saw files change outside Eludite (brief 0073). projectFiles true: a project, .props, .targets, .sln or .slnx file changed: the host reopens the open solution (the language server reloads it; the generation advances). projectFiles false: files were added or removed under a project's folder: the generation advances so the next eludite/solution/tree evaluates the projects again (their globs). The shell asks for the tree after the answer. With no solution open the answer is the current generation and nothing happens.",
+  "x-eludite-method": "eludite/solution/reload",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "projectFiles"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "projectFiles": {
+          "type": "boolean"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation after the call.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

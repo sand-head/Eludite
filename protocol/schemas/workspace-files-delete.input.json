@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-delete.input.json",
+  "title": "eludite.workspace.delete input",
+  "description": "Delete files and folders, as the Workspace window's Delete does: to the operating system's trash (freedesktop.org's trash on Linux, the Recycle Bin on Windows, the Finder's trash on macOS), or for good with `permanent` (the call is then dangerous). A path that cannot be trashed is not deleted and the answer says so. The person is asked first; an agent's call is not. All or nothing (brief 0073, the workspace-edit applier's rules): every source must exist, no target may exist, nothing moves into itself, and no open document among the touched files may have unsaved changes; otherwise nothing changes and `message` says why. The disk work runs off the UI thread; open tabs follow a rename or move and close on a delete; every language server gets workspace/didChangeWatchedFiles; projects that name the paths in their project file are edited by the host (eludite/project/editItems) and the tree is refreshed.",
+  "type": "object",
+  "required": [
+    "paths"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "paths": {
+      "description": "Absolute paths, or relative to the workspace folder.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "permanent": {
+      "description": "Delete for good instead of to the trash. Default false.",
+      "type": "boolean"
+    }
+  }
+}

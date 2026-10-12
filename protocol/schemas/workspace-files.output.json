@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files.output.json",
+  "title": "eludite.workspace.rename, move, copy, delete, new_folder, include, exclude and fsharp_move output",
+  "description": "What a Workspace window file operation did (brief 0073). A person's call answers at once with `state` `applying`; an agent's call answers when the operation is done.",
+  "type": "object",
+  "required": [
+    "state",
+    "paths"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "enum": [
+        "applying",
+        "applied",
+        "failed"
+      ]
+    },
+    "paths": {
+      "description": "Each path changed: `path` alone for a delete, a new folder, an include or exclude; `path` and `to` for a rename, move or copy.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "projectEdits": {
+      "description": "Project files the host edited.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "openDocuments": {
+      "description": "Open documents that followed a rename or move, or closed on a delete.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "message": {
+      "description": "Why nothing changed (failed), or what is worth knowing.",
+      "type": "string"
+    }
+  }
+}

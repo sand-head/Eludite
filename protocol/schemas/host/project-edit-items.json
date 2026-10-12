@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-edit-items.json",
+  "title": "eludite/project/editItems",
+  "description": "Edit a project's items for the Workspace window (brief 0073): Include In Project, Exclude From Project, the project side of a file rename, move or delete, an F# file's compile order, and an SDK project's empty folder. The project file keeps its formatting (MSBuild's construction model with PreserveFormatting, as eludite/project/setProperty writes); paths are written project-relative with `\\` as Visual Studio writes them. When anything changed the host reloads the solution (the generation advances, as after a property write) and the shell asks for the tree again.",
+  "x-eludite-method": "eludite/project/editItems",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "project",
+        "edits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Absolute path of the project file (.csproj, .vbproj or .fsproj).",
+          "type": "string",
+          "minLength": 1
+        },
+        "edits": {
+          "description": "Applied in order to one in-memory project; written once at the end when any changed it.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/edit"
+          }
+        }
+      }
+    },
+    "edit": {
+      "type": "object",
+      "required": [
+        "op",
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "description": "include: make the file (or every file under the folder) an item. SDK project: a Remove element that excludes it is deleted, else an item `<T Include=\"rel\" />` is added; legacy: the item is added. exclude: SDK project: `<T Remove=\"rel\" />` (a folder: `rel\\**`) for an item a glob brings in, or the explicit element deleted; legacy: the element deleted. rename: every Include, Remove and Update naming `path` (or a path under the folder `path`) and every DependentUpon naming it rewritten to `to`. remove: every element naming `path` (or a path under it) deleted (after the file was deleted). moveUp and moveDown: the Compile element of `path` swapped with the previous or next Compile element (F# compile order). addFolder: `<Folder Include=\"rel\\\" />` in an SDK project when no item lies under the folder.",
+          "enum": [
+            "include",
+            "exclude",
+            "rename",
+            "remove",
+            "moveUp",
+            "moveDown",
+            "addFolder"
+          ]
+        },
+        "path": {
+          "description": "Absolute path of the file or folder.",
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "description": "rename: the new absolute path.",
+          "type": "string",
+          "minLength": 1
+        },
+        "itemType": {
+          "description": "include: the item type to add (Compile, Content, None, EmbeddedResource, ...). Default: by extension: .cs, .vb and .fs Compile; .resx EmbeddedResource; in a web project .cshtml, .razor, .html, .css, .js, .json and the WebForms markup Content; otherwise None.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "changed",
+        "generation",
+        "edits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "description": "The project file was written.",
+          "type": "boolean"
+        },
+        "generation": {
+          "description": "The solution generation after the call (advanced when changed).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "edits": {
+          "description": "One per edit of the params, in order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "op",
+              "path",
+              "applied"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "applied": {
+                "description": "The edit changed the project (false: nothing named the path, or nothing was needed).",
+                "type": "boolean"
+              },
+              "message": {
+                "description": "Why nothing changed, when it is worth saying (a legacy project for addFolder, the first item for moveUp).",
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

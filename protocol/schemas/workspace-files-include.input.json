@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-include.input.json",
+  "title": "eludite.workspace.include input",
+  "description": "Include In Project: the host makes the files (every file under a folder) items of the project whose folder holds them (eludite/project/editItems include): an SDK project drops the `Remove` that excluded them or adds the item, a legacy project adds it. The tree is refreshed.",
+  "type": "object",
+  "required": [
+    "paths"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "paths": {
+      "description": "Absolute paths, or relative to the workspace folder.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

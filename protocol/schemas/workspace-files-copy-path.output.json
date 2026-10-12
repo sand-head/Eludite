@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-copy-path.output.json",
+  "title": "eludite.workspace.copy_path output",
+  "description": "The text put on the clipboard.",
+  "type": "object",
+  "required": [
+    "text"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "text": {
+      "type": "string"
+    }
+  }
+}

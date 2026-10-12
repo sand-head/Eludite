@@ -99,7 +99,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/host/exit` | notification | [host-exit.json](host/host-exit.json) | none | (none) |
 | `eludite/solution/open` | request | [solution-open.json](host/solution-open.json) | `{ path }` | `{ generation }` |
 | `eludite/solution/close` | request | [solution-close.json](host/solution-close.json) | none | `{ generation }` |
-| `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], dependencies?, error? }] }` |
+| `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, msbuildItemType?, dependentUpon?, link? }], dependencies?, error? }] }` |
 | `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
 | `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
 | `eludite/build/status` | request | [build-status.json](host/build-status.json) | none | `{ running: { buildId, generation, path, target, configuration, platform, toolchain, binlog, commandLine, elapsedMs, progress?, output: { firstSeq, nextSeq, text, truncated } } \| null, last?: { buildId, generation, target, path, result, elapsedMs, summary } }` |
@@ -123,6 +123,9 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/resx/designer` | request | [resx-designer.json](host/resx-designer.json) | `{ generation, path, action, modifier? }` | `{ generation, path, designer?, status, modifier, projectWritten?, className?, namespace? }` |
 | `eludite/solution/configurations` | request | [solution-configurations.json](host/solution-configurations.json) | none | `{ generation, path, format, configurations, platforms, active, projects: [{ name, path, configurations, platforms, mappings }] }` |
 | `eludite/solution/setConfiguration` | request | [solution-set-configuration.json](host/solution-set-configuration.json) | `{ generation, select?, mappings? }` | `{ generation, path, written, active }` |
+<!-- brief 0073: the Workspace window's project edits and reload -->
+| `eludite/project/editItems` | request | [project-edit-items.json](host/project-edit-items.json) | `{ project, edits: [{ op, path, to?, itemType? }] }` | `{ changed, generation, edits: [{ op, path, applied, message? }] }` |
+| `eludite/solution/reload` | request | [solution-reload.json](host/solution-reload.json) | `{ projectFiles }` | `{ generation }` |
 
 #### `eludite/host/initialize`
 

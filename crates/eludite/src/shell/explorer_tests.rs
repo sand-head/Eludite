@@ -297,6 +297,7 @@ fn big_model(n: usize) -> SolutionModel {
         .map(|i| TreeFile {
             path: format!("/big/App/F{}/File{i}.cs", i / 100),
             item_type: TreeItemType::Compile,
+            msbuild_item_type: None,
             dependent_upon: None,
             link: None,
         })

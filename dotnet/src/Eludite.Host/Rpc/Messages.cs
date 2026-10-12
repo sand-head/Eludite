@@ -129,9 +129,15 @@ public sealed record TreeFramework(string Name)
     public string? TargetFramework { get; init; }
 }
 
-/// <summary>A source file of a <see cref="TreeProject"/>. <see cref="ItemType"/> is <c>compile</c> or <c>content</c>.</summary>
+/// <summary>
+/// An item of a <see cref="TreeProject"/>. <see cref="ItemType"/> is <c>compile</c>, <c>content</c>, <c>none</c>,
+/// <c>embeddedResource</c>, <c>folder</c> or <c>other</c> (brief 0073).
+/// </summary>
 public sealed record TreeFile(string Path, string ItemType)
 {
+    /// <summary>The MSBuild item type's name, for <see cref="ItemType"/> <c>other</c> (brief 0073).</summary>
+    public string? MsbuildItemType { get; init; }
+
     /// <summary>Absolute path of the file this one nests under (DependentUpon metadata).</summary>
     public string? DependentUpon { get; init; }
 

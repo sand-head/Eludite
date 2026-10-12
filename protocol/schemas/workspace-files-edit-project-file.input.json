@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-edit-project-file.input.json",
+  "title": "eludite.workspace.edit_project_file input",
+  "description": "Edit Project File: open a .csproj, .vbproj or .fsproj in the text editor. Saving a project, .props or .targets file makes the host re-evaluate (the watcher sees the write).",
+  "type": "object",
+  "required": [
+    "project"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project file (or the project's name as the Workspace window shows it).",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

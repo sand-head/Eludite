@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-rename.input.json",
+  "title": "eludite.workspace.rename input",
+  "description": "Rename a file or folder in place, as the Workspace window's Rename (F2) does. All or nothing (brief 0073, the workspace-edit applier's rules): every source must exist, no target may exist, nothing moves into itself, and no open document among the touched files may have unsaved changes; otherwise nothing changes and `message` says why. The disk work runs off the UI thread; open tabs follow a rename or move and close on a delete; every language server gets workspace/didChangeWatchedFiles; projects that name the paths in their project file are edited by the host (eludite/project/editItems) and the tree is refreshed.",
+  "type": "object",
+  "required": [
+    "path",
+    "name"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path, or relative to the workspace folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "description": "The new name: a file or folder name, no path separators.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "renameSymbol": {
+      "description": "For a C#, VB or F# file named after a type it declares (Foo.cs declaring Foo): also rename the type and its references through the language server (eludite.editor.rename at the declaration), as Visual Studio offers. Default false; the person is asked.",
+      "type": "boolean"
+    }
+  }
+}

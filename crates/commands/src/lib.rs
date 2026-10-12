@@ -71,6 +71,8 @@ pub mod test;
 pub mod update;
 pub mod view;
 pub mod workspace;
+// Brief 0073: the Workspace window's file operations and switches.
+pub mod workspace_files;
 pub mod workspace_tree;
 
 pub use audit::{AuditEntry, AuditLog, EditRecord, EditState, Outcome};

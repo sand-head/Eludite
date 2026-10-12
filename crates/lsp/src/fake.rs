@@ -51,6 +51,8 @@ use crate::fake_nuget::{FakeNuGet, host_of, output_updates};
 mod projects;
 /// `eludite/resx/*` (proposal 0005).
 mod resx;
+/// Brief 0073: `eludite/project/editItems` and `eludite/solution/reload`.
+mod items;
 
 /// One message the fake received from the shell.
 #[derive(Debug, Clone, PartialEq)]
@@ -1167,6 +1169,10 @@ impl FakeHost {
             }
             methods::RESX_SETS | methods::RESX_DESIGNER => {
                 self.answer_resx(method, params, &reply, &error, &notify)
+            }
+            // Brief 0073.
+            methods::PROJECT_EDIT_ITEMS | methods::SOLUTION_RELOAD => {
+                self.answer_items(method, params, &reply, &notify)
             }
             m if methods::FORWARDED_TYPED_REQUESTS.contains(&m)
                 || methods::FORWARDED_UNTYPED_REQUESTS.contains(&m) =>

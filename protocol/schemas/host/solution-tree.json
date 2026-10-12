@@ -87,7 +87,7 @@
           }
         },
         "files": {
-          "description": "Compile items, plus Content items for web projects, as absolute paths in evaluation order.",
+          "description": "The project's visible items (brief 0073: Compile, Content, None, EmbeddedResource, Folder and every AvailableItemName type; not under bin/ or obj/, not Visible false; a path once, its first item type) as absolute paths in evaluation order. A Folder item's path is the folder, without a trailing separator.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/file"
@@ -258,11 +258,20 @@
           "minLength": 1
         },
         "itemType": {
-          "description": "The MSBuild item type.",
+          "description": "The MSBuild item type: Compile, Content, None, EmbeddedResource and Folder by name; any other visible item type (one the project names in AvailableItemName: Page, Resource, AdditionalFiles, Protobuf, ...) is other, with msbuildItemType naming it (brief 0073).",
           "enum": [
             "compile",
-            "content"
+            "content",
+            "none",
+            "embeddedResource",
+            "folder",
+            "other"
           ]
+        },
+        "msbuildItemType": {
+          "description": "The item type's MSBuild name, for itemType other (brief 0073).",
+          "type": "string",
+          "minLength": 1
         },
         "dependentUpon": {
           "description": "Absolute path of the file this one nests under (DependentUpon metadata), when set.",

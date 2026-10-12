@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-fsharp-move.input.json",
+  "title": "eludite.workspace.fsharp_move input",
+  "description": "Move an F# file one place up or down in its project's compile order (the Workspace window's Move Up and Move Down; eludite/project/editItems moveUp or moveDown).",
+  "type": "object",
+  "required": [
+    "path",
+    "direction"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The F# file (a Compile item of an .fsproj).",
+      "type": "string",
+      "minLength": 1
+    },
+    "direction": {
+      "enum": [
+        "up",
+        "down"
+      ]
+    }
+  }
+}

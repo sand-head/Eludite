@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-copy-path.input.json",
+  "title": "eludite.workspace.copy_path input",
+  "description": "Copy Full Path or Copy Relative Path: put a node's path on the clipboard and answer it. The relative path is relative to the folder of the project that holds the file, else to the workspace folder.",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path, or relative to the workspace folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "relative": {
+      "description": "Copy Relative Path. Default false (the full path).",
+      "type": "boolean"
+    }
+  }
+}

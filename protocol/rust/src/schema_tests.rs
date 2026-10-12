@@ -299,6 +299,7 @@ fn eludite_messages_conform_to_their_schemas() {
         files: vec![host::TreeFile {
             path: "/src/Shop/Default.aspx.cs".into(),
             item_type: host::TreeItemType::Compile,
+            msbuild_item_type: None,
             dependent_upon: Some("/src/Shop/Default.aspx".into()),
             link: None,
         }],
@@ -333,7 +334,7 @@ fn eludite_messages_conform_to_their_schemas() {
     rejects(
         "solution-tree.json",
         "file",
-        json!({"path": "/a.cs", "itemType": "none"}),
+        json!({"path": "/a.cs", "itemType": "page"}),
     );
     conforms(
         "solution-status.json",
@@ -2195,4 +2196,71 @@ fn resx_messages_conform_to_their_schemas() {
         v,
         json!({"generation": 4, "path": "x", "status": "none", "modifier": "none"})
     );
+    // Brief 0073: the Workspace window's project item edits, the watcher's reload and the widened item types.
+    conforms(
+        "project-edit-items.json",
+        "params",
+        &host::ProjectEditItemsParams {
+            project: "/s/App/App.csproj".into(),
+            edits: vec![
+                host::ProjectItemEdit {
+                    op: host::ProjectItemOp::Rename,
+                    path: "/s/App/A.cs".into(),
+                    to: Some("/s/App/B.cs".into()),
+                    item_type: None,
+                },
+                host::ProjectItemEdit {
+                    op: host::ProjectItemOp::Include,
+                    path: "/s/App/notes.txt".into(),
+                    to: None,
+                    item_type: Some("None".into()),
+                },
+                host::ProjectItemEdit {
+                    op: host::ProjectItemOp::MoveUp,
+                    path: "/s/App/B.fs".into(),
+                    to: None,
+                    item_type: None,
+                },
+            ],
+        },
+    );
+    rejects(
+        "project-edit-items.json",
+        "params",
+        json!({"project": "/s/App/App.csproj"}),
+    );
+    conforms(
+        "project-edit-items.json",
+        "result",
+        &host::ProjectEditItemsResult {
+            changed: true,
+            generation: 5,
+            edits: vec![host::ProjectItemEditResult {
+                op: "rename".into(),
+                path: "/s/App/A.cs".into(),
+                applied: true,
+                message: None,
+            }],
+        },
+    );
+    conforms(
+        "solution-reload.json",
+        "params",
+        &host::SolutionReloadParams {
+            project_files: true,
+        },
+    );
+    conforms(
+        "solution-reload.json",
+        "result",
+        &host::GenerationResult { generation: 6 },
+    );
+    for (t, name) in [
+        (host::TreeItemType::NoneItem, "none"),
+        (host::TreeItemType::EmbeddedResource, "embeddedResource"),
+        (host::TreeItemType::Folder, "folder"),
+        (host::TreeItemType::Other, "other"),
+    ] {
+        assert_eq!(serde_json::to_value(t).unwrap(), json!(name));
+    }
 }

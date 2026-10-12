@@ -78,5 +78,7 @@ pub use status::{SlotAlign, StatusBar, slot_selector, slots, status_toggle};
 pub use test_explorer::{TestGlyph, test_row, toolbar_button};
 pub use theme::{Theme, Typography};
 pub use title_bar::TitleBar;
-pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row, tree_row_with_badge, tree_row_with_icon};
+pub use tree::{
+    TREE_ROW_HEIGHT, TreeRowStyle, tree_row, tree_row_with_badge, tree_row_with_element, tree_row_with_icon,
+};
 pub use vertical_text::{VerticalLabel, vertical_label};

@@ -82,6 +82,11 @@ pub enum NodeKind {
     Framework,
     /// A project reference; `path` is the referenced project file.
     ProjectReference,
+    /// Brief 0073: a file (or a folder, `dir`) on disk under a project's folder that is not in the project, shown by
+    /// Show All Files ([`SolutionModel::with_disk_files`]).
+    Excluded {
+        dir: bool,
+    },
 }
 
 /// The folders of a Dependencies node, in Visual Studio's order.
@@ -109,7 +114,16 @@ impl NodeKind {
 impl NodeKind {
     /// Whether opening the node opens the file at its `path`.
     pub fn opens_file(&self) -> bool {
-        matches!(self, NodeKind::File { .. } | NodeKind::CargoTarget { .. })
+        matches!(
+            self,
+            NodeKind::File { .. } | NodeKind::CargoTarget { .. } | NodeKind::Excluded { dir: false }
+        )
+    }
+
+    /// Brief 0073: whether the node stands for a folder on disk (its `path`): a project's or a plain folder, or an
+    /// excluded one.
+    pub fn is_folder(&self) -> bool {
+        matches!(self, NodeKind::Folder | NodeKind::Excluded { dir: true })
     }
 }
 
@@ -120,6 +134,10 @@ pub enum FileType {
     CSharp,
     /// `.rs`.
     Rust,
+    /// `.vb` (brief 0073).
+    VisualBasic,
+    /// `.fs`, `.fsi`, `.fsx`, `.fsscript` (brief 0073).
+    FSharp,
     /// `.json`, `.jsonc`.
     Json,
     /// `.md`, `.markdown`.
@@ -183,6 +201,8 @@ pub fn file_type_of(name: &str) -> FileType {
         "lock" => FileType::Lock,
         "cs" => FileType::CSharp,
         "rs" => FileType::Rust,
+        "vb" => FileType::VisualBasic,
+        "fs" | "fsi" | "fsx" | "fsscript" => FileType::FSharp,
         "json" | "jsonc" => FileType::Json,
         "md" | "markdown" => FileType::Markdown,
         "csproj" | "vbproj" | "fsproj" | "props" | "targets" | "xml" | "config" | "resx"
@@ -207,7 +227,10 @@ pub fn file_type_of(name: &str) -> FileType {
 impl Row {
     /// The type of the file a file row stands for (by its path's name, else its label); `None` for other rows.
     pub fn file_type(&self) -> Option<FileType> {
-        if !matches!(self.kind, NodeKind::File { .. }) {
+        if !matches!(
+            self.kind,
+            NodeKind::File { .. } | NodeKind::Excluded { dir: false }
+        ) {
             return None;
         }
         let name = self
@@ -271,7 +294,7 @@ pub struct Node {
     pub id: String,
     pub label: String,
     pub kind: NodeKind,
-    /// The file or project file on disk (`None` for folders).
+    /// The file, folder (brief 0073) or project file on disk; `None` for a Cargo package's `Targets` node.
     pub path: Option<PathBuf>,
     pub children: Vec<Node>,
 }
@@ -620,6 +643,8 @@ fn project_node(p: &TreeProject) -> Node {
         dependent_upon: Option<PathBuf>,
     }
     let mut entries: Vec<Entry> = Vec::new();
+    // Brief 0073: `Folder` items, by display path (an empty folder the project names still shows).
+    let mut folder_items: Vec<String> = Vec::new();
     let mut seen = HashSet::new();
     for f in &p.files {
         let path = PathBuf::from(&f.path);
@@ -638,6 +663,13 @@ fn project_node(p: &TreeProject) -> Node {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
         };
+        if f.item_type == TreeItemType::Folder {
+            let display = display.trim_end_matches('/').to_owned();
+            if !display.is_empty() {
+                folder_items.push(display);
+            }
+            continue;
+        }
         entries.push(Entry {
             display,
             path,
@@ -645,6 +677,8 @@ fn project_node(p: &TreeProject) -> Node {
             dependent_upon: f.dependent_upon.as_deref().map(PathBuf::from),
         });
     }
+    // An F# project's files keep their compile order and do not nest by name (brief 0073).
+    let fsharp = is_fsharp_project(Path::new(&p.path));
 
     // Nesting: index of the parent entry for each entry.
     let by_path: HashMap<&Path, usize> = entries
@@ -663,9 +697,8 @@ fn project_node(p: &TreeProject) -> Node {
             .dependent_upon
             .as_deref()
             .and_then(|d| by_path.get(d).copied());
-        parent[i] = explicit
-            .or_else(|| nest_by_name(&e.display, &by_display))
-            .filter(|&j| j != i);
+        let by_name = || (!fsharp).then(|| nest_by_name(&e.display, &by_display)).flatten();
+        parent[i] = explicit.or_else(by_name).filter(|&j| j != i);
     }
     // Break cycles: a file whose parent chain comes back to it stays at its folder.
     for i in 0..entries.len() {
@@ -688,6 +721,12 @@ fn project_node(p: &TreeProject) -> Node {
         files: Vec<usize>,
     }
     let mut root = Folder::default();
+    for display in &folder_items {
+        let mut f = &mut root;
+        for part in display.split('/') {
+            f = f.folders.entry(part.to_owned()).or_default();
+        }
+    }
     for (i, e) in entries.iter().enumerate() {
         if parent[i].is_some() {
             continue;
@@ -705,24 +744,23 @@ fn project_node(p: &TreeProject) -> Node {
             children_of.entry(*p).or_default().push(i);
         }
     }
-    fn file_node(
-        i: usize,
-        entries: &[Entry],
-        children_of: &HashMap<usize, Vec<usize>>,
-        project: &str,
-    ) -> Node {
-        let e = &entries[i];
-        let mut children: Vec<Node> = children_of
+    struct Ctx<'a> {
+        entries: &'a [Entry],
+        children_of: &'a HashMap<usize, Vec<usize>>,
+        project: &'a str,
+        dir: &'a Path,
+        fsharp: bool,
+    }
+    fn file_node(i: usize, cx: &Ctx<'_>) -> Node {
+        let e = &cx.entries[i];
+        let mut children: Vec<Node> = cx
+            .children_of
             .get(&i)
-            .map(|c| {
-                c.iter()
-                    .map(|&j| file_node(j, entries, children_of, project))
-                    .collect()
-            })
+            .map(|c| c.iter().map(|&j| file_node(j, cx)).collect())
             .unwrap_or_default();
         sort_nodes(&mut children);
         Node {
-            id: format!("{project}|{}", e.display),
+            id: format!("{}|{}", cx.project, e.display),
             label: e
                 .display
                 .rsplit('/')
@@ -736,39 +774,47 @@ fn project_node(p: &TreeProject) -> Node {
             children,
         }
     }
-    fn folder_nodes(
-        f: &Folder,
-        prefix: &str,
-        entries: &[Entry],
-        children_of: &HashMap<usize, Vec<usize>>,
-        project: &str,
-    ) -> Vec<Node> {
-        let mut out: Vec<Node> = f
+    /// The nodes of folder `f`, and the first entry (in evaluation order) under it.
+    fn folder_nodes(f: &Folder, prefix: &str, cx: &Ctx<'_>) -> (Vec<Node>, usize) {
+        let mut out: Vec<(usize, Node)> = f
             .folders
             .iter()
             .map(|(name, sub)| {
                 let rel = format!("{prefix}{name}/");
-                Node {
-                    id: format!("{project}|{rel}"),
+                let (children, first) = folder_nodes(sub, &rel, cx);
+                let node = Node {
+                    id: format!("{}|{rel}", cx.project),
                     label: name.clone(),
                     kind: NodeKind::Folder,
-                    path: None,
-                    children: folder_nodes(sub, &rel, entries, children_of, project),
-                }
+                    path: Some(cx.dir.join(rel.trim_end_matches('/'))),
+                    children,
+                };
+                (first, node)
             })
             .collect();
-        out.extend(
-            f.files
-                .iter()
-                .map(|&i| file_node(i, entries, children_of, project)),
-        );
-        sort_nodes(&mut out);
-        out
+        out.extend(f.files.iter().map(|&i| (i, file_node(i, cx))));
+        let first = out.iter().map(|(i, _)| *i).min().unwrap_or(usize::MAX);
+        if cx.fsharp {
+            // Compile order: each folder where its first file is.
+            out.sort_by_key(|(i, _)| *i);
+            (out.into_iter().map(|(_, n)| n).collect(), first)
+        } else {
+            let mut nodes: Vec<Node> = out.into_iter().map(|(_, n)| n).collect();
+            sort_nodes(&mut nodes);
+            (nodes, first)
+        }
     }
+    let cx = Ctx {
+        entries: &entries,
+        children_of: &children_of,
+        project: &id,
+        dir: &dir,
+        fsharp,
+    };
     let children = if p.error.is_some() {
         Vec::new()
     } else {
-        let mut children = folder_nodes(&root, "", &entries, &children_of, &id);
+        let (mut children, _) = folder_nodes(&root, "", &cx);
         if let Some(deps) = &p.dependencies {
             children.insert(0, dependencies_node(&id, &p.path, deps));
         }
@@ -967,8 +1013,9 @@ fn file_leaf(prefix: &str, label: &str, path: &Path) -> Node {
     }
 }
 
-/// Folders mirroring the file system under `dir` for plain `files` (no nesting), sorted as Visual Studio does.
-/// Ids are `prefix|relative/path` (folders end with `/`).
+/// Folders mirroring the file system under `dir` for plain `files`, nested by Visual Studio's default rules
+/// ([`nest_by_name`], brief 0073) and sorted as Visual Studio does. Ids are `prefix|relative/path` (folders end with
+/// `/`); folder nodes carry their folder's path.
 pub fn files_tree(prefix: &str, dir: &Path, files: &[PathBuf]) -> Vec<Node> {
     #[derive(Default)]
     struct Folder {
@@ -993,7 +1040,7 @@ pub fn files_tree(prefix: &str, dir: &Path, files: &[PathBuf]) -> Vec<Node> {
         }
         at.files.push((name.clone(), f.clone()));
     }
-    fn nodes(f: &Folder, rel: &str, prefix: &str) -> Vec<Node> {
+    fn nodes(f: &Folder, rel: &str, prefix: &str, dir: &Path) -> Vec<Node> {
         let mut out: Vec<Node> = f
             .folders
             .iter()
@@ -1003,43 +1050,295 @@ pub fn files_tree(prefix: &str, dir: &Path, files: &[PathBuf]) -> Vec<Node> {
                     id: format!("{prefix}|{rel}"),
                     label: name.clone(),
                     kind: NodeKind::Folder,
-                    path: None,
-                    children: nodes(sub, &rel, prefix),
+                    path: Some(dir.join(rel.trim_end_matches('/'))),
+                    children: nodes(sub, &rel, prefix, dir),
                 }
             })
             .collect();
-        out.extend(f.files.iter().map(|(name, path)| Node {
-            id: format!("{prefix}|{rel}{name}"),
-            label: name.clone(),
-            kind: NodeKind::File {
-                item_type: TreeItemType::Content,
-            },
-            path: Some(path.clone()),
-            children: Vec::new(),
-        }));
+        let names: Vec<&str> = f.files.iter().map(|(n, _)| n.as_str()).collect();
+        let parent = nest_names(&names);
+        fn file(
+            i: usize,
+            f: &[(String, PathBuf)],
+            parent: &[Option<usize>],
+            rel: &str,
+            prefix: &str,
+        ) -> Node {
+            let (name, path) = &f[i];
+            let mut children: Vec<Node> = (0..f.len())
+                .filter(|&j| parent[j] == Some(i))
+                .map(|j| file(j, f, parent, rel, prefix))
+                .collect();
+            sort_nodes(&mut children);
+            Node {
+                id: format!("{prefix}|{rel}{name}"),
+                label: name.clone(),
+                kind: NodeKind::File {
+                    item_type: TreeItemType::Content,
+                },
+                path: Some(path.clone()),
+                children,
+            }
+        }
+        out.extend(
+            (0..f.files.len())
+                .filter(|&i| parent[i].is_none())
+                .map(|i| file(i, &f.files, &parent, rel, prefix)),
+        );
         sort_nodes(&mut out);
         out
     }
-    nodes(&root, "", prefix)
+    nodes(&root, "", prefix, dir)
 }
 
-/// The entry `display` nests under by name, if any.
-fn nest_by_name(display: &str, by_display: &HashMap<String, usize>) -> Option<usize> {
+/// For the file names of one folder, the index of the name each nests under ([`nest_by_name`]), cycles broken.
+fn nest_names(names: &[&str]) -> Vec<Option<usize>> {
+    let by_display: HashMap<String, usize> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.to_lowercase(), i))
+        .collect();
+    let mut parent: Vec<Option<usize>> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| nest_by_name(n, &by_display).filter(|&j| j != i))
+        .collect();
+    for i in 0..names.len() {
+        let mut j = parent[i];
+        let mut steps = 0;
+        while let Some(k) = j {
+            if k == i || steps > names.len() {
+                parent[i] = None;
+                break;
+            }
+            j = parent[k];
+            steps += 1;
+        }
+    }
+    parent
+}
+
+/// Whether `project` is an F# project (`.fsproj`), whose files keep their compile order.
+pub fn is_fsharp_project(project: &Path) -> bool {
+    project
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("fsproj"))
+}
+
+/// The entry `display` (a project-relative path, `/`-separated) nests under by name, if any: Visual Studio's default
+/// file nesting rules (brief 0073), tried in this order:
+/// - `X.designer.cs` (`.vb`) under `X`, `X.cs` (`X.vb`) or `X.resx`;
+/// - fileSuffixToExtension: any `A.b.c` under a sibling `A.b` (`Default.aspx.cs`, `Index.razor.css`,
+///   `site.js.map`, `bundleconfig.json.bindings`);
+/// - pathSegment: `X.seg.ext` under `X.ext` (`appsettings.Development.json`, `web.Debug.config`, `site.min.js`);
+/// - extensionToExtension: `X.js` under `X.ts`, `X.jsx` under `X.tsx`, `X.css` under `X.scss`, `X.sass` or
+///   `X.less`;
+/// - fileToFile: `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml` and `.npmrc` under
+///   `package.json`; `.bowerrc` under `bower.json`.
+pub fn nest_by_name(display: &str, by_display: &HashMap<String, usize>) -> Option<usize> {
     let lower = display.to_lowercase();
     let (dir, name) = match lower.rsplit_once('/') {
         Some((d, n)) => (format!("{d}/"), n.to_owned()),
         None => (String::new(), lower.clone()),
     };
     let sibling = |n: &str| by_display.get(&format!("{dir}{n}")).copied();
-    if let Some(base) = name.strip_suffix(".designer.cs") {
-        // Form1.Designer.cs under Form1.cs or Form1.resx; Default.aspx.designer.cs under Default.aspx.
-        return sibling(base)
-            .or_else(|| sibling(&format!("{base}.cs")))
-            .or_else(|| sibling(&format!("{base}.resx")));
+    for designer in [".designer.cs", ".designer.vb"] {
+        if let Some(base) = name.strip_suffix(designer) {
+            // Form1.Designer.cs under Form1.cs or Form1.resx; Default.aspx.designer.cs under Default.aspx.
+            let code = &designer[designer.len() - 3..];
+            return sibling(base)
+                .or_else(|| sibling(&format!("{base}{code}")))
+                .or_else(|| sibling(&format!("{base}.resx")));
+        }
+    }
+    // fileToFile.
+    let file_to_file = match name.as_str() {
+        "package-lock.json" | "npm-shrinkwrap.json" | "yarn.lock" | "pnpm-lock.yaml" | ".npmrc" => {
+            Some("package.json")
+        }
+        ".bowerrc" => Some("bower.json"),
+        _ => None,
+    };
+    if let Some(n) = file_to_file {
+        return sibling(n);
+    }
+    let (stem, ext) = name.rsplit_once('.')?;
+    if stem.is_empty() {
+        return None;
     }
     // Default.aspx.cs under Default.aspx: any name with two extensions under the sibling without the last one.
-    let (stem, _) = name.rsplit_once('.')?;
-    stem.contains('.').then(|| sibling(stem)).flatten()
+    if stem.contains('.')
+        && let Some(i) = sibling(stem)
+    {
+        return Some(i);
+    }
+    // appsettings.Development.json under appsettings.json.
+    if let Some((first, _)) = stem.split_once('.')
+        && let Some(i) = sibling(&format!("{first}.{ext}"))
+    {
+        return Some(i);
+    }
+    // site.js under site.ts.
+    let sources: &[&str] = match ext {
+        "js" => &["ts"],
+        "jsx" => &["tsx"],
+        "css" => &["scss", "sass", "less"],
+        _ => &[],
+    };
+    sources.iter().find_map(|s| sibling(&format!("{stem}.{s}")))
+}
+
+impl SolutionModel {
+    /// Brief 0073: the same tree with File Nesting off: every nested file at its folder, sorted with its siblings
+    /// (an F# project's files stay in compile order).
+    pub fn unnested(&self) -> SolutionModel {
+        fn lift(n: &mut Node, keep_order: bool) {
+            let keep_order = keep_order
+                || n.path
+                    .as_deref()
+                    .is_some_and(|p| matches!(n.kind, NodeKind::Project { .. }) && is_fsharp_project(p));
+            let mut out = Vec::with_capacity(n.children.len());
+            for mut c in std::mem::take(&mut n.children) {
+                lift(&mut c, keep_order);
+                if matches!(c.kind, NodeKind::File { .. } | NodeKind::Excluded { dir: false }) {
+                    let nested = std::mem::take(&mut c.children);
+                    out.push(c);
+                    out.extend(nested);
+                } else {
+                    out.push(c);
+                }
+            }
+            if !keep_order && n.kind != NodeKind::Solution {
+                // An opened folder's solution and Cargo workspace stay first, and a project's Dependencies node.
+                let start = out
+                    .iter()
+                    .position(|c| {
+                        !matches!(
+                            c.kind,
+                            NodeKind::Solution | NodeKind::CargoWorkspace | NodeKind::Dependencies
+                        )
+                    })
+                    .unwrap_or(out.len());
+                sort_nodes(&mut out[start..]);
+            }
+            n.children = out;
+        }
+        let mut m = self.clone();
+        lift(&mut m.root, false);
+        m
+    }
+
+    /// Brief 0073: Show All Files. `disk` holds, for project files (`.csproj`, ...), the files and folders found on
+    /// disk under the project's folder (absolute paths, `true` for a folder); every one the project's node does not
+    /// hold is added as an [`NodeKind::Excluded`] node in its folder (new folders excluded too). Files and folders the
+    /// tree already lists anywhere under the project are left as they are.
+    pub fn with_disk_files(&self, disk: &HashMap<PathBuf, Vec<(PathBuf, bool)>>) -> SolutionModel {
+        fn known(n: &Node, out: &mut HashSet<PathBuf>) {
+            if let Some(p) = &n.path
+                && !n.kind.is_dependency()
+            {
+                out.insert(lexical(p));
+            }
+            n.children.iter().for_each(|c| known(c, out));
+        }
+        fn insert(n: &mut Node, id: &str, dir: &Path, rel: &[String], is_dir: bool, at: &Path) {
+            let Some((first, rest)) = rel.split_first() else {
+                return;
+            };
+            let here = at.join(first);
+            if rest.is_empty() {
+                if n.children.iter().any(|c| c.path.as_deref() == Some(here.as_path())) {
+                    return;
+                }
+                let rel_id = here
+                    .strip_prefix(dir)
+                    .map(|r| {
+                        r.components()
+                            .map(|c| c.as_os_str().to_string_lossy())
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    })
+                    .unwrap_or_default();
+                n.children.push(Node {
+                    id: format!("{id}|{rel_id}{}", if is_dir { "/" } else { "" }),
+                    label: first.clone(),
+                    kind: NodeKind::Excluded { dir: is_dir },
+                    path: Some(here),
+                    children: Vec::new(),
+                });
+                return;
+            }
+            let ix = match n
+                .children
+                .iter()
+                .position(|c| c.kind.is_folder() && c.path.as_deref() == Some(here.as_path()))
+            {
+                Some(ix) => ix,
+                None => {
+                    insert(n, id, dir, std::slice::from_ref(first), true, at);
+                    n.children
+                        .iter()
+                        .position(|c| c.path.as_deref() == Some(here.as_path()))
+                        .expect("inserted above")
+                }
+            };
+            insert(&mut n.children[ix], id, dir, rest, is_dir, &here);
+        }
+        fn sort_excluded(n: &mut Node, fsharp: bool) {
+            for c in &mut n.children {
+                sort_excluded(c, fsharp);
+            }
+            if fsharp {
+                // Compile order stays; what is not in the project follows it.
+                n.children
+                    .sort_by_key(|c| matches!(c.kind, NodeKind::Excluded { .. }));
+            } else if !matches!(n.kind, NodeKind::Dependencies) {
+                let deps = n
+                    .children
+                    .first()
+                    .is_some_and(|c| c.kind == NodeKind::Dependencies);
+                let start = usize::from(deps);
+                sort_nodes(&mut n.children[start..]);
+            }
+        }
+        fn walk(n: &mut Node, disk: &HashMap<PathBuf, Vec<(PathBuf, bool)>>) {
+            if let (NodeKind::Project { error: None, .. }, Some(project)) = (&n.kind, &n.path) {
+                let Some(entries) = disk.get(project) else {
+                    return;
+                };
+                let project = project.clone();
+                let dir = project.parent().map(Path::to_path_buf).unwrap_or_default();
+                let mut have = HashSet::new();
+                known(n, &mut have);
+                let id = n.id.clone();
+                let mut added = false;
+                for (path, is_dir) in entries {
+                    let path = lexical(path);
+                    if have.contains(&path) || path == project {
+                        continue;
+                    }
+                    let Ok(rel) = path.strip_prefix(&dir) else {
+                        continue;
+                    };
+                    let rel: Vec<String> = rel
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect();
+                    insert(n, &id, &dir, &rel, *is_dir, &dir);
+                    have.insert(path);
+                    added = true;
+                }
+                if added {
+                    sort_excluded(n, is_fsharp_project(&project));
+                }
+                return;
+            }
+            n.children.iter_mut().for_each(|c| walk(c, disk));
+        }
+        let mut m = self.clone();
+        walk(&mut m.root, disk);
+        m
+    }
 }
 
 /// Folders before files, folders and files each by label, case-insensitively (Visual Studio order). The
@@ -1048,7 +1347,7 @@ fn sort_nodes(nodes: &mut [Node]) {
     nodes.sort_by(|a, b| {
         let rank = |n: &Node| match n.kind {
             NodeKind::CargoTargets => 0,
-            NodeKind::Folder => 1,
+            NodeKind::Folder | NodeKind::Excluded { dir: true } => 1,
             _ => 2,
         };
         rank(a)
@@ -1176,6 +1475,7 @@ mod tests {
         TreeFile {
             path: path.into(),
             item_type,
+            msbuild_item_type: None,
             dependent_upon: None,
             link: None,
         }
@@ -1669,5 +1969,258 @@ mod tests {
                 "{labels:?}"
             );
         }
+    }
+
+    // Brief 0073.
+
+    fn project(path: &str, files: Vec<TreeFile>) -> SolutionTree {
+        SolutionTree {
+            generation: 1,
+            path: Some("/s/S.slnx".into()),
+            projects: vec![TreeProject {
+                name: Path::new(path)
+                    .file_stem()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                path: path.into(),
+                kind: TreeProjectKind::Sdk,
+                web: false,
+                target_frameworks: vec!["net10.0".into()],
+                files,
+                error: None,
+                dependencies: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn folder_nodes_carry_their_folders_path() {
+        let m = SolutionModel::from_tree(&project(
+            "/s/App/App.csproj",
+            vec![file("/s/App/Models/Item.cs", TreeItemType::Compile)],
+        ))
+        .unwrap();
+        let folder = m.find("/s/App/App.csproj|Models/").unwrap();
+        assert_eq!(folder.kind, NodeKind::Folder);
+        assert!(folder.kind.is_folder());
+        assert_eq!(folder.path.as_deref(), Some(Path::new("/s/App/Models")));
+        let plain = files_tree(
+            "root",
+            Path::new("/w"),
+            &[PathBuf::from("/w/docs/a.md")],
+        );
+        assert_eq!(plain[0].path.as_deref(), Some(Path::new("/w/docs")));
+    }
+
+    #[test]
+    fn every_visible_item_type_shows_and_an_empty_folder_item_is_a_folder() {
+        let mut other = file("/s/App/protos/greet.proto", TreeItemType::Other);
+        other.msbuild_item_type = Some("Protobuf".into());
+        let m = SolutionModel::from_tree(&project(
+            "/s/App/App.csproj",
+            vec![
+                file("/s/App/Program.cs", TreeItemType::Compile),
+                file("/s/App/appsettings.json", TreeItemType::NoneItem),
+                file("/s/App/appsettings.Development.json", TreeItemType::NoneItem),
+                file("/s/App/Properties/launchSettings.json", TreeItemType::NoneItem),
+                file("/s/App/Strings.resx", TreeItemType::EmbeddedResource),
+                file("/s/App/Empty", TreeItemType::Folder),
+                other,
+            ],
+        ))
+        .unwrap();
+        let rows = m.visible_rows(&expand_all(&m));
+        assert_eq!(
+            labels(&rows),
+            [
+                "Solution 'S' (1 of 1 project)",
+                "  App (net10.0)",
+                "    Empty",
+                "    Properties",
+                "      launchSettings.json",
+                "    protos",
+                "      greet.proto",
+                "    appsettings.json",
+                "      appsettings.Development.json",
+                "    Program.cs",
+                "    Strings.resx",
+            ]
+        );
+        let empty = m.find("/s/App/App.csproj|Empty/").unwrap();
+        assert!(empty.children.is_empty() && empty.kind == NodeKind::Folder);
+    }
+
+    #[test]
+    fn visual_studios_default_nesting_rules() {
+        let names = [
+            "appsettings.json",
+            "appsettings.Development.json",
+            "appsettings.Production.json",
+            "web.config",
+            "web.Debug.config",
+            "site.ts",
+            "site.js",
+            "site.js.map",
+            "site.min.js",
+            "styles.scss",
+            "styles.css",
+            "styles.min.css",
+            "package.json",
+            "package-lock.json",
+            ".npmrc",
+            "Index.razor",
+            "Index.razor.cs",
+            "Index.razor.css",
+            "Form1.vb",
+            "Form1.Designer.vb",
+            "Program.cs",
+            "README.md",
+        ];
+        let parent = nest_names(&names);
+        let under = |child: &str| {
+            let i = names.iter().position(|n| *n == child).unwrap();
+            parent[i].map(|p| names[p])
+        };
+        assert_eq!(under("appsettings.Development.json"), Some("appsettings.json"));
+        assert_eq!(under("appsettings.Production.json"), Some("appsettings.json"));
+        assert_eq!(under("web.Debug.config"), Some("web.config"));
+        assert_eq!(under("site.js"), Some("site.ts"));
+        assert_eq!(under("site.js.map"), Some("site.js"));
+        assert_eq!(under("site.min.js"), Some("site.js"));
+        assert_eq!(under("styles.css"), Some("styles.scss"));
+        assert_eq!(under("styles.min.css"), Some("styles.css"));
+        assert_eq!(under("package-lock.json"), Some("package.json"));
+        assert_eq!(under(".npmrc"), Some("package.json"));
+        assert_eq!(under("Index.razor.cs"), Some("Index.razor"));
+        assert_eq!(under("Index.razor.css"), Some("Index.razor"));
+        assert_eq!(under("Form1.Designer.vb"), Some("Form1.vb"));
+        for top in ["appsettings.json", "site.ts", "package.json", "Program.cs", "README.md"] {
+            assert_eq!(under(top), None, "{top}");
+        }
+        // A plain folder nests too, and File Nesting off lifts every file to its folder.
+        let files: Vec<PathBuf> = ["appsettings.json", "appsettings.Development.json", "b.txt"]
+            .iter()
+            .map(|n| PathBuf::from(format!("/w/{n}")))
+            .collect();
+        let root = Node {
+            id: "folder|/w".into(),
+            label: "w".into(),
+            kind: NodeKind::FolderRoot,
+            path: Some("/w".into()),
+            children: files_tree("/w", Path::new("/w"), &files),
+        };
+        let m = SolutionModel {
+            generation: 0,
+            path: "/w".into(),
+            root,
+            projects_by_file: HashMap::new(),
+        };
+        assert_eq!(
+            labels(&m.visible_rows(&expand_all(&m))),
+            ["w", "  appsettings.json", "    appsettings.Development.json", "  b.txt"]
+        );
+        let flat = m.unnested();
+        assert_eq!(
+            labels(&flat.visible_rows(&expand_all(&flat))),
+            ["w", "  appsettings.Development.json", "  appsettings.json", "  b.txt"]
+        );
+    }
+
+    #[test]
+    fn an_fsharp_project_keeps_its_compile_order() {
+        let m = SolutionModel::from_tree(&project(
+            "/s/Lib/Lib.fsproj",
+            vec![
+                file("/s/Lib/Types.fs", TreeItemType::Compile),
+                file("/s/Lib/Domain/Rules.fs", TreeItemType::Compile),
+                file("/s/Lib/Domain/Agent.fs", TreeItemType::Compile),
+                file("/s/Lib/Api.fs", TreeItemType::Compile),
+                file("/s/Lib/Api.Extra.fs", TreeItemType::Compile),
+                file("/s/Lib/Program.fs", TreeItemType::Compile),
+            ],
+        ))
+        .unwrap();
+        let rows = labels(&m.visible_rows(&expand_all(&m)));
+        assert_eq!(
+            rows,
+            [
+                "Solution 'S' (1 of 1 project)",
+                "  Lib (net10.0)",
+                "    Types.fs",
+                "    Domain",
+                "      Rules.fs",
+                "      Agent.fs",
+                "    Api.fs",
+                "    Api.Extra.fs",
+                "    Program.fs",
+            ]
+        );
+        // Unnesting keeps the order too.
+        let flat = m.unnested();
+        assert_eq!(labels(&flat.visible_rows(&expand_all(&flat))), rows);
+    }
+
+    #[test]
+    fn show_all_files_adds_what_the_project_does_not_hold() {
+        let m = SolutionModel::from_tree(&project(
+            "/s/App/App.csproj",
+            vec![
+                file("/s/App/Program.cs", TreeItemType::Compile),
+                file("/s/App/Models/Item.cs", TreeItemType::Compile),
+            ],
+        ))
+        .unwrap();
+        let disk = HashMap::from([(
+            PathBuf::from("/s/App/App.csproj"),
+            vec![
+                (PathBuf::from("/s/App/App.csproj"), false),
+                (PathBuf::from("/s/App/Program.cs"), false),
+                (PathBuf::from("/s/App/Models"), true),
+                (PathBuf::from("/s/App/Models/Item.cs"), false),
+                (PathBuf::from("/s/App/Models/Old.cs"), false),
+                (PathBuf::from("/s/App/bin"), true),
+                (PathBuf::from("/s/App/bin/Debug"), true),
+                (PathBuf::from("/s/App/bin/Debug/App.dll"), false),
+                (PathBuf::from("/s/App/notes.txt"), false),
+            ],
+        )]);
+        let all = m.with_disk_files(&disk);
+        let rows = all.visible_rows(&expand_all(&all));
+        let shown: Vec<String> = rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}{}{}",
+                    "  ".repeat(r.depth),
+                    r.label,
+                    if matches!(r.kind, NodeKind::Excluded { .. }) { " *" } else { "" }
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                "Solution 'S' (1 of 1 project)",
+                "  App (net10.0)",
+                "    bin *",
+                "      Debug *",
+                "        App.dll *",
+                "    Models",
+                "      Item.cs",
+                "      Old.cs *",
+                "    notes.txt *",
+                "    Program.cs",
+            ]
+        );
+        let old = rows.iter().find(|r| r.label == "Old.cs").unwrap();
+        assert_eq!(old.kind, NodeKind::Excluded { dir: false });
+        assert!(old.kind.opens_file());
+        assert_eq!(old.path.as_deref(), Some(Path::new("/s/App/Models/Old.cs")));
+        assert_eq!(old.id, "/s/App/App.csproj|Models/Old.cs");
+        assert_eq!(
+            all.find("/s/App/App.csproj|bin/").unwrap().kind,
+            NodeKind::Excluded { dir: true }
+        );
     }
 }

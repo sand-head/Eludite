@@ -301,6 +301,8 @@ enum Cmd {
     /// Ask for the tree again: the projects changed under a new generation (brief 0048's NuGet changes), or the host
     /// reloaded the solution itself (brief 0049's property writes).
     RefreshTree,
+    /// Brief 0073: `eludite/solution/reload` (the Workspace window's watcher saw files change), then the tree.
+    Reload(bool),
     /// An untyped notification (`workspace/didChangeWatchedFiles`).
     Notify(String, serde_json::Value),
     BuildStart(u64, host::BuildStartParams),
@@ -776,6 +778,13 @@ impl ServerSession {
         self.send(Cmd::RefreshTree);
     }
 
+    // Brief 0073: the Workspace window's watcher.
+    /// Have the host re-evaluate (`eludite/solution/reload`; `project_files`: a project, `.props`, `.targets` or
+    /// solution file changed, so the solution reopens), then ask for the tree; it arrives as [`SessionEvent::Tree`].
+    pub fn reload_solution(&self, project_files: bool) {
+        self.send(Cmd::Reload(project_files));
+    }
+
     /// Answer the server's `workspace/applyEdit` request `id` ([`SessionEvent::ApplyEdit`]).
     pub fn respond_apply_edit(&self, id: Id, result: lsp::ApplyWorkspaceEditResult) {
         self.send(Cmd::RespondApplyEdit(id, result));
@@ -987,6 +996,12 @@ impl Worker {
                 Cmd::RefreshTree => {
                     if let Some(c) = self.host().cloned() {
                         self.request_tree(c);
+                    }
+                }
+                // Brief 0073: reload off this thread, then the tree.
+                Cmd::Reload(project_files) => {
+                    if let Some(c) = self.host().cloned() {
+                        self.reload(c, project_files);
                     }
                 }
                 Cmd::BuildStart(ticket, params) => self.build_start(ticket, params),
@@ -1225,6 +1240,27 @@ impl Worker {
         };
         lock(&self.shared).generation = generation;
         self.request_tree(client);
+    }
+
+    /// Brief 0073: `eludite/solution/reload`, waited for off this thread, then the tree.
+    fn reload(&self, client: HostClient, project_files: bool) {
+        let pending = client.request::<host::SolutionReload>(host::SolutionReloadParams { project_files });
+        let events = self.events.clone();
+        let _ = thread::Builder::new()
+            .name("eludite-reload-wait".into())
+            .spawn(move || {
+                if let Err(e) = pending.and_then(|p| p.wait()) {
+                    eprintln!("eludite: eludite/solution/reload failed: {e}");
+                }
+                let pending = client.request::<host::SolutionTreeRequest>(());
+                match pending.and_then(|p| p.wait()) {
+                    Ok(tree) if tree.generation == client.generation() => {
+                        let _ = events.unbounded_send(SessionEvent::Tree(tree));
+                    }
+                    Ok(_) | Err(eludite_lsp::Error::Stale { .. }) => {}
+                    Err(e) => eprintln!("eludite: eludite/solution/tree failed: {e}"),
+                }
+            });
     }
 
     /// Ask for the tree; it streams in when the host's evaluation finishes. Waits off this thread so document

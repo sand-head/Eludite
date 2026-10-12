@@ -35,7 +35,9 @@ public sealed class HostRpcTarget
     /// in-process MSBuild that reloads the solution through <paramref name="languageServer"/> after a write.</param>
     /// <param name="resx">Answers <c>eludite/resx/*</c> (proposal 0005); when null, one on the in-process MSBuild that reloads the
     /// solution through <paramref name="languageServer"/> after a project write.</param>
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null, ProjectPropertiesService? properties = null, ResxService? resx = null)
+    /// <param name="items">Answers <c>eludite/project/editItems</c> and <c>eludite/solution/reload</c> (brief 0073); when null, one
+    /// that reloads the solution through <paramref name="languageServer"/>.</param>
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null, ProjectPropertiesService? properties = null, ResxService? resx = null, ProjectItemsService? items = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
@@ -47,6 +49,7 @@ public sealed class HostRpcTarget
         Properties = properties ?? new ProjectPropertiesService(LanguageServer.CurrentSolution, () => LanguageServer.Generation, LanguageServer.OpenSolution, log);
         NuGet = nuget ?? new NuGetService(LanguageServer.CurrentSolution, LanguageServer.AdvanceGeneration, log);
         Resx = resx ?? new ResxService(LanguageServer.CurrentSolution, () => LanguageServer.Generation, LanguageServer.OpenSolution, log);
+        Items = items ?? new ProjectItemsService(LanguageServer.CurrentSolution, () => LanguageServer.Generation, LanguageServer.OpenSolution, LanguageServer.AdvanceGeneration, log); // Brief 0073
     }
 
     /// <summary>The <c>eludite/resx/*</c> service (proposal 0005).</summary>
@@ -323,6 +326,26 @@ public sealed class HostRpcTarget
         RequireInitialized();
         return Resx.DesignerAsync(parameters, cancellationToken);
     }
+
+    // Brief 0073: the Workspace window's project item edits and the reload its watcher asks for.
+    /// <summary>The <c>eludite/project/editItems</c> and <c>eludite/solution/reload</c> service (brief 0073).</summary>
+    public ProjectItemsService Items { get; }
+
+    [JsonRpcMethod("eludite/project/editItems", UseSingleObjectParameterDeserialization = true)]
+    public Task<ProjectEditItemsResult> EditProjectItemsAsync(ProjectEditItemsParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Items.EditItemsAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/solution/reload", UseSingleObjectParameterDeserialization = true)]
+    public GenerationResult ReloadSolution(SolutionReloadParams? parameters)
+    {
+        RequireInitialized();
+        return Items.Reload(parameters);
+    }
+
+    // End of brief 0073.
 
     [JsonRpcMethod("eludite/host/shutdown")]
     public void Shutdown()

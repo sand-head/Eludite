@@ -215,6 +215,112 @@ public sealed class SolutionTreeTests : IDisposable
         Assert.True(result.Files.Count(f => f.ItemType == "compile") > 10);
     }
 
+    /// <summary>Brief 0073: an SDK console project with the files Visual Studio shows beyond its Compile items.</summary>
+    private string WriteConsoleFixture()
+    {
+        var project = Write("App/App.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net10.0</TargetFramework>
+              </PropertyGroup>
+              <ItemGroup>
+                <Folder Include="Empty\" />
+                <None Update="hidden.txt" Visible="false" />
+                <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+                <None Remove="stylecop.json" />
+                <AdditionalFiles Include="stylecop.json" />
+                <AvailableItemName Include="Protobuf" />
+                <None Remove="Protos\**" />
+                <Protobuf Include="Protos\greet.proto" />
+              </ItemGroup>
+            </Project>
+            """);
+        Write("App/Program.cs", "System.Console.WriteLine();");
+        Write("App/appsettings.json", "{}");
+        Write("App/appsettings.Development.json", "{}");
+        Write("App/Properties/launchSettings.json", "{}");
+        Write("App/Strings.resx", "<root />");
+        Write("App/hidden.txt", "hidden");
+        Write("App/stylecop.json", "{}");
+        Write("App/Protos/greet.proto", "syntax = \"proto3\";");
+        Write("App/bin/Debug/App.dll", "binary");
+        Write("App/obj/project.assets.json", "{}");
+        Directory.CreateDirectory(Path.Combine(_dir.FullName, "App", "Empty"));
+        return project;
+    }
+
+    [Fact]
+    public void SdkConsole_ListsNoneEmbeddedResourceFolderAndOtherItems_AndSkipsInvisibleOnes()
+    {
+        var project = WriteConsoleFixture();
+        var app = Assert.Single(new MsBuildProjectTreeEvaluator().Evaluate([project], Ct));
+        Assert.Null(app.Error);
+        var dir = Path.GetDirectoryName(app.Path)!;
+        string TypeOf(string relative) => app.Files.Single(f => f.Path == Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar))).ItemType;
+
+        Assert.Equal("compile", TypeOf("Program.cs"));
+        Assert.Equal("none", TypeOf("appsettings.json"));
+        Assert.Equal("none", TypeOf("appsettings.Development.json"));
+        Assert.Equal("none", TypeOf("Properties/launchSettings.json"));
+        Assert.Equal("embeddedResource", TypeOf("Strings.resx"));
+        Assert.Equal("folder", TypeOf("Empty"));
+        var additional = app.Files.Single(f => f.Path == Path.Combine(dir, "stylecop.json"));
+        Assert.Equal("other", additional.ItemType);
+        Assert.Equal("AdditionalFiles", additional.MsbuildItemType);
+        var proto = app.Files.Single(f => f.Path == Path.Combine(dir, "Protos", "greet.proto"));
+        Assert.Equal(("other", "Protobuf"), (proto.ItemType, proto.MsbuildItemType));
+        Assert.All(app.Files.Where(f => f.ItemType != "other"), f => Assert.Null(f.MsbuildItemType));
+
+        var files = Relative(app);
+        Assert.DoesNotContain("hidden.txt", files);
+        Assert.DoesNotContain(files, f => f.StartsWith("bin/", StringComparison.Ordinal) || f.StartsWith("obj/", StringComparison.Ordinal));
+        Assert.DoesNotContain(files, f => f.EndsWith(".csproj", StringComparison.Ordinal));
+        Assert.Equal(files.Length, files.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void FSharpProject_KeepsItsCompileOrder()
+    {
+        var project = Write("Fs/Fs.fsproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+              <ItemGroup>
+                <Compile Include="Zeta.fs" />
+                <Compile Include="Alpha.fs" />
+                <Compile Include="Program.fs" />
+              </ItemGroup>
+            </Project>
+            """);
+        foreach (var name in new[] { "Zeta.fs", "Alpha.fs", "Program.fs" })
+        {
+            Write("Fs/" + name, "module M");
+        }
+
+        var fs = Assert.Single(new MsBuildProjectTreeEvaluator().Evaluate([project], Ct));
+        Assert.Null(fs.Error);
+        Assert.Equal(["Zeta.fs", "Alpha.fs", "Program.fs"], fs.Files.Where(f => f.ItemType == "compile").Select(f => Path.GetFileName(f.Path)));
+    }
+
+    [Fact]
+    public async Task Request_ListsTheWidenedItemTypesOnTheWire()
+    {
+        var project = WriteConsoleFixture();
+        await using var host = new WireHost(new MsBuildProjectTreeEvaluator());
+        await host.InitializeAsync();
+        await host.Client.InvokeWithParameterObjectAsync<GenerationResult>("eludite/solution/open", new { path = project }, Ct);
+
+        var tree = await host.Client.InvokeWithCancellationAsync<JsonElement>("eludite/solution/tree", [], Ct);
+        var files = tree.GetProperty("projects")[0].GetProperty("files").EnumerateArray().ToList();
+        var folder = files.Single(f => f.GetProperty("itemType").GetString() == "folder");
+        Assert.Equal(Path.Combine(Path.GetDirectoryName(project)!, "Empty"), folder.GetProperty("path").GetString());
+        Assert.False(folder.TryGetProperty("msbuildItemType", out _), "msbuildItemType is omitted unless itemType is other");
+        Assert.Equal(
+            ["AdditionalFiles", "Protobuf"],
+            files.Where(f => f.GetProperty("itemType").GetString() == "other").Select(f => f.GetProperty("msbuildItemType").GetString()));
+        Assert.Contains(files, f => f.GetProperty("itemType").GetString() == "embeddedResource");
+    }
+
     // ------------------------------------------------------------------ the request over the wire
 
     [Fact]

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-files-view.output.json",
+  "title": "eludite.workspace.view output",
+  "description": "The Workspace window's switches after the call.",
+  "type": "object",
+  "required": [
+    "showAllFiles",
+    "fileNesting",
+    "trackActiveItem"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "showAllFiles": {
+      "type": "boolean"
+    },
+    "fileNesting": {
+      "type": "boolean"
+    },
+    "trackActiveItem": {
+      "type": "boolean"
+    },
+    "selected": {
+      "description": "The selected node's path after the call (syncActive selects the active document).",
+      "type": "string"
+    }
+  }
+}

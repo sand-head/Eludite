@@ -15,7 +15,7 @@ namespace Eludite.Host.Projects;
 public sealed class MsBuildProjectTreeEvaluator : IProjectTreeEvaluator
 {
     // GUIDs of web project types: Web Application, MVC 1 to 5, Web Site.
-    private static readonly string[] WebProjectTypes =
+    internal static readonly string[] WebProjectTypes =
     [
         "349c5851-65df-11da-9384-00065b846f21",
         "603c0e0b-db56-11dc-be95-000d561079b0",
@@ -126,38 +126,43 @@ public sealed class MsBuildProjectTreeEvaluator : IProjectTreeEvaluator
             || WebProjectTypes.Any(g => typeGuids.Contains(g, StringComparison.OrdinalIgnoreCase))
             || content.Any(i => DesignTimeProperties.IsMarkup(i.EvaluatedInclude));
 
+        // Brief 0073: every visible item, as Visual Studio's Solution Explorer lists them: the known types first, then
+        // the types the project names in AvailableItemName, each in its evaluation order (MSBuild keeps one list per
+        // item type, so Compile items, and with them an F# project's compile order, stay in order).
         var files = new List<TreeFile>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var excluded = new[] { "obj", "bin" }.Select(d => Path.Combine(dir, d) + Path.DirectorySeparatorChar).ToArray();
-        void Add(ProjectItem item, string itemType)
+        foreach (var itemType in VisibleItemTypes(project))
         {
-            var path = Path.GetFullPath(item.GetMetadataValue("FullPath"));
-            if (excluded.Any(x => path.StartsWith(x, StringComparison.Ordinal)) || !seen.Add(path))
+            var wire = WireItemType(itemType);
+            foreach (var item in project.GetItems(itemType))
             {
-                return;
-            }
+                if (string.Equals(item.GetMetadataValue("Visible"), "false", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
 
-            var dependentUpon = item.GetMetadataValue("DependentUpon");
-            var link = item.GetMetadataValue("Link");
-            files.Add(new TreeFile(path, itemType)
-            {
-                DependentUpon = dependentUpon.Length > 0
-                    ? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path)!, dependentUpon.Replace('\\', Path.DirectorySeparatorChar)))
-                    : null,
-                Link = link.Length > 0 ? link.Replace('\\', '/') : null,
-            });
-        }
+                var path = Path.GetFullPath(item.GetMetadataValue("FullPath"));
+                if (wire == "folder")
+                {
+                    path = Path.TrimEndingDirectorySeparator(path);
+                }
 
-        foreach (var item in project.GetItems("Compile"))
-        {
-            Add(item, "compile");
-        }
+                if (excluded.Any(x => path.StartsWith(x, StringComparison.Ordinal)) || !seen.Add(path))
+                {
+                    continue;
+                }
 
-        if (web)
-        {
-            foreach (var item in content)
-            {
-                Add(item, "content");
+                var dependentUpon = item.GetMetadataValue("DependentUpon");
+                var link = item.GetMetadataValue("Link");
+                files.Add(new TreeFile(path, wire)
+                {
+                    MsbuildItemType = wire == "other" ? itemType : null,
+                    DependentUpon = dependentUpon.Length > 0
+                        ? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path)!, dependentUpon.Replace('\\', Path.DirectorySeparatorChar)))
+                        : null,
+                    Link = link.Length > 0 ? link.Replace('\\', '/') : null,
+                });
             }
         }
 
@@ -167,6 +172,40 @@ public sealed class MsBuildProjectTreeEvaluator : IProjectTreeEvaluator
             Dependencies = legacy ? null : DependenciesOf(project, full, frameworks),
         };
     }
+
+    /// <summary>The item types Solution Explorer lists (brief 0073).</summary>
+    internal static readonly string[] KnownItemTypes = ["Compile", "Content", "None", "EmbeddedResource", "Folder"];
+
+    /// <summary>
+    /// Brief 0073: <see cref="KnownItemTypes"/>, <c>AdditionalFiles</c> (Visual Studio lists the analyzers' files from
+    /// its own item rules; the .NET SDK does not name them in <c>AvailableItemName</c>), then every other item type the
+    /// project names in <c>AvailableItemName</c> (Page, Resource, Protobuf, ...), in that order.
+    /// </summary>
+    internal static List<string> VisibleItemTypes(Project project)
+    {
+        var types = new List<string>(KnownItemTypes) { "AdditionalFiles" };
+        foreach (var available in project.GetItems("AvailableItemName"))
+        {
+            var name = available.EvaluatedInclude.Trim();
+            if (name.Length > 0 && !types.Contains(name, StringComparer.OrdinalIgnoreCase))
+            {
+                types.Add(name);
+            }
+        }
+
+        return types;
+    }
+
+    /// <summary>solution-tree.json's <c>itemType</c> for an MSBuild item type: the known ones by name, else <c>other</c>.</summary>
+    internal static string WireItemType(string itemType) => itemType.ToUpperInvariant() switch
+    {
+        "COMPILE" => "compile",
+        "CONTENT" => "content",
+        "NONE" => "none",
+        "EMBEDDEDRESOURCE" => "embeddedResource",
+        "FOLDER" => "folder",
+        _ => "other",
+    };
 
     /// <summary>Brief 0048: the Dependencies node from the evaluation (project and framework references) and the assets file.</summary>
     private static TreeDependencies DependenciesOf(Project project, string full, List<string> frameworks)

@@ -91,6 +91,9 @@ pub mod methods {
     pub const RESX_SETS: &str = "eludite/resx/sets";
     /// Generate, delete or change the access modifier of a `.resx` file's designer code file (proposal 0005).
     pub const RESX_DESIGNER: &str = "eludite/resx/designer";
+    // Brief 0073: the Workspace window's project item edits and the watcher's reload.
+    pub const PROJECT_EDIT_ITEMS: &str = "eludite/project/editItems";
+    pub const SOLUTION_RELOAD: &str = "eludite/solution/reload";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -125,6 +128,9 @@ pub mod methods {
         SOLUTION_SET_CONFIGURATION,
         RESX_SETS,
         RESX_DESIGNER,
+        // Brief 0073.
+        PROJECT_EDIT_ITEMS,
+        SOLUTION_RELOAD,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -375,6 +381,14 @@ pub struct TreeFramework {
 pub enum TreeItemType {
     Compile,
     Content,
+    /// Brief 0073: `None` items (`appsettings.json`, `launchSettings.json`, ...).
+    #[serde(rename = "none")]
+    NoneItem,
+    EmbeddedResource,
+    /// An empty folder the project names (`<Folder Include="x\" />`).
+    Folder,
+    /// Another visible item type ([`TreeFile::msbuild_item_type`] names it).
+    Other,
 }
 
 /// A source file of a [`TreeProject`].
@@ -383,6 +397,9 @@ pub enum TreeItemType {
 pub struct TreeFile {
     pub path: String,
     pub item_type: TreeItemType,
+    /// The MSBuild name of an [`TreeItemType::Other`] item type (brief 0073).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub msbuild_item_type: Option<String>,
     /// Absolute path of the file this one nests under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependent_upon: Option<String>,
@@ -2554,6 +2571,83 @@ request!(
     ResxDesignerResult
 );
 
+// Brief 0073: the Workspace window's project item edits (`project-edit-items.json`) and the watcher's reload
+// (`solution-reload.json`).
+
+/// One edit of `eludite/project/editItems`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectItemOp {
+    Include,
+    Exclude,
+    Rename,
+    Remove,
+    MoveUp,
+    MoveDown,
+    AddFolder,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectItemEdit {
+    pub op: ProjectItemOp,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_type: Option<String>,
+}
+
+/// `eludite/project/editItems` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectEditItemsParams {
+    pub project: String,
+    pub edits: Vec<ProjectItemEdit>,
+}
+
+/// One edit's outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectItemEditResult {
+    pub op: String,
+    pub path: String,
+    pub applied: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// `eludite/project/editItems` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectEditItemsResult {
+    pub changed: bool,
+    pub generation: Generation,
+    pub edits: Vec<ProjectItemEditResult>,
+}
+
+/// `eludite/solution/reload` params.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionReloadParams {
+    pub project_files: bool,
+}
+
+request!(
+    /// `eludite/project/editItems` (brief 0073).
+    ProjectEditItems,
+    methods::PROJECT_EDIT_ITEMS,
+    ProjectEditItemsParams,
+    ProjectEditItemsResult
+);
+request!(
+    /// `eludite/solution/reload` (brief 0073).
+    SolutionReload,
+    methods::SOLUTION_RELOAD,
+    SolutionReloadParams,
+    GenerationResult
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2646,6 +2740,7 @@ mod tests {
                         files: vec![TreeFile {
                             path: "/src/App/Program.cs".into(),
                             item_type: TreeItemType::Compile,
+                            msbuild_item_type: None,
                             dependent_upon: None,
                             link: None,
                         }],
@@ -2662,18 +2757,21 @@ mod tests {
                             TreeFile {
                                 path: "/src/Shop/Default.aspx".into(),
                                 item_type: TreeItemType::Content,
+                                msbuild_item_type: None,
                                 dependent_upon: None,
                                 link: None,
                             },
                             TreeFile {
                                 path: "/src/Shop/Default.aspx.cs".into(),
                                 item_type: TreeItemType::Compile,
+                                msbuild_item_type: None,
                                 dependent_upon: Some("/src/Shop/Default.aspx".into()),
                                 link: None,
                             },
                             TreeFile {
                                 path: "/src/Shared/Version.cs".into(),
                                 item_type: TreeItemType::Compile,
+                                msbuild_item_type: None,
                                 dependent_upon: None,
                                 link: Some("Properties/Version.cs".into()),
                             },
