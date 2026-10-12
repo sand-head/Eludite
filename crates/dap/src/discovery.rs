@@ -53,12 +53,27 @@ pub fn netcoredbg_name() -> &'static str {
     }
 }
 
+/// The netcoredbg release `tools/netcoredbg/fetch.sh` pins (and unpacks under its cache folder).
+pub const NETCOREDBG_VERSION: &str = "3.2.0-1092";
+
+/// The folder `tools/netcoredbg/fetch.sh` unpacks the pinned netcoredbg into, under `home`:
+/// `~/.cache/eludite/netcoredbg/<version>/netcoredbg` (`%USERPROFILE%\.cache\...` on Windows).
+pub fn netcoredbg_cache(home: &Path) -> PathBuf {
+    home.join(".cache")
+        .join("eludite")
+        .join("netcoredbg")
+        .join(NETCOREDBG_VERSION)
+        .join("netcoredbg")
+}
+
 /// Where netcoredbg was found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FoundIn {
     Bundled,
     Env,
     Path,
+    /// `tools/netcoredbg/fetch.sh`'s cache folder (brief 0065).
+    Cache,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +98,8 @@ pub struct AdapterSearch {
     pub exe_dir: Option<PathBuf>,
     pub env: Option<OsString>,
     pub path: Option<OsString>,
+    /// `tools/netcoredbg/fetch.sh`'s folder for the pinned release ([`netcoredbg_cache`]), searched last.
+    pub cache: Option<PathBuf>,
 }
 
 impl AdapterSearch {
@@ -93,6 +110,7 @@ impl AdapterSearch {
                 .and_then(|p| p.parent().map(Path::to_path_buf)),
             env: std::env::var_os(ENV_VAR).filter(|v| !v.is_empty()),
             path: std::env::var_os("PATH"),
+            cache: home_dir().map(|h| netcoredbg_cache(&h)),
         }
     }
 
@@ -135,9 +153,19 @@ impl AdapterSearch {
                 }
             }
         }
+        if let Some(dir) = &self.cache {
+            let p = dir.join(name);
+            if is_file(&p) {
+                return Ok(Found {
+                    path: p,
+                    source: FoundIn::Cache,
+                });
+            }
+        }
         Err(format!(
-            "netcoredbg was not found beside Eludite, in {ENV_VAR} or on PATH; run tools/netcoredbg/fetch.sh and set \
-             {ENV_VAR} to the path it prints"
+            "netcoredbg was not found beside Eludite, in {ENV_VAR}, on PATH or where tools/netcoredbg/fetch.sh puts \
+             it; run tools/netcoredbg/fetch.sh (it downloads netcoredbg {NETCOREDBG_VERSION}), or set {ENV_VAR} to a \
+             netcoredbg"
         ))
     }
 }
@@ -921,11 +949,23 @@ mod tests {
         touch(&env_dir.join(name));
         touch(&on_path.join(name));
         let path = std::env::join_paths([t.path().join("nothing"), on_path.clone()]).unwrap();
+        let cache = t.path().join("cache");
+        touch(&cache.join(name));
         let mut s = AdapterSearch {
             exe_dir: Some(exe.clone()),
             env: None,
-            path: Some(path),
+            path: Some(std::env::join_paths([t.path().join("nothing")]).unwrap()),
+            cache: Some(cache.clone()),
         };
+        // The fetch script's cache, last.
+        assert_eq!(
+            s.find_netcoredbg().unwrap(),
+            Found {
+                path: cache.join(name),
+                source: FoundIn::Cache
+            }
+        );
+        s.path = Some(path);
         assert_eq!(s.find_netcoredbg().unwrap().source, FoundIn::Path);
         // A folder in the variable means the executable inside it.
         s.env = Some(env_dir.clone().into());
@@ -950,10 +990,36 @@ mod tests {
             exe_dir: None,
             env: Some(t.path().join("missing").into()),
             path: s.path.clone(),
+            cache: s.cache.clone(),
         };
         assert!(wrong.find_netcoredbg().unwrap_err().contains(ENV_VAR));
         let none = AdapterSearch::default();
-        assert!(none.find_netcoredbg().unwrap_err().contains("fetch.sh"));
+        let e = none.find_netcoredbg().unwrap_err();
+        assert!(
+            e.contains("tools/netcoredbg/fetch.sh") && e.contains(NETCOREDBG_VERSION),
+            "{e}"
+        );
+    }
+
+    /// The pinned version is the fetch script's, and its cache folder the one the script prints.
+    #[test]
+    fn the_netcoredbg_cache_is_the_fetch_scripts() {
+        let script = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/netcoredbg/fetch.sh"),
+        )
+        .unwrap();
+        assert!(
+            script.contains(&format!("version=\"{NETCOREDBG_VERSION}\"")),
+            "tools/netcoredbg/fetch.sh pins another version than NETCOREDBG_VERSION"
+        );
+        assert!(script.contains("root=\"${NETCOREDBG_DIR:-$HOME/.cache/eludite/netcoredbg}\""));
+        assert!(script.contains("out=\"$dest/netcoredbg/$exe\""));
+        assert_eq!(
+            netcoredbg_cache(Path::new("/h")),
+            Path::new("/h/.cache/eludite/netcoredbg")
+                .join(NETCOREDBG_VERSION)
+                .join("netcoredbg")
+        );
     }
 
     #[test]

@@ -8286,8 +8286,14 @@ impl Shell {
                 }
             }
         }
-        // A function breakpoint's stop: its hits, and its hit condition where the adapter ignores it.
-        let function_hit = (s.reason == "function breakpoint")
+        // A function breakpoint's stop: its hits, and its hit condition where the adapter ignores it. netcoredbg says
+        // `breakpoint` for it, without `hitBreakpointIds` (brief 0065): a `breakpoint` stop where no line breakpoint
+        // is set is looked up among the function breakpoints too.
+        let no_line_breakpoint = top
+            .as_ref()
+            .is_none_or(|(path, line)| d.model.breakpoints.at(path, *line).is_none());
+        let function_hit = (s.reason == "function breakpoint"
+            || (s.reason == "breakpoint" && no_line_breakpoint))
             .then(|| {
                 let b = &mut d.model.breakpoints;
                 let name = b

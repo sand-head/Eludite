@@ -7819,6 +7819,602 @@ fn f5_on_the_corpus_web_project_under_netcoredbg_opens_the_page(cx: &mut TestApp
     real_web_run(&mut d, true);
 }
 
+/// Brief 0065: F5 on the corpus ASP.NET Core project under the real netcoredbg with no page (`browser: none`): a
+/// breakpoint set before launch in the page's renderer binds, an HTTP request to the app hits it with the request's
+/// state in Locals, a data tip and a watch evaluate there, `set_variable` changes what the response says, F5 lets
+/// the response through and Stop ends the session. Skips unless netcoredbg is found (`ELUDITE_NETCOREDBG`, `PATH`;
+/// `tools/netcoredbg/fetch.sh`) and `dotnet` builds the corpus web project.
+#[gpui::test]
+fn f5_on_the_corpus_web_project_under_netcoredbg_breaks_in_a_request(cx: &mut TestAppContext) {
+    use std::io::{Read, Write};
+
+    let search = eludite_dap::discovery::AdapterSearch::from_env();
+    if let Err(e) = search.find_netcoredbg() {
+        eludite_test_support::skip("netcoredbg", e);
+        return;
+    }
+    let store = tempfile::tempdir().unwrap().keep();
+    let setup = DebugSetup {
+        connect: None,
+        search,
+        mono: eludite_dap::discovery::MonoSearch::default(),
+        mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+        platform: eludite_dap::launch::Platform::current(),
+        store_dir: Some(store.clone()),
+        dotnet: "dotnet".into(),
+        js: Default::default(),
+    };
+    let w = setup_debug(cx, |_| {}, None, Some(setup));
+    let mut d = Dbg {
+        w,
+        fake: Arc::default(),
+        fakes: Arc::default(),
+        store,
+    };
+    d.set_build_before_run(false);
+    let Some(port) = corpus_web(&d) else { return };
+    d.w.open_solution();
+    let text = std::fs::read_to_string(d.w.path("src/App/Program.cs")).unwrap();
+    let line = text
+        .lines()
+        .position(|l| l.contains("var greeting = string.IsNullOrWhiteSpace(name)"))
+        .expect("Page.Render's first statement") as u32
+        + 1;
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": line}),
+    )
+    .unwrap();
+    let s = agent_call(&mut d, cmds::START, json!({"browser": "none"}));
+    assert!(s.get("error").is_none(), "{s}");
+    d.w.wait("Kestrel listening", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.output()
+                .read(cx)
+                .pane(OutputSource::Debug)
+                .tail(usize::MAX)
+                .iter()
+                .any(|l| l.contains("Now listening on: http://127.0.0.1"))
+        })
+    });
+    let bp = d.state()["breakpoints"][0].clone();
+    assert_eq!(bp["verified"], true, "bound before the request: {bp}");
+    // A POST with a name: the request blocks on the break until F5.
+    let request = std::thread::spawn(move || {
+        let mut c = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let body = "name=Ada";
+        write!(
+            c,
+            "POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        let mut out = String::new();
+        c.read_to_string(&mut out).unwrap();
+        out
+    });
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 30000}),
+    );
+    assert_eq!(w["stopped"]["reason"], "breakpoint", "{w}");
+    assert_eq!(w["stopped"]["location"]["line"], line, "{w}");
+    let st = agent_call(&mut d, cmds::STACK, json!({}));
+    let top = st["threads"][0]["frames"][0]["name"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(top.contains("Page.Render"), "{st}");
+    let v = agent_call(&mut d, cmds::VARIABLES, json!({}));
+    let rows = v["rows"].as_array().unwrap();
+    let name = rows
+        .iter()
+        .find(|r| r["name"] == "name")
+        .unwrap_or_else(|| panic!("{v}"));
+    assert_eq!(name["value"], "\"Ada\"", "{v}");
+    let tip = agent_call(
+        &mut d,
+        cmds::EVALUATE,
+        json!({"expression": "name", "context": "hover"}),
+    );
+    assert_eq!(tip["result"], "\"Ada\"", "{tip}");
+    // netcoredbg's own evaluator: locals and arithmetic in every context (it has no member access on a string's
+    // properties, `name.Length`, nor `==` with `null`: brief 0065's report).
+    let watch = agent_call(&mut d, cmds::EVALUATE, json!({"expression": "name"}));
+    assert_eq!(watch["result"], "\"Ada\"", "{watch}");
+    let repl = agent_call(
+        &mut d,
+        cmds::EVALUATE,
+        json!({"expression": "40 + 2", "context": "repl"}),
+    );
+    assert_eq!(repl["result"], "42", "{repl}");
+    let set = agent_call(
+        &mut d,
+        cmds::SET_VARIABLE,
+        json!({"name": "name", "value": "\"Grace\""}),
+    );
+    assert!(set.get("error").is_none(), "{set}");
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 0}));
+    assert!(s.get("error").is_none(), "{s}");
+    let response = request.join().unwrap();
+    assert!(
+        response.starts_with("HTTP/1.1 200") && response.contains("Hello, Grace!"),
+        "{response}"
+    );
+    let s = agent_call(&mut d, cmds::STOP, json!({}));
+    assert_eq!(s["mode"], "design", "{s}");
+}
+
+/// The console program of brief 0065's netcoredbg test: two files, a loop calling into the second, a handled throw and
+/// a named worker thread (MIT, this repository's).
+const NCD_PROGRAM: &str = r#"using System;
+using System.Threading;
+
+static class Program
+{
+    static int Main(string[] args)
+    {
+        if (args.Length > 0 && args[0] == "wait")
+        {
+            var ticks = 0;
+            while (true)
+            {
+                ticks++; // MARK: tick
+                Thread.Sleep(20);
+            }
+        }
+        var calc = new Calc();
+        var total = 0; // MARK: total
+        for (var i = 0; i < 10; i++)
+        {
+            total += calc.Add(i, 1); // MARK: loop
+        }
+        Console.WriteLine("total " + total); // MARK: print
+        var started = new ManualResetEventSlim();
+        var release = new ManualResetEventSlim();
+        var worker = new Thread(() => { started.Set(); release.Wait(); }) { Name = "Eludite Worker" };
+        worker.Start();
+        started.Wait();
+        release.Set(); // MARK: join
+        worker.Join();
+        try
+        {
+            calc.Fail();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        Console.WriteLine("done"); // MARK: done
+        return 0;
+    }
+}
+"#;
+
+const NCD_CALC: &str = r#"public class Calc
+{
+    public int Add(int a, int b)
+    {
+        var sum = a + b; // MARK: sum
+        return sum; // MARK: return
+    }
+
+    public void Fail()
+    {
+        throw new System.InvalidOperationException("boom"); // MARK: throw
+    }
+}
+"#;
+
+/// The 1-based line of `// MARK: name` in `text`.
+fn ncd_line(text: &str, mark: &str) -> u32 {
+    text.lines()
+        .position(|l| l.ends_with(&format!("// MARK: {mark}")))
+        .unwrap_or_else(|| panic!("no mark {mark}")) as u32
+        + 1
+}
+
+/// Brief 0065: F5 on a .NET 5+ project with netcoredbg nowhere (not beside Eludite, not in `ELUDITE_NETCOREDBG`, not on
+/// `PATH`, not in the fetch script's cache) ends the launch with one message naming tools/netcoredbg/fetch.sh, in the
+/// status bar and once in the Output window's Debug source, instead of a failure to start a process.
+#[gpui::test]
+fn f5_without_netcoredbg_says_how_to_get_it(cx: &mut TestAppContext) {
+    let store = tempfile::tempdir().unwrap().keep();
+    let nowhere = store.join("nowhere");
+    let setup = DebugSetup {
+        connect: None,
+        search: eludite_dap::discovery::AdapterSearch {
+            exe_dir: Some(nowhere.clone()),
+            env: None,
+            path: Some(nowhere.clone().into_os_string()),
+            cache: Some(nowhere),
+        },
+        mono: eludite_dap::discovery::MonoSearch::default(),
+        mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+        platform: eludite_dap::launch::Platform::current(),
+        store_dir: Some(store.clone()),
+        dotnet: "dotnet".into(),
+        js: Default::default(),
+    };
+    let w = setup_debug(cx, |_| {}, None, Some(setup));
+    let mut d = Dbg {
+        w,
+        fake: Arc::default(),
+        fakes: Arc::default(),
+        store,
+    };
+    d.set_build_before_run(false);
+    let app = d.w.path("src/App");
+    std::fs::write(
+        app.join("App.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+    )
+    .unwrap();
+    std::fs::create_dir_all(app.join("bin/Debug/net10.0")).unwrap();
+    std::fs::write(app.join("bin/Debug/net10.0/App.dll"), "").unwrap();
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.w.wait("the launch to end", |w| {
+        let s = state_of(w);
+        s["mode"] == "design" && s["message"].is_string()
+    });
+    let st = d.state();
+    let m = st["message"].as_str().unwrap();
+    assert!(
+        m.contains("netcoredbg was not found") && m.contains("tools/netcoredbg/fetch.sh"),
+        "{st}"
+    );
+    let status = debug_status(&d);
+    assert!(status.contains("tools/netcoredbg/fetch.sh"), "{status}");
+    let lines: Vec<String> = debug_output(&d)
+        .into_iter()
+        .filter(|l| l.contains("tools/netcoredbg/fetch.sh"))
+        .collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+}
+
+/// The test solution's App as brief 0065's console program (`NCD_PROGRAM`, `NCD_CALC`) for net10.0, built, with the
+/// real netcoredbg; `None` (after a skip) unless netcoredbg is found and `dotnet` builds it.
+fn ncd_solution(cx: &mut TestAppContext) -> Option<Dbg> {
+    let search = eludite_dap::discovery::AdapterSearch::from_env();
+    if let Err(e) = search.find_netcoredbg() {
+        eludite_test_support::skip("netcoredbg", e);
+        return None;
+    }
+    let store = tempfile::tempdir().unwrap().keep();
+    let setup = DebugSetup {
+        connect: None,
+        search,
+        mono: eludite_dap::discovery::MonoSearch::default(),
+        mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+        platform: eludite_dap::launch::Platform::current(),
+        store_dir: Some(store.clone()),
+        dotnet: "dotnet".into(),
+        js: Default::default(),
+    };
+    let w = setup_debug(cx, |_| {}, None, Some(setup));
+    let mut d = Dbg {
+        w,
+        fake: Arc::default(),
+        fakes: Arc::default(),
+        store,
+    };
+    d.set_build_before_run(false);
+    let app = d.w.path("src/App");
+    for stale in ["Default.aspx.cs", "Models/Order.cs"] {
+        let _ = std::fs::remove_file(app.join(stale));
+    }
+    std::fs::write(
+        app.join("App.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>disable</Nullable></PropertyGroup></Project>",
+    )
+    .unwrap();
+    std::fs::write(app.join("Program.cs"), NCD_PROGRAM).unwrap();
+    std::fs::write(app.join("Calc.cs"), NCD_CALC).unwrap();
+    let built = std::process::Command::new("dotnet")
+        .args([
+            "build",
+            "App.csproj",
+            "--configuration",
+            "Debug",
+            "--nologo",
+        ])
+        .current_dir(&app)
+        .env("DOTNET_NOLOGO", "1")
+        .output();
+    match built {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            eprintln!(
+                "skipped: the program did not build:\n{}",
+                String::from_utf8_lossy(&o.stdout)
+            );
+            return None;
+        }
+        Err(e) => {
+            eprintln!("skipped: dotnet: {e}");
+            return None;
+        }
+    }
+    Some(d)
+}
+
+/// Brief 0065: F5 on an SDK-style console program under the real netcoredbg, as Visual Studio's basics: a breakpoint
+/// set before launch in each of two files binds; a conditional breakpoint (`a == 3`) stops on the fourth call only;
+/// step over, step out and step into; a watch; the Threads window with a named worker; Run to Cursor; Set Next
+/// Statement refused (netcoredbg has no `gotoTargets`); Break When Thrown by type with the exception's type and
+/// message; Restart (stop and start again) back to the first breakpoint; a function breakpoint bound and its hit
+/// counted; Stop. Skips unless netcoredbg is found (`ELUDITE_NETCOREDBG`, `PATH`; `tools/netcoredbg/fetch.sh`) and
+/// `dotnet` builds the program.
+#[gpui::test]
+fn netcoredbg_debugs_a_console_program_as_visual_studio_does(cx: &mut TestAppContext) {
+    let Some(mut d) = ncd_solution(cx) else {
+        return;
+    };
+    d.w.open_solution();
+    let (main, calc) = ("src/App/Program.cs", "src/App/Calc.cs");
+    let line =
+        |file: &str, mark: &str| ncd_line(if file == main { NCD_PROGRAM } else { NCD_CALC }, mark);
+    // Before launch: one breakpoint in each file, the second with a condition.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": main, "line": line(main, "total")}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": calc, "line": line(calc, "sum"), "action": "set", "condition": "a == 3"}),
+    )
+    .unwrap();
+    let started = Instant::now();
+    let s = agent_call(&mut d, cmds::START, json!({"browser": "none"}));
+    assert!(s.get("error").is_none(), "{s}");
+    let s = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 30000}),
+    );
+    eprintln!(
+        "timing: F5 to the first break under netcoredbg: {:.0} ms",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(s["stopped"]["reason"], "breakpoint", "{s}");
+    assert_eq!(s["stopped"]["location"]["line"], line(main, "total"), "{s}");
+    let st = d.state();
+    let bps = st["breakpoints"].as_array().unwrap();
+    assert_eq!(bps.len(), 2, "{st}");
+    assert!(
+        bps.iter().all(|b| b["verified"] == true),
+        "both bound: {st}"
+    );
+    assert!(
+        st["session"]["adapter"]
+            .as_str()
+            .unwrap()
+            .starts_with("netcoredbg"),
+        "{st}"
+    );
+    // The condition: the fourth call, a == 3.
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 30000}));
+    assert_eq!(s["stopped"]["location"]["line"], line(calc, "sum"), "{s}");
+    let v = agent_call(&mut d, cmds::VARIABLES, json!({}));
+    let value = |v: &Value, name: &str| {
+        v["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == name)
+            .map(|r| r["value"].clone())
+            .unwrap_or_else(|| panic!("no {name}: {v}"))
+    };
+    assert_eq!(value(&v, "a"), "3", "{v}");
+    assert_eq!(value(&v, "b"), "1", "{v}");
+    // Brief 0025's budget against netcoredbg: `snapshot` (depth 2) < 150 ms p95 over 20 calls.
+    let times: Vec<Duration> = (0..20)
+        .map(|_| {
+            let t = Instant::now();
+            let snap = agent_call(&mut d, cmds::SNAPSHOT, json!({"depth": 2}));
+            assert!(snap.get("error").is_none(), "{snap}");
+            t.elapsed()
+        })
+        .collect();
+    let max = times.iter().max().copied().unwrap();
+    let p = p95(times);
+    eprintln!(
+        "timing: snapshot against netcoredbg p95 {:.1} ms, max {:.1} ms (20 calls)",
+        p.as_secs_f64() * 1e3,
+        max.as_secs_f64() * 1e3
+    );
+    assert_budget(
+        "snapshot p95 against netcoredbg",
+        p,
+        Duration::from_millis(150),
+    );
+    // F10, Shift+F11 back into Main, F11 into the next call.
+    let s = agent_call(&mut d, cmds::STEP_OVER, json!({"wait_ms": 30000}));
+    assert_eq!(
+        s["stopped"]["location"]["line"],
+        line(calc, "return"),
+        "{s}"
+    );
+    let s = agent_call(&mut d, cmds::STEP_OUT, json!({"wait_ms": 30000}));
+    assert_eq!(s["stopped"]["location"]["line"], line(main, "loop"), "{s}");
+    // F11 walks the loop's statements (`}`, `i++`, `i < 10`, `{`) and then into the call.
+    let mut into = agent_call(&mut d, cmds::STEP_INTO, json!({"wait_ms": 30000}));
+    for _ in 0..8 {
+        if into["stopped"]["location"]["line"] == line(calc, "sum") {
+            break;
+        }
+        into = agent_call(&mut d, cmds::STEP_INTO, json!({"wait_ms": 30000}));
+    }
+    assert_eq!(
+        into["stopped"]["location"]["line"],
+        line(calc, "sum"),
+        "{into}"
+    );
+    assert_eq!(
+        value(&agent_call(&mut d, cmds::VARIABLES, json!({})), "a"),
+        "4"
+    );
+    // A watch, evaluated at each break.
+    d.cmd(cmds::WATCH, json!({"add": "total"})).unwrap();
+    let s = agent_call(&mut d, cmds::STEP_OUT, json!({"wait_ms": 30000}));
+    assert_eq!(s["stopped"]["location"]["line"], line(main, "loop"), "{s}");
+    d.w.wait("the watch", |w| {
+        state_of(w)["watches"][0]["value"]
+            .as_str()
+            .is_some_and(|v| v.parse::<i64>().is_ok())
+    });
+    // Run to Cursor past the loop: the total printed so far is the sum.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": calc, "line": line(calc, "sum")}),
+    )
+    .unwrap();
+    let s = agent_call(
+        &mut d,
+        cmds::RUN_TO_CURSOR,
+        json!({"path": main, "line": line(main, "print"), "wait_ms": 30000}),
+    );
+    assert_eq!(s["stopped"]["location"]["line"], line(main, "print"), "{s}");
+    let total = agent_call(&mut d, cmds::EVALUATE, json!({"expression": "total"}));
+    assert_eq!(total["result"], "55", "{total}");
+    // Set Next Statement: netcoredbg has no gotoTargets, so it is refused naming it.
+    let e = agent_call(
+        &mut d,
+        cmds::SET_NEXT_STATEMENT,
+        json!({"path": main, "line": line(main, "total")}),
+    );
+    assert!(e["error"].is_string(), "{e}");
+    // The worker thread by name in the Threads window, at its join.
+    let s = agent_call(
+        &mut d,
+        cmds::RUN_TO_CURSOR,
+        json!({"path": main, "line": line(main, "join"), "wait_ms": 30000}),
+    );
+    assert_eq!(s["stopped"]["location"]["line"], line(main, "join"), "{s}");
+    let threads = state_of(&d.w)["threads"].clone();
+    let names: Vec<&str> = threads
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"Main Thread") && names.contains(&"Eludite Worker"),
+        "{threads}"
+    );
+    // Break When Thrown for InvalidOperationException: the type and the message.
+    d.cmd(
+        cmds::EXCEPTION_SETTINGS,
+        json!({"types": [{"type": "System.InvalidOperationException", "break_when_thrown": true}]}),
+    )
+    .unwrap();
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 30000}));
+    assert_eq!(s["stopped"]["reason"], "exception", "{s}");
+    assert_eq!(s["stopped"]["location"]["line"], line(calc, "throw"), "{s}");
+    let x = agent_call(&mut d, cmds::EXCEPTION_INFO, json!({}));
+    let text = x.to_string();
+    assert!(
+        text.contains("System.InvalidOperationException") && text.contains("boom"),
+        "{x}"
+    );
+    // Restart: stop and start again, back at the first breakpoint.
+    let r = agent_call(&mut d, cmds::RESTART, json!({"wait_ms": 30000}));
+    assert!(r.get("error").is_none(), "{r}");
+    let s = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 30000}),
+    );
+    assert_eq!(s["stopped"]["location"]["line"], line(main, "total"), "{s}");
+    // A function breakpoint on Calc.Fail.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"function": "Calc.Fail", "action": "set"}),
+    )
+    .unwrap();
+    d.cmd(cmds::EXCEPTION_SETTINGS, json!({"clear": true}))
+        .unwrap();
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 30000}));
+    assert_eq!(s["stopped"]["location"]["function"], "Calc.Fail()", "{s}");
+    let bps = state_of(&d.w)["breakpoints"].clone();
+    let f = bps
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["kind"] == "function")
+        .unwrap_or_else(|| panic!("{bps}"));
+    // netcoredbg says `breakpoint` without `hitBreakpointIds`: the shell still counts the function breakpoint's hit.
+    assert_eq!(f["verified"], true, "{bps}");
+    assert_eq!(f["hits"], 1, "{bps}");
+    let s = agent_call(&mut d, cmds::STOP, json!({}));
+    assert_eq!(s["mode"], "design", "{s}");
+}
+
+/// Brief 0065: attach to a running `dotnet` program by process id under the real netcoredbg (Debug > Attach to Process
+/// with the `dotnet` runtime): a breakpoint in its loop binds and hits after the attach, the locals read, and Stop
+/// detaches, leaving the program running. Skips as the console program's test does.
+#[cfg(unix)]
+#[gpui::test]
+fn netcoredbg_attaches_to_a_running_program_and_stop_detaches(cx: &mut TestAppContext) {
+    let Some(mut d) = ncd_solution(cx) else {
+        return;
+    };
+    d.w.open_solution();
+    let mut program = std::process::Command::new("dotnet")
+        .arg(d.w.path("src/App/bin/Debug/net10.0/App.dll"))
+        .arg("wait")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = program.id();
+    let line = ncd_line(NCD_PROGRAM, "tick");
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": line}),
+    )
+    .unwrap();
+    let started = Instant::now();
+    let a = agent_call(&mut d, cmds::ATTACH, json!({"pid": pid}));
+    assert!(a.get("error").is_none(), "{a}");
+    let s = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 30000}),
+    );
+    eprintln!(
+        "timing: netcoredbg attach to the first stop through the shell: {:.0} ms",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(s["stopped"]["reason"], "breakpoint", "{s}");
+    assert_eq!(s["stopped"]["location"]["line"], line, "{s}");
+    let st = d.state();
+    assert_eq!(st["session"]["attached"], true, "{st}");
+    assert!(
+        st["session"]["adapter"]
+            .as_str()
+            .unwrap()
+            .starts_with("netcoredbg"),
+        "{st}"
+    );
+    let v = agent_call(&mut d, cmds::VARIABLES, json!({}));
+    assert!(
+        v["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["name"] == "ticks"),
+        "{v}"
+    );
+    let s = agent_call(&mut d, cmds::STOP, json!({}));
+    assert_eq!(s["mode"], "design", "{s}");
+    // Detached, not killed: the program runs on.
+    assert!(program.try_wait().unwrap().is_none(), "the program ended");
+    kill(pid);
+    let _ = program.wait();
+}
+
 // ---- Brief 0038: JavaScript debugging in the Web Browser window with vscode-js-debug (the fake js-debug) ----
 
 /// The test solution's web project with the corpus page's script: `src/App/wwwroot/app.ts` with its compiled `app.js`

@@ -315,12 +315,12 @@
             "function": "twice",
             "enabled": true,
             "verified": true,
-            "hits": 0,
+            "hits": 1,
             "sessions": [
               {
                 "session": 1,
                 "verified": true,
-                "hits": 0
+                "hits": 1
               }
             ]
           }
@@ -417,7 +417,7 @@
         ],
         "breakpoints": [
           "main.rs, line 25 [enabled, bound] hits 0 print count={count} total={total}",
-          "function twice [enabled, bound] hits 0"
+          "function twice [enabled, bound] hits 1"
         ]
       }
     },
@@ -588,12 +588,12 @@
             "function": "twice",
             "enabled": true,
             "verified": true,
-            "hits": 0,
+            "hits": 1,
             "sessions": [
               {
                 "session": 1,
                 "verified": true,
-                "hits": 0
+                "hits": 1
               }
             ]
           }
@@ -818,7 +818,7 @@
         ],
         "breakpoints": [
           "main.rs, line 25 [enabled, bound] hits 0 print count={count} total={total}",
-          "function twice [enabled, bound] hits 0"
+          "function twice [enabled, bound] hits 1"
         ]
       }
     },

@@ -10,8 +10,9 @@
 # Assets:   https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/<asset>
 #
 # Output: $NETCOREDBG_DIR/3.2.0-1092/netcoredbg/netcoredbg (netcoredbg.exe on Windows), default
-# NETCOREDBG_DIR=$HOME/.cache/eludite/netcoredbg. Point Eludite at it with ELUDITE_NETCOREDBG, put it on PATH, or
-# copy the netcoredbg/ folder beside the eludite executable (the order Eludite searches, crates/dap/src/discovery.rs).
+# NETCOREDBG_DIR=$HOME/.cache/eludite/netcoredbg. Eludite searches beside its executable (netcoredbg/, where the
+# package puts it: tools/package/companions.sh), then ELUDITE_NETCOREDBG, then PATH, then this default output folder
+# (crates/dap/src/discovery.rs, brief 0065), so on a developer machine nothing needs setting after this script ran.
 #
 # If a release binary does not run on this machine, build from source with upstream's CMake instructions
 # (https://github.com/Samsung/netcoredbg#building-from-source-code); that needs cmake, clang and the .NET SDK.
