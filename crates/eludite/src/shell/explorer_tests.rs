@@ -303,6 +303,7 @@ fn big_model(n: usize) -> SolutionModel {
         .collect();
     SolutionModel::from_tree(&SolutionTree {
         generation: 1,
+        structure: Default::default(),
         path: Some("/big/Big.slnx".into()),
         projects: vec![TreeProject {
             name: "App".into(),
@@ -312,6 +313,7 @@ fn big_model(n: usize) -> SolutionModel {
             target_frameworks: vec!["net10.0".into()],
             files,
             error: None,
+            placement: Default::default(),
             dependencies: None,
         }],
     })

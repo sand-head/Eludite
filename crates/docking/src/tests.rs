@@ -404,9 +404,10 @@ fn close_then_show_and_reset(cx: &mut TestAppContext) {
         h.layout(),
         DockLayout::default_vs(&ToolWindowRegistry::vs_default())
     );
+    // Brief 0081: the default has the Properties window below the Workspace window.
     assert!(
-        h.vcx.debug_bounds("head-properties").is_none(),
-        "the default has no Properties window"
+        h.vcx.debug_bounds("head-properties").is_some(),
+        "the default has the Properties window"
     );
     assert_eq!(h.floating_count(), 0, "reset closes floating windows");
 }

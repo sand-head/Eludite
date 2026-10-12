@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-unload.input.json",
+  "title": "eludite.project.unload input",
+  "description": "Unload Project (brief 0081): Roslyn and the build of the project tree leave the project out; the Workspace window shows it as (unloaded). Kept per workspace.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project"
+  ],
+  "properties": {
+    "project": {
+      "description": "The project: its name as the Workspace window shows it, or the path of its project file (absolute, or relative to the solution folder).",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

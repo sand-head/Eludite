@@ -82,14 +82,37 @@ pub enum NodeKind {
     Framework,
     /// A project reference; `path` is the referenced project file.
     ProjectReference,
+    // Brief 0081: solution folders, solution items, unloaded projects, analyzers and assemblies.
+    /// A solution folder (`folder`: its path from the solution root, `/src/tests/`); `path` is `None`.
+    SolutionFolder {
+        folder: String,
+    },
+    /// A solution item: a file listed in solution folder `folder`; `path` is the file.
+    SolutionItem {
+        folder: String,
+    },
+    /// A project the person unloaded: `Name (unloaded)`, no children; `path` is the project file.
+    UnloadedProject,
+    /// An analyzer of a Dependencies node; `path` is the analyzer assembly when known, else the project file.
+    Analyzer,
+    /// An assembly reference; `include` as the project file writes it; `path` is the project file.
+    Assembly {
+        include: String,
+    },
 }
 
 /// The folders of a Dependencies node, in Visual Studio's order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DependencyGroup {
+    /// Brief 0081.
+    Analyzers,
+    /// Brief 0081.
+    Assemblies,
     Frameworks,
     Packages,
     Projects,
+    /// Brief 0081: one target framework of a multi-targeted project (`net8.0`), holding the groups above.
+    TargetFramework,
 }
 
 impl NodeKind {
@@ -102,14 +125,25 @@ impl NodeKind {
                 | NodeKind::Package { .. }
                 | NodeKind::Framework
                 | NodeKind::ProjectReference
+                // Brief 0081.
+                | NodeKind::Analyzer
+                | NodeKind::Assembly { .. }
         )
+    }
+
+    /// Brief 0081: the project a Dependencies row belongs to, from its id (`<project>|deps...`).
+    pub fn owning_project(id: &str) -> Option<&str> {
+        id.split_once("|deps").map(|(p, _)| p)
     }
 }
 
 impl NodeKind {
     /// Whether opening the node opens the file at its `path`.
     pub fn opens_file(&self) -> bool {
-        matches!(self, NodeKind::File { .. } | NodeKind::CargoTarget { .. })
+        matches!(
+            self,
+            NodeKind::File { .. } | NodeKind::CargoTarget { .. } | NodeKind::SolutionItem { .. }
+        )
     }
 }
 
@@ -309,7 +343,10 @@ impl SolutionModel {
             .iter()
             .filter(|p| seen.insert(canonical(Path::new(&p.path))))
             .collect();
-        let loaded = projects.iter().filter(|p| p.error.is_none()).count();
+        let loaded = projects
+            .iter()
+            .filter(|p| p.error.is_none() && !p.placement.unloaded)
+            .count();
         let name = path
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
@@ -325,6 +362,8 @@ impl SolutionModel {
         }
         let mut children: Vec<Node> = projects.iter().map(|p| project_node(p)).collect();
         sort_nodes(&mut children);
+        // Brief 0081: projects inside their solution folders, folders first.
+        let children = solution_folders(&path.to_string_lossy(), tree, &projects, children);
         let root = Node {
             id: path.to_string_lossy().into_owned(),
             label: format!(
@@ -600,8 +639,125 @@ impl SolutionModel {
     }
 }
 
+// Brief 0081: solution folders and their items; projects placed in them.
+/// The solution node's children: `projects` (the project nodes, sorted) placed in the solution folders of `tree`,
+/// each folder holding its sub-folders, then its projects, then its solution items; folders first at every level,
+/// each kind by name case-insensitively. Ids: `<solution>|sf|<folder path>` and `<folder id>|item|<file>`.
+fn solution_folders(
+    solution: &str,
+    tree: &SolutionTree,
+    projects: &[&TreeProject],
+    nodes: Vec<Node>,
+) -> Vec<Node> {
+    let folders = &tree.structure.folders;
+    if folders.is_empty() {
+        return nodes;
+    }
+    let folder_of: HashMap<&str, &str> = projects
+        .iter()
+        .filter_map(|p| Some((p.path.as_str(), p.placement.solution_folder.as_deref()?)))
+        .collect();
+    let mut by_path: BTreeMap<String, Node> = BTreeMap::new();
+    for f in folders {
+        let id = format!("{solution}|sf|{}", f.path);
+        let mut items: Vec<Node> = f
+            .files
+            .iter()
+            .map(|file| Node {
+                id: format!("{id}|item|{file}"),
+                label: Path::new(file)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| file.clone()),
+                kind: NodeKind::SolutionItem {
+                    folder: f.path.clone(),
+                },
+                path: Some(PathBuf::from(file)),
+                children: Vec::new(),
+            })
+            .collect();
+        items.sort_by_key(|n| n.label.to_lowercase());
+        by_path.entry(f.path.clone()).or_insert(Node {
+            id,
+            label: f.name.clone(),
+            kind: NodeKind::SolutionFolder {
+                folder: f.path.clone(),
+            },
+            path: None,
+            children: items,
+        });
+    }
+    let mut root = Vec::new();
+    for n in nodes {
+        let target = n
+            .path
+            .as_deref()
+            .and_then(|p| folder_of.get(p.to_string_lossy().as_ref()).copied())
+            .and_then(|f| by_path.get_mut(f));
+        match target {
+            // Projects before the folder's items.
+            Some(folder) => {
+                let at = folder
+                    .children
+                    .iter()
+                    .position(|c| matches!(c.kind, NodeKind::SolutionItem { .. }))
+                    .unwrap_or(folder.children.len());
+                folder.children.insert(at, n);
+            }
+            None => root.push(n),
+        }
+    }
+    // Deepest folders first, each moved into its parent (or to the root when the parent is not listed).
+    let mut paths: Vec<String> = by_path.keys().cloned().collect();
+    paths.sort_by_key(|p| std::cmp::Reverse(p.matches('/').count()));
+    let mut top = Vec::new();
+    for p in paths {
+        let node = by_path.remove(&p).expect("listed");
+        let parent = eludite_protocol::host::TreeSolutionFolder {
+            path: p.clone(),
+            ..Default::default()
+        }
+        .parent()
+        .map(str::to_owned);
+        match parent.and_then(|q| by_path.get_mut(&q)) {
+            Some(parent) => parent.children.insert(0, node),
+            None => top.push(node),
+        }
+    }
+    fn order(nodes: &mut [Node]) {
+        nodes.sort_by(|a, b| {
+            let rank = |n: &Node| match n.kind {
+                NodeKind::SolutionFolder { .. } => 0,
+                NodeKind::SolutionItem { .. } => 2,
+                _ => 1,
+            };
+            rank(a)
+                .cmp(&rank(b))
+                .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
+        });
+        for n in nodes.iter_mut() {
+            if matches!(n.kind, NodeKind::SolutionFolder { .. }) {
+                order(&mut n.children);
+            }
+        }
+    }
+    top.extend(root);
+    order(&mut top);
+    top
+}
+
 fn project_node(p: &TreeProject) -> Node {
     let id = p.path.clone();
+    // Brief 0081: an unloaded project has no children.
+    if p.placement.unloaded {
+        return Node {
+            id,
+            label: format!("{} (unloaded)", p.name),
+            kind: NodeKind::UnloadedProject,
+            path: Some(PathBuf::from(&p.path)),
+            children: Vec::new(),
+        };
+    }
     let label = match (&p.error, p.target_frameworks.is_empty()) {
         (Some(_), _) => format!("{} (load failed)", p.name),
         (None, true) => p.name.clone(),
@@ -770,7 +926,13 @@ fn project_node(p: &TreeProject) -> Node {
     } else {
         let mut children = folder_nodes(&root, "", &entries, &children_of, &id);
         if let Some(deps) = &p.dependencies {
-            children.insert(0, dependencies_node(&id, &p.path, deps));
+            // Brief 0081: a legacy project's node is Visual Studio's References, flat.
+            let node = if p.kind == TreeProjectKind::Legacy {
+                references_node(&id, &p.path, deps)
+            } else {
+                dependencies_node(&id, &p.path, deps)
+            };
+            children.insert(0, node);
         }
         children
     };
@@ -797,11 +959,97 @@ fn dependencies_node(
 ) -> Node {
     let path = Some(PathBuf::from(project));
     let base = format!("{id}|deps");
+    // Brief 0081: a multi-targeted project's groups sit under one node per target framework.
+    if !deps.depth.framework_groups.is_empty() {
+        let children = deps
+            .depth
+            .framework_groups
+            .iter()
+            .map(|g| {
+                let tid = format!("{base}|tfm|{}", g.target_framework);
+                let lists = eludite_protocol::host::TreeDependencies {
+                    restored: deps.restored,
+                    packages: g.packages.clone(),
+                    projects: g.projects.clone(),
+                    frameworks: g.frameworks.clone(),
+                    depth: eludite_protocol::host::TreeDependencyDepth {
+                        analyzers: g.analyzers.clone(),
+                        assemblies: g.assemblies.clone(),
+                        framework_groups: Vec::new(),
+                    },
+                };
+                let mut node = dependency_groups(&tid, project, &lists);
+                node.label = g.target_framework.clone();
+                node.kind = NodeKind::DependencyGroup {
+                    group: DependencyGroup::TargetFramework,
+                };
+                node
+            })
+            .collect();
+        return Node {
+            id: base,
+            label: "Dependencies".into(),
+            kind: NodeKind::Dependencies,
+            path,
+            children,
+        };
+    }
+    dependency_groups(&base, project, deps)
+}
+
+/// Brief 0081: a Dependencies node (or one target framework's) with its groups, ids under `base`: Analyzers,
+/// Assemblies, then brief 0048's Frameworks, Packages and Projects.
+fn dependency_groups(
+    base: &str,
+    project: &str,
+    deps: &eludite_protocol::host::TreeDependencies,
+) -> Node {
+    let path = Some(PathBuf::from(project));
+    let base = base.to_owned();
     let label_of = |name: &str, version: Option<&str>| match version {
         Some(v) if !v.is_empty() => format!("{name} ({v})"),
         _ => name.to_owned(),
     };
     let mut groups = Vec::new();
+    // Brief 0081: Analyzers and Assemblies.
+    if !deps.depth.analyzers.is_empty() {
+        groups.push(Node {
+            id: format!("{base}|analyzers"),
+            label: "Analyzers".into(),
+            kind: NodeKind::DependencyGroup {
+                group: DependencyGroup::Analyzers,
+            },
+            path: path.clone(),
+            children: deps
+                .depth
+                .analyzers
+                .iter()
+                .map(|a| Node {
+                    id: format!("{base}|analyzers|{}", a.path.as_deref().unwrap_or(&a.name)),
+                    label: a.name.clone(),
+                    kind: NodeKind::Analyzer,
+                    path: a.path.as_ref().map(PathBuf::from).or_else(|| path.clone()),
+                    children: Vec::new(),
+                })
+                .collect(),
+        });
+    }
+    if !deps.depth.assemblies.is_empty() {
+        groups.push(Node {
+            id: format!("{base}|assemblies"),
+            label: "Assemblies".into(),
+            kind: NodeKind::DependencyGroup {
+                group: DependencyGroup::Assemblies,
+            },
+            path: path.clone(),
+            children: deps
+                .depth
+                .assemblies
+                .iter()
+                .map(|a| assembly_node(&base, project, a))
+                .collect(),
+        });
+    }
     if !deps.frameworks.is_empty() {
         groups.push(Node {
             id: format!("{base}|frameworks"),
@@ -899,6 +1147,68 @@ fn dependencies_node(
         kind: NodeKind::Dependencies,
         path,
         children: groups,
+    }
+}
+
+/// Brief 0081: an assembly reference row.
+fn assembly_node(base: &str, project: &str, a: &eludite_protocol::host::TreeAssembly) -> Node {
+    let include = a.include.clone().unwrap_or_else(|| a.name.clone());
+    Node {
+        id: format!("{base}|assemblies|{include}"),
+        label: a.name.clone(),
+        kind: NodeKind::Assembly { include },
+        path: Some(PathBuf::from(project)),
+        children: Vec::new(),
+    }
+}
+
+/// Brief 0081: a legacy project's References node: its assembly references, project references and `packages.config`
+/// packages in one list by name, as Visual Studio shows them. Ids as the Dependencies node's (`<project>|deps|...`).
+fn references_node(
+    id: &str,
+    project: &str,
+    deps: &eludite_protocol::host::TreeDependencies,
+) -> Node {
+    let path = Some(PathBuf::from(project));
+    let base = format!("{id}|deps");
+    let mut children: Vec<Node> = deps
+        .depth
+        .assemblies
+        .iter()
+        .map(|a| assembly_node(&base, project, a))
+        .collect();
+    children.extend(deps.projects.iter().map(|r| Node {
+        id: format!("{base}|projects|{}", r.path),
+        label: r.name.clone(),
+        kind: NodeKind::ProjectReference,
+        path: Some(PathBuf::from(&r.path)),
+        children: Vec::new(),
+    }));
+    children.extend(deps.packages.iter().map(|p| {
+        let version = p.version.clone().or_else(|| p.requested.clone());
+        Node {
+            id: format!("{base}|packages|{}", p.id),
+            label: match &version {
+                Some(v) => format!("{} ({v})", p.id),
+                None => p.id.clone(),
+            },
+            kind: NodeKind::Package {
+                id: p.id.clone(),
+                version,
+                transitive: false,
+                warning: false,
+            },
+            path: path.clone(),
+            children: Vec::new(),
+        }
+    }));
+    children.sort_by_key(|n| n.label.to_lowercase());
+    Node {
+        id: base,
+        label: "References".into(),
+        kind: NodeKind::Dependencies,
+        path,
+        children,
     }
 }
 
@@ -1070,6 +1380,7 @@ mod tests {
         };
         let tree = SolutionTree {
             generation: 3,
+            structure: Default::default(),
             path: Some("/c/Corpus.slnx".into()),
             projects: vec![TreeProject {
                 name: "App".into(),
@@ -1079,6 +1390,7 @@ mod tests {
                 target_frameworks: vec!["net10.0".into()],
                 files: vec![file("/c/App/Program.cs", TreeItemType::Compile)],
                 error: None,
+                placement: Default::default(),
                 dependencies: Some(TreeDependencies {
                     restored: true,
                     packages: vec![
@@ -1105,6 +1417,7 @@ mod tests {
                         name: "Shared".into(),
                         path: "/c/Shared/Shared.csproj".into(),
                     }],
+                    depth: Default::default(),
                     frameworks: vec![TreeFramework {
                         name: "Microsoft.NETCore.App".into(),
                         target_framework: Some("net10.0".into()),
@@ -1185,6 +1498,7 @@ mod tests {
         use TreeItemType::*;
         SolutionTree {
             generation: 4,
+            structure: Default::default(),
             path: Some("/src/Shop.sln".into()),
             projects: vec![
                 TreeProject {
@@ -1213,6 +1527,7 @@ mod tests {
                         },
                     ],
                     error: None,
+                    placement: Default::default(),
                     dependencies: None,
                 },
                 TreeProject {
@@ -1229,6 +1544,7 @@ mod tests {
                         file("/src/Core/a.cs", Compile),
                     ],
                     error: None,
+                    placement: Default::default(),
                     dependencies: None,
                 },
                 TreeProject {
@@ -1239,6 +1555,7 @@ mod tests {
                     target_frameworks: vec![],
                     files: vec![],
                     error: Some("bad xml".into()),
+                    placement: Default::default(),
                     dependencies: None,
                 },
             ],
@@ -1354,6 +1671,7 @@ mod tests {
         assert!(
             SolutionModel::from_tree(&SolutionTree {
                 generation: 0,
+                structure: Default::default(),
                 path: None,
                 projects: vec![]
             })
@@ -1368,6 +1686,7 @@ mod tests {
             CargoWorkspace::from_metadata(include_str!("testdata/cargo-metadata.json")).unwrap();
         let solution = SolutionTree {
             generation: 1,
+            structure: Default::default(),
             path: Some("/w/eludite/dotnet/Eludite.slnx".into()),
             projects: vec![TreeProject {
                 name: "Eludite.Host".into(),
@@ -1380,6 +1699,7 @@ mod tests {
                     TreeItemType::Compile,
                 )],
                 error: None,
+                placement: Default::default(),
                 dependencies: None,
             }],
         };
@@ -1621,6 +1941,7 @@ mod tests {
             target_frameworks: vec!["net10.0".into()],
             files: vec![],
             error: None,
+            placement: Default::default(),
             dependencies: None,
         };
         let host = project("Eludite.Host", "src/Eludite.Host");
@@ -1632,6 +1953,7 @@ mod tests {
             .into_owned();
         let tree = SolutionTree {
             generation: 2,
+            structure: Default::default(),
             path: Some(real.join("Eludite.slnx").to_string_lossy().into_owned()),
             projects: vec![
                 host,
@@ -1669,5 +1991,188 @@ mod tests {
                 "{labels:?}"
             );
         }
+    }
+
+    // Brief 0081: solution folders, solution items, unloaded projects, analyzers, assemblies, per-framework groups
+    // and a legacy project's References node.
+    #[test]
+    fn solution_folders_hold_their_projects_folders_and_items() {
+        use eludite_protocol::host::{
+            TreeAssembly, TreeDependencies, TreeDependencyDepth, TreeFramework, TreeFrameworkGroup,
+            TreePackage, TreeProjectPlacement, TreeProjectReference, TreeSolutionFolder,
+            TreeStructure,
+        };
+        let project =
+            |name: &str, folder: Option<&str>, kind, deps: Option<TreeDependencies>| TreeProject {
+                name: name.into(),
+                path: format!("/s/{name}/{name}.csproj"),
+                kind,
+                web: false,
+                target_frameworks: vec![],
+                files: vec![],
+                error: None,
+                dependencies: deps,
+                placement: TreeProjectPlacement {
+                    solution_folder: folder.map(str::to_owned),
+                    unloaded: false,
+                },
+            };
+        let multi = TreeDependencies {
+            restored: true,
+            packages: vec![],
+            projects: vec![],
+            frameworks: vec![],
+            depth: TreeDependencyDepth {
+                analyzers: vec![],
+                assemblies: vec![],
+                framework_groups: ["net8.0", "net10.0"]
+                    .iter()
+                    .map(|t| TreeFrameworkGroup {
+                        target_framework: (*t).into(),
+                        packages: vec![],
+                        projects: vec![TreeProjectReference {
+                            name: "Core".into(),
+                            path: "/s/Core/Core.csproj".into(),
+                        }],
+                        frameworks: vec![TreeFramework {
+                            name: "Microsoft.NETCore.App".into(),
+                            target_framework: Some((*t).into()),
+                        }],
+                        analyzers: vec![TreeAssembly {
+                            name: "Gen".into(),
+                            path: Some("/p/Gen.dll".into()),
+                            ..Default::default()
+                        }],
+                        assemblies: vec![],
+                    })
+                    .collect(),
+            },
+        };
+        let legacy = TreeDependencies {
+            restored: false,
+            packages: vec![TreePackage {
+                id: "Newtonsoft.Json".into(),
+                requested: Some("13.0.1".into()),
+                ..Default::default()
+            }],
+            projects: vec![TreeProjectReference {
+                name: "Core".into(),
+                path: "/s/Core/Core.csproj".into(),
+            }],
+            frameworks: vec![],
+            depth: TreeDependencyDepth {
+                assemblies: vec![TreeAssembly {
+                    name: "System.Xml".into(),
+                    include: Some("System.Xml".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        };
+        let mut unloaded = project("Old", Some("/src/"), TreeProjectKind::Sdk, None);
+        unloaded.placement.unloaded = true;
+        let tree = SolutionTree {
+            generation: 2,
+            structure: TreeStructure {
+                folders: vec![
+                    TreeSolutionFolder {
+                        path: "/src/".into(),
+                        name: "src".into(),
+                        files: vec![],
+                    },
+                    TreeSolutionFolder {
+                        path: "/src/tests/".into(),
+                        name: "tests".into(),
+                        files: vec![],
+                    },
+                    TreeSolutionFolder {
+                        path: "/Solution Items/".into(),
+                        name: "Solution Items".into(),
+                        files: vec!["/s/README.md".into(), "/s/.editorconfig".into()],
+                    },
+                ],
+                unloaded: vec!["/s/Old/Old.csproj".into()],
+            },
+            path: Some("/s/S.slnx".into()),
+            projects: vec![
+                project("App", Some("/src/"), TreeProjectKind::Sdk, Some(multi)),
+                project("App.Tests", Some("/src/tests/"), TreeProjectKind::Sdk, None),
+                project("Legacy", None, TreeProjectKind::Legacy, Some(legacy)),
+                unloaded,
+            ],
+        };
+        let model = SolutionModel::from_tree(&tree).unwrap();
+        assert_eq!(model.root.label, "Solution 'S' (3 of 4 projects)");
+        let labels = |n: &Node| {
+            n.children
+                .iter()
+                .map(|c| c.label.clone())
+                .collect::<Vec<_>>()
+        };
+        // Folders first, then projects, each by name.
+        assert_eq!(labels(&model.root), ["Solution Items", "src", "Legacy"]);
+        let src = model.find("/s/S.slnx|sf|/src/").unwrap();
+        assert_eq!(
+            src.kind,
+            NodeKind::SolutionFolder {
+                folder: "/src/".into()
+            }
+        );
+        assert_eq!(labels(src), ["tests", "App", "Old (unloaded)"]);
+        assert_eq!(src.children[2].kind, NodeKind::UnloadedProject);
+        assert!(src.children[2].children.is_empty());
+        let tests = model.find("/s/S.slnx|sf|/src/tests/").unwrap();
+        assert_eq!(labels(tests), ["App.Tests"]);
+        let items = model.find("/s/S.slnx|sf|/Solution Items/").unwrap();
+        assert_eq!(labels(items), [".editorconfig", "README.md"]);
+        assert!(items.children[0].kind.opens_file());
+        assert_eq!(
+            items.children[1].path.as_deref(),
+            Some(Path::new("/s/README.md"))
+        );
+
+        // A multi-targeted project: one node per framework, each with its groups.
+        let deps = model.find("/s/App/App.csproj|deps").unwrap();
+        assert_eq!(labels(deps), ["net8.0", "net10.0"]);
+        let net8 = model.find("/s/App/App.csproj|deps|tfm|net8.0").unwrap();
+        assert_eq!(
+            net8.kind,
+            NodeKind::DependencyGroup {
+                group: DependencyGroup::TargetFramework
+            }
+        );
+        assert_eq!(labels(net8), ["Analyzers", "Frameworks", "Projects"]);
+        let generator = model
+            .find("/s/App/App.csproj|deps|tfm|net8.0|analyzers|/p/Gen.dll")
+            .unwrap();
+        assert_eq!(generator.kind, NodeKind::Analyzer);
+        assert!(generator.kind.is_dependency());
+        assert_eq!(
+            NodeKind::owning_project(&generator.id),
+            Some("/s/App/App.csproj")
+        );
+
+        // A legacy project: References, flat.
+        let refs = model.find("/s/Legacy/Legacy.csproj|deps").unwrap();
+        assert_eq!(refs.label, "References");
+        assert_eq!(
+            labels(refs),
+            ["Core", "Newtonsoft.Json (13.0.1)", "System.Xml"]
+        );
+        assert_eq!(
+            refs.children[2].kind,
+            NodeKind::Assembly {
+                include: "System.Xml".into()
+            }
+        );
+
+        // No folders: projects at the solution's root as before.
+        let mut flat = tree.clone();
+        flat.structure.folders.clear();
+        let model = SolutionModel::from_tree(&flat).unwrap();
+        assert_eq!(
+            labels(&model.root),
+            ["App", "App.Tests", "Legacy", "Old (unloaded)"]
+        );
     }
 }

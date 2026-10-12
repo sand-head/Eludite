@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-rename-folder.input.json",
+  "title": "eludite.solution.rename_folder input",
+  "description": "Rename on a solution folder (brief 0081).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "folder",
+    "name"
+  ],
+  "properties": {
+    "folder": {
+      "description": "A solution folder: its path from the solution root (/src/, /src/tests/) as eludite.solution.tree and the Workspace window name it, or its name when that is unique.",
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "description": "The new name.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

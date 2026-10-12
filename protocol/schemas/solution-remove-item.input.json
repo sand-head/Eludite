@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-remove-item.input.json",
+  "title": "eludite.solution.remove_item input",
+  "description": "Remove on a solution item (brief 0081): the file leaves the folder's list; it stays on disk.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "folder",
+    "path"
+  ],
+  "properties": {
+    "folder": {
+      "description": "A solution folder: its path from the solution root (/src/, /src/tests/) as eludite.solution.tree and the Workspace window name it, or its name when that is unique.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "Path of the file, absolute or relative to the solution folder.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -91,6 +91,16 @@ pub mod methods {
     pub const RESX_SETS: &str = "eludite/resx/sets";
     /// Generate, delete or change the access modifier of a `.resx` file's designer code file (proposal 0005).
     pub const RESX_DESIGNER: &str = "eludite/resx/designer";
+    /// Brief 0081: edit the solution file (projects, solution folders, solution items, build dependencies).
+    pub const SOLUTION_EDIT: &str = "eludite/solution/edit";
+    /// Brief 0081: a file's File Properties (Build Action, Copy to Output Directory, Custom Tool).
+    pub const PROJECT_ITEM_PROPERTIES: &str = "eludite/project/itemProperties";
+    /// Brief 0081: change a file's Build Action and metadata.
+    pub const PROJECT_SET_ITEM_PROPERTIES: &str = "eludite/project/setItemProperties";
+    /// Brief 0081: add and remove project and assembly references.
+    pub const PROJECT_EDIT_REFERENCES: &str = "eludite/project/editReferences";
+    /// Brief 0081: Unload Project and Reload Project.
+    pub const PROJECT_SET_UNLOADED: &str = "eludite/project/setUnloaded";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -125,6 +135,12 @@ pub mod methods {
         SOLUTION_SET_CONFIGURATION,
         RESX_SETS,
         RESX_DESIGNER,
+        // Brief 0081.
+        SOLUTION_EDIT,
+        PROJECT_ITEM_PROPERTIES,
+        PROJECT_SET_ITEM_PROPERTIES,
+        PROJECT_EDIT_REFERENCES,
+        PROJECT_SET_UNLOADED,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -286,6 +302,9 @@ pub struct SolutionTree {
     #[serde(default)]
     pub path: Option<String>,
     pub projects: Vec<TreeProject>,
+    /// Brief 0081: solution folders and unloaded projects.
+    #[serde(flatten)]
+    pub structure: TreeStructure,
 }
 
 /// `sdk` or `legacy` (non-SDK MSBuild 2003 format).
@@ -314,6 +333,9 @@ pub struct TreeProject {
     /// Visual Studio's Dependencies node (brief 0048).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<TreeDependencies>,
+    /// Brief 0081: the project's solution folder and unloaded state.
+    #[serde(flatten)]
+    pub placement: TreeProjectPlacement,
 }
 
 /// A project's Dependencies node: packages, project references and frameworks, read from disk.
@@ -324,6 +346,9 @@ pub struct TreeDependencies {
     pub packages: Vec<TreePackage>,
     pub projects: Vec<TreeProjectReference>,
     pub frameworks: Vec<TreeFramework>,
+    /// Brief 0081: Analyzers, Assemblies and the per-framework groups.
+    #[serde(flatten)]
+    pub depth: TreeDependencyDepth,
 }
 
 /// A top-level package of [`TreeDependencies`].
@@ -2554,6 +2579,282 @@ request!(
     ResxDesignerResult
 );
 
+// Brief 0081: solution structure, solution edits, item properties, references and unloaded projects.
+
+/// The solution folders and unloaded projects of [`SolutionTree`] (`solution-tree.json`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeStructure {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<TreeSolutionFolder>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unloaded: Vec<String>,
+}
+
+/// A solution folder: `/src/tests/`, its last segment and its solution items.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeSolutionFolder {
+    pub path: String,
+    pub name: String,
+    pub files: Vec<String>,
+}
+
+impl TreeSolutionFolder {
+    /// The parent folder's path (`/src/` for `/src/tests/`), `None` at the root.
+    pub fn parent(&self) -> Option<&str> {
+        let trimmed = self.path.trim_end_matches('/');
+        let cut = trimmed.rfind('/')?;
+        (cut > 0).then(|| &self.path[..=cut])
+    }
+}
+
+/// Where a [`TreeProject`] sits in the solution and whether it is unloaded.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeProjectPlacement {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solution_folder: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unloaded: bool,
+}
+
+/// An analyzer or an assembly reference of a Dependencies node.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeAssembly {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
+}
+
+/// Brief 0081's additions to [`TreeDependencies`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeDependencyDepth {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub analyzers: Vec<TreeAssembly>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assemblies: Vec<TreeAssembly>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub framework_groups: Vec<TreeFrameworkGroup>,
+}
+
+/// One target framework's dependencies of a multi-targeted project.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeFrameworkGroup {
+    pub target_framework: String,
+    pub packages: Vec<TreePackage>,
+    pub projects: Vec<TreeProjectReference>,
+    pub frameworks: Vec<TreeFramework>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub analyzers: Vec<TreeAssembly>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assemblies: Vec<TreeAssembly>,
+}
+
+/// `eludite/solution/edit`'s action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SolutionEditAction {
+    AddProject,
+    RemoveProject,
+    AddFolder,
+    RenameFolder,
+    RemoveFolder,
+    AddFile,
+    RemoveFile,
+    SetDependencies,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionEditParams {
+    pub generation: Generation,
+    pub action: SolutionEditAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depends_on: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionEditResult {
+    pub generation: Generation,
+    pub path: String,
+    pub written: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Copy to Output Directory.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CopyToOutput {
+    #[default]
+    Never,
+    Always,
+    PreserveNewest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemPropertiesParams {
+    pub generation: Generation,
+    pub project: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemPropertiesResult {
+    pub generation: Generation,
+    pub project: String,
+    pub path: String,
+    pub listed: bool,
+    pub item_type: String,
+    pub item_types: Vec<String>,
+    pub copy_to_output_directory: CopyToOutput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_tool_namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub implicit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetItemPropertiesParams {
+    pub generation: Generation,
+    pub project: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_to_output_directory: Option<CopyToOutput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_tool_namespace: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetItemPropertiesResult {
+    pub generation: Generation,
+    pub project: String,
+    pub written: bool,
+}
+
+/// A project or an assembly reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReferenceKind {
+    Project,
+    Assembly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceEdit {
+    pub kind: ReferenceKind,
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditReferencesParams {
+    pub generation: Generation,
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub add: Vec<ReferenceEdit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove: Vec<ReferenceEdit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefusedReference {
+    pub reference: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditReferencesResult {
+    pub generation: Generation,
+    pub project: String,
+    pub written: bool,
+    pub refused: Vec<RefusedReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetUnloadedParams {
+    pub projects: Vec<String>,
+    pub unloaded: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetUnloadedResult {
+    pub generation: Generation,
+    pub unloaded: Vec<String>,
+}
+
+request!(
+    /// `eludite/solution/edit` (brief 0081).
+    SolutionEdit,
+    methods::SOLUTION_EDIT,
+    SolutionEditParams,
+    SolutionEditResult
+);
+request!(
+    /// `eludite/project/itemProperties` (brief 0081).
+    ItemProperties,
+    methods::PROJECT_ITEM_PROPERTIES,
+    ItemPropertiesParams,
+    ItemPropertiesResult
+);
+request!(
+    /// `eludite/project/setItemProperties` (brief 0081).
+    SetItemProperties,
+    methods::PROJECT_SET_ITEM_PROPERTIES,
+    SetItemPropertiesParams,
+    SetItemPropertiesResult
+);
+request!(
+    /// `eludite/project/editReferences` (brief 0081).
+    EditReferences,
+    methods::PROJECT_EDIT_REFERENCES,
+    EditReferencesParams,
+    EditReferencesResult
+);
+request!(
+    /// `eludite/project/setUnloaded` (brief 0081).
+    SetUnloaded,
+    methods::PROJECT_SET_UNLOADED,
+    SetUnloadedParams,
+    SetUnloadedResult
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2635,6 +2936,7 @@ mod tests {
         round_trip(
             &SolutionTree {
                 generation: 2,
+                structure: Default::default(),
                 path: Some("/src/App.slnx".into()),
                 projects: vec![
                     TreeProject {
@@ -2650,6 +2952,7 @@ mod tests {
                             link: None,
                         }],
                         error: None,
+                        placement: Default::default(),
                         dependencies: None,
                     },
                     TreeProject {
@@ -2679,6 +2982,7 @@ mod tests {
                             },
                         ],
                         error: None,
+                        placement: Default::default(),
                         dependencies: None,
                     },
                     TreeProject {
@@ -2689,6 +2993,7 @@ mod tests {
                         target_frameworks: vec![],
                         files: vec![],
                         error: Some("MSB4025: invalid XML".into()),
+                        placement: Default::default(),
                         dependencies: None,
                     },
                 ],
@@ -2713,6 +3018,7 @@ mod tests {
         // No solution open: path is null on the wire.
         let empty = SolutionTree {
             generation: 0,
+            structure: Default::default(),
             path: None,
             projects: vec![],
         };

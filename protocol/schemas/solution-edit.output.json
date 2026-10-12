@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-edit.output.json",
+  "title": "eludite.solution edit output",
+  "description": "What a solution edit of brief 0081 did (add_project, remove_project, add_folder, rename_folder, remove_folder, add_item, remove_item, set_project_dependencies).",
+  "type": "object",
+  "required": [
+    "path",
+    "written",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The solution file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "written": {
+      "description": "True when the solution file changed on disk (the host reloaded the solution).",
+      "type": "boolean"
+    },
+    "folder": {
+      "description": "add_folder and rename_folder: the folder's path after the edit.",
+      "type": "string",
+      "minLength": 1
+    },
+    "message": {
+      "description": "Why nothing changed.",
+      "type": "string",
+      "minLength": 1
+    },
+    "generation": {
+      "description": "The solution generation after the edit.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "pending": {
+      "description": "From the UI: the edit was sent and the host's answer is still coming.",
+      "type": "boolean"
+    }
+  }
+}

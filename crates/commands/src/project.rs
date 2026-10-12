@@ -14,6 +14,8 @@
 use std::sync::Arc;
 
 pub mod properties;
+// Brief 0081: solution structure, references, item properties, unload and reload.
+pub mod structure;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

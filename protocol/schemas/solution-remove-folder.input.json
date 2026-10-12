@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-remove-folder.input.json",
+  "title": "eludite.solution.remove_folder input",
+  "description": "Remove on a solution folder (brief 0081): the folder, its sub-folders and solution items leave the solution file, and so do its projects (their files stay on disk), as in Visual Studio.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "folder"
+  ],
+  "properties": {
+    "folder": {
+      "description": "A solution folder: its path from the solution root (/src/, /src/tests/) as eludite.solution.tree and the Workspace window name it, or its name when that is unique.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

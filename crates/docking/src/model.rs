@@ -484,9 +484,10 @@ impl DockLayout {
     }
 
     /// The default (PLAN.md 8): Workspace with Git Changes and Agents tabbed on
-    /// the right, Error List, Output and Terminal tabbed at the bottom, a Welcome
-    /// document. Every other registered window starts closed, Properties and
-    /// Toolbox among them until they have content; the View menu opens them.
+    /// the right with Properties below them (brief 0081: the property grid gave it
+    /// content), Error List, Output and Terminal tabbed at the bottom, a Welcome
+    /// document. Every other registered window starts closed, Toolbox among them
+    /// until it has content; the View menu opens them.
     pub fn default_vs(registry: &ToolWindowRegistry) -> Self {
         let mut l = Self::empty();
         let group = |id: u32, tabs: &[&str]| Group {
@@ -497,7 +498,9 @@ impl DockLayout {
         };
         l.right.groups = vec![group(1, &[ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS])];
         l.bottom.groups = vec![group(2, &[ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL])];
-        l.next_group_id = 3;
+        // Brief 0081: Properties below the Workspace window.
+        l.right.groups.push(group(3, &[ids::PROPERTIES]));
+        l.next_group_id = 4;
         l.documents.open("welcome", "Welcome");
         l.normalize(registry);
         l
@@ -507,14 +510,8 @@ impl DockLayout {
     /// and Toolbox auto-hidden on the left (Visual Studio's own default).
     #[cfg(test)]
     pub(crate) fn fixture(registry: &ToolWindowRegistry) -> Self {
+        // Brief 0081: Properties is under the Workspace group in the default itself.
         let mut l = Self::default_vs(registry);
-        l.right.groups.push(Group {
-            id: l.next_group_id,
-            tabs: vec![ids::PROPERTIES.to_owned()],
-            active: 0,
-            share: None,
-        });
-        l.next_group_id += 1;
         l.left.auto_hidden.push(ids::TOOLBOX.into());
         l.normalize(registry);
         l
@@ -1322,9 +1319,10 @@ mod tests {
         let l = DockLayout::default_vs(&r);
         assert!(l.is_consistent(&r));
         assert!(l.left.groups.is_empty());
-        // Properties and Toolbox start closed until they have content.
+        // Toolbox starts closed until it has content; Properties sits below the Workspace group (brief 0081).
         assert!(l.left.auto_hidden.is_empty());
-        assert_eq!(l.right.groups.len(), 1);
+        assert_eq!(l.right.groups.len(), 2);
+        assert_eq!(l.right.groups[1].tabs, [ids::PROPERTIES]);
         assert_eq!(
             l.right.groups[0].tabs,
             [ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS]
@@ -1341,7 +1339,6 @@ mod tests {
         assert_eq!(
             hidden,
             [
-                ids::PROPERTIES,
                 ids::TOOLBOX,
                 ids::FIND_ALL_REFERENCES,
                 ids::LOCALS,

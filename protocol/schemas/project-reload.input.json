@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-reload.input.json",
+  "title": "eludite.project.reload input",
+  "description": "Reload Project (brief 0081): load an unloaded project again, or evaluate a project that failed to load again.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project"
+  ],
+  "properties": {
+    "project": {
+      "description": "The project: its name as the Workspace window shows it, or the path of its project file (absolute, or relative to the solution folder).",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

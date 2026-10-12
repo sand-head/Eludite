@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-unload.output.json",
+  "title": "eludite.project unload output",
+  "description": "The unloaded projects after Unload Project or Reload Project (brief 0081).",
+  "type": "object",
+  "required": [
+    "project",
+    "path",
+    "unloaded",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "The project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "unloaded": {
+      "description": "Project files unloaded in this workspace.",
+      "type": "array",
+      "items": {
+        "description": "A project file.",
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "pending": {
+      "type": "boolean"
+    }
+  }
+}

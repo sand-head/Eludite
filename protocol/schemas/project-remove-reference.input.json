@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-remove-reference.input.json",
+  "title": "eludite.project.remove_reference input",
+  "description": "Remove a project or assembly reference (brief 0081; Remove on a reference in the Dependencies node).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project",
+    "reference"
+  ],
+  "properties": {
+    "project": {
+      "description": "The project: its name as the Workspace window shows it, or the path of its project file (absolute, or relative to the solution folder).",
+      "type": "string",
+      "minLength": 1
+    },
+    "reference": {
+      "description": "project kind: a project of the solution, by name or path. assembly kind: a .dll path (absolute or relative to the solution folder), or an assembly name (System.Xml).",
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "description": "project or assembly. Default: project when reference names a project of the solution or ends in .csproj, .vbproj or .fsproj, else assembly.",
+      "enum": [
+        "project",
+        "assembly"
+      ]
+    }
+  }
+}

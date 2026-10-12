@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-item-properties.output.json",
+  "title": "eludite.project item properties output",
+  "description": "A file's File Properties (brief 0081).",
+  "type": "object",
+  "required": [
+    "project",
+    "project_path",
+    "path",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "project_path": {
+      "description": "The project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "The file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "listed": {
+      "description": "The project lists the file as an item.",
+      "type": "boolean"
+    },
+    "build_action": {
+      "description": "The item type.",
+      "type": "string",
+      "minLength": 1
+    },
+    "build_actions": {
+      "description": "The Build Action choices.",
+      "type": "array",
+      "items": {
+        "description": "An item type.",
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "copy_to_output": {
+      "enum": [
+        "never",
+        "always",
+        "preserve_newest"
+      ]
+    },
+    "custom_tool": {
+      "type": "string"
+    },
+    "custom_tool_namespace": {
+      "type": "string"
+    },
+    "implicit": {
+      "description": "The item comes from the SDK's default globs.",
+      "type": "boolean"
+    },
+    "written": {
+      "description": "set_item_properties: the project file changed.",
+      "type": "boolean"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "pending": {
+      "description": "From the UI: the host's answer is still coming.",
+      "type": "boolean"
+    }
+  }
+}

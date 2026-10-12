@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-set-item-properties.input.json",
+  "title": "eludite.project.set_item_properties input",
+  "description": "Change a file's Build Action, Copy to Output Directory, Custom Tool or Custom Tool Namespace (brief 0081): written to the project file with its formatting kept (an Update item for a file of the SDK's default globs), then the solution reloads.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "description": "Path of the file, absolute or relative to the solution folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "The project listing the file, by name or path. Default: the first project of the solution that lists it.",
+      "type": "string",
+      "minLength": 1
+    },
+    "build_action": {
+      "description": "The item type: None, Compile, Content, EmbeddedResource, AdditionalFiles, Page, ...",
+      "type": "string",
+      "minLength": 1
+    },
+    "copy_to_output": {
+      "description": "never (Do not copy), always (Copy always), preserve_newest (Copy if newer).",
+      "enum": [
+        "never",
+        "always",
+        "preserve_newest"
+      ]
+    },
+    "custom_tool": {
+      "description": "The Generator metadata; empty removes it.",
+      "type": "string"
+    },
+    "custom_tool_namespace": {
+      "description": "The CustomToolNamespace metadata; empty removes it.",
+      "type": "string"
+    }
+  }
+}

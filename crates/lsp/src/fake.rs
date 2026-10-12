@@ -33,6 +33,9 @@
 //!
 //! Resources (proposal 0005): `eludite/resx/sets` answers the sets a test gave ([`FakeHost::set_resx_sets`]) and
 //! `eludite/resx/designer` writes or deletes a stand-in designer file (the child module `resx`).
+//!
+//! Solution structure (brief 0081): folders, solution edits, item properties, references and unloaded projects are
+//! served from a small model by the child module `structure` (see [`FakeHost::set_solution_folders`]).
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -51,6 +54,8 @@ use crate::fake_nuget::{FakeNuGet, host_of, output_updates};
 mod projects;
 /// `eludite/resx/*` (proposal 0005).
 mod resx;
+/// Brief 0081: solution folders, solution edits, item properties, references and unloaded projects.
+mod structure;
 
 /// One message the fake received from the shell.
 #[derive(Debug, Clone, PartialEq)]
@@ -118,6 +123,8 @@ struct State {
     projects: projects::FakeProjects,
     /// `eludite/resx/*` (proposal 0005).
     resx: resx::FakeResx,
+    /// Brief 0081.
+    structure: structure::FakeStructure,
 }
 
 #[derive(Default)]
@@ -1093,6 +1100,8 @@ impl FakeHost {
                     Some(p) => json!({"generation": generation, "path": p, "projects": projects}),
                     None => json!({"generation": generation, "path": null, "projects": []}),
                 };
+                // Brief 0081: the folders and the unloaded projects.
+                let result = self.structure_tree(result);
                 let out = out.clone();
                 let id = id.clone();
                 thread::spawn(move || {
@@ -1167,6 +1176,14 @@ impl FakeHost {
             }
             methods::RESX_SETS | methods::RESX_DESIGNER => {
                 self.answer_resx(method, params, &reply, &error, &notify)
+            }
+            // Brief 0081.
+            methods::SOLUTION_EDIT
+            | methods::PROJECT_ITEM_PROPERTIES
+            | methods::PROJECT_SET_ITEM_PROPERTIES
+            | methods::PROJECT_EDIT_REFERENCES
+            | methods::PROJECT_SET_UNLOADED => {
+                self.answer_structure(method, params, &reply, &error, &notify)
             }
             m if methods::FORWARDED_TYPED_REQUESTS.contains(&m)
                 || methods::FORWARDED_UNTYPED_REQUESTS.contains(&m) =>

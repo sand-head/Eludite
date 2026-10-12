@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-add-project.input.json",
+  "title": "eludite.solution.add_project input",
+  "description": "Add > Existing Project... on the solution or a solution folder (brief 0081): add an existing project file to the open solution (.sln or .slnx), in a solution folder when given. Without project, from the UI, the file dialog asks for it first.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "Path of the project file (.csproj, .vbproj, .fsproj), absolute or relative to the solution folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "folder": {
+      "description": "A solution folder: its path from the solution root (/src/, /src/tests/) as eludite.solution.tree and the Workspace window name it, or its name when that is unique.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

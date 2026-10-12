@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-add-folder.input.json",
+  "title": "eludite.solution.add_folder input",
+  "description": "Add > New Solution Folder (brief 0081). Without name the folder is called NewFolder1 (NewFolder2, ... when taken), as in Visual Studio.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "The folder's name: no / \\ : * ? \" < > |.",
+      "type": "string",
+      "minLength": 1
+    },
+    "parent": {
+      "description": "A solution folder: its path from the solution root (/src/, /src/tests/) as eludite.solution.tree and the Workspace window name it, or its name when that is unique.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

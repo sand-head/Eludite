@@ -49,6 +49,8 @@ pub mod keymap;
 pub mod markdown;
 pub mod menu;
 pub mod popup;
+// Brief 0081: Visual Studio's Properties window body.
+pub mod property_grid;
 pub mod startup;
 pub mod status;
 pub mod test_explorer;

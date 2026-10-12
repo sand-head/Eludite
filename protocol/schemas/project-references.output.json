@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-references.output.json",
+  "title": "eludite.project references output",
+  "description": "What a reference edit of brief 0081 did.",
+  "type": "object",
+  "required": [
+    "project",
+    "path",
+    "written",
+    "refused",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "The project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "written": {
+      "type": "boolean"
+    },
+    "refused": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "reference",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "reference": {
+            "description": "The reference.",
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "description": "Why it was refused: a cycle with its chain, self, missing, not referenced.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "opened": {
+      "description": "reference_manager: the dialog opened.",
+      "type": "boolean"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "pending": {
+      "type": "boolean"
+    }
+  }
+}

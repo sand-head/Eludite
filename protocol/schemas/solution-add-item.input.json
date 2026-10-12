@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-add-item.input.json",
+  "title": "eludite.solution.add_item input",
+  "description": "Add > Existing Item... on a solution folder (brief 0081): list a file as a solution item of the folder. Without path, from the UI, the file dialog asks for it first.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "folder"
+  ],
+  "properties": {
+    "folder": {
+      "description": "A solution folder: its path from the solution root (/src/, /src/tests/) as eludite.solution.tree and the Workspace window name it, or its name when that is unique.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "Path of the file, absolute or relative to the solution folder.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-item-properties.input.json",
+  "title": "eludite.project.item_properties input",
+  "description": "A file's File Properties, as the Properties window (F4) shows them (brief 0081): Build Action (the MSBuild item type), Copy to Output Directory, Custom Tool and Custom Tool Namespace, with the Build Action choices.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "description": "Path of the file, absolute or relative to the solution folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "The project listing the file, by name or path. Default: the first project of the solution that lists it.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

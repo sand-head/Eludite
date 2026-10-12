@@ -303,6 +303,7 @@ fn eludite_messages_conform_to_their_schemas() {
             link: None,
         }],
         error: None,
+        placement: Default::default(),
         dependencies: None,
     };
     conforms("solution-tree.json", "project", &project);
@@ -312,6 +313,7 @@ fn eludite_messages_conform_to_their_schemas() {
         "result",
         &host::SolutionTree {
             generation: 3,
+            structure: Default::default(),
             path: Some("/src/Shop.sln".into()),
             projects: vec![project],
         },
@@ -321,6 +323,7 @@ fn eludite_messages_conform_to_their_schemas() {
         "result",
         &host::SolutionTree {
             generation: 0,
+            structure: Default::default(),
             path: None,
             projects: vec![],
         },
@@ -1802,6 +1805,7 @@ fn nuget_messages_conform_to_their_schemas() {
         target_frameworks: vec!["net10.0".into()],
         files: vec![],
         error: None,
+        placement: Default::default(),
         dependencies: Some(TreeDependencies {
             restored: true,
             packages: vec![TreePackage {
@@ -1820,6 +1824,7 @@ fn nuget_messages_conform_to_their_schemas() {
                 name: "Shared".into(),
                 path: "/c/Shared/Shared.csproj".into(),
             }],
+            depth: Default::default(),
             frameworks: vec![TreeFramework {
                 name: "Microsoft.NETCore.App".into(),
                 target_framework: Some("net10.0".into()),
@@ -2194,5 +2199,223 @@ fn resx_messages_conform_to_their_schemas() {
     assert_eq!(
         v,
         json!({"generation": 4, "path": "x", "status": "none", "modifier": "none"})
+    );
+}
+
+// Brief 0081: solution structure, solution edits, item properties, references and unloaded projects.
+#[test]
+fn solution_structure_messages_conform_to_their_schemas() {
+    use host::*;
+    let mut project = TreeProject {
+        name: "Lib".into(),
+        path: "/s/src/Lib/Lib.csproj".into(),
+        kind: TreeProjectKind::Sdk,
+        web: false,
+        target_frameworks: vec!["net8.0".into(), "net10.0".into()],
+        files: vec![],
+        error: None,
+        dependencies: Some(TreeDependencies {
+            restored: true,
+            packages: vec![],
+            projects: vec![],
+            frameworks: vec![],
+            depth: TreeDependencyDepth {
+                analyzers: vec![TreeAssembly {
+                    name: "Gen".into(),
+                    path: Some("/p/gen/analyzers/dotnet/cs/Gen.dll".into()),
+                    include: None,
+                    package: Some("Gen".into()),
+                }],
+                assemblies: vec![TreeAssembly {
+                    name: "Foo".into(),
+                    path: Some("/s/lib/Foo.dll".into()),
+                    include: Some("Foo".into()),
+                    package: None,
+                }],
+                framework_groups: vec![TreeFrameworkGroup {
+                    target_framework: "net8.0".into(),
+                    packages: vec![],
+                    projects: vec![TreeProjectReference {
+                        name: "Core".into(),
+                        path: "/s/src/Core/Core.csproj".into(),
+                    }],
+                    frameworks: vec![TreeFramework {
+                        name: "Microsoft.NETCore.App".into(),
+                        target_framework: Some("net8.0".into()),
+                    }],
+                    analyzers: vec![],
+                    assemblies: vec![],
+                }],
+            },
+        }),
+        placement: TreeProjectPlacement {
+            solution_folder: Some("/src/".into()),
+            unloaded: false,
+        },
+    };
+    conforms("solution-tree.json", "project", &project);
+    project.placement.unloaded = true;
+    let tree = SolutionTree {
+        generation: 3,
+        structure: TreeStructure {
+            folders: vec![TreeSolutionFolder {
+                path: "/src/tests/".into(),
+                name: "tests".into(),
+                files: vec!["/s/README.md".into()],
+            }],
+            unloaded: vec!["/s/src/Lib/Lib.csproj".into()],
+        },
+        path: Some("/s/S.slnx".into()),
+        projects: vec![project],
+    };
+    conforms("solution-tree.json", "result", &tree);
+    let wire = serde_json::to_value(&tree).unwrap();
+    assert_eq!(wire["folders"][0]["path"], "/src/tests/");
+    assert_eq!(wire["projects"][0]["solutionFolder"], "/src/");
+    assert_eq!(
+        wire["projects"][0]["dependencies"]["frameworkGroups"][0]["targetFramework"],
+        "net8.0"
+    );
+    let back: SolutionTree = serde_json::from_value(wire).unwrap();
+    assert_eq!(back, tree);
+    assert_eq!(tree.structure.folders[0].parent(), Some("/src/"));
+    let root = TreeSolutionFolder {
+        path: "/src/".into(),
+        name: "src".into(),
+        files: vec![],
+    };
+    assert_eq!(root.parent(), None);
+
+    conforms(
+        "solution-edit.json",
+        "params",
+        &SolutionEditParams {
+            generation: 3,
+            action: SolutionEditAction::AddProject,
+            project: Some("/s/src/App/App.csproj".into()),
+            folder: Some("/src/".into()),
+            name: None,
+            file: None,
+            depends_on: None,
+        },
+    );
+    rejects(
+        "solution-edit.json",
+        "params",
+        json!({"generation": 3, "action": "addSomething"}),
+    );
+    conforms(
+        "solution-edit.json",
+        "result",
+        &SolutionEditResult {
+            generation: 4,
+            path: "/s/S.slnx".into(),
+            written: true,
+            folder: Some("/NewFolder1/".into()),
+            message: None,
+        },
+    );
+    conforms(
+        "project-item-properties.json",
+        "params",
+        &ItemPropertiesParams {
+            generation: 3,
+            project: "/s/App/App.csproj".into(),
+            path: "/s/App/appsettings.json".into(),
+        },
+    );
+    conforms(
+        "project-item-properties.json",
+        "result",
+        &ItemPropertiesResult {
+            generation: 3,
+            project: "/s/App/App.csproj".into(),
+            path: "/s/App/appsettings.json".into(),
+            listed: true,
+            item_type: "Content".into(),
+            item_types: vec!["None".into(), "Compile".into(), "Content".into()],
+            copy_to_output_directory: CopyToOutput::PreserveNewest,
+            custom_tool: Some(String::new()),
+            custom_tool_namespace: None,
+            implicit: true,
+            line: Some(4),
+        },
+    );
+    conforms(
+        "project-set-item-properties.json",
+        "params",
+        &SetItemPropertiesParams {
+            generation: 3,
+            project: "/s/App/App.csproj".into(),
+            path: "/s/App/data.txt".into(),
+            item_type: Some("None".into()),
+            copy_to_output_directory: Some(CopyToOutput::Always),
+            custom_tool: None,
+            custom_tool_namespace: None,
+        },
+    );
+    rejects(
+        "project-set-item-properties.json",
+        "params",
+        json!({"generation": 3, "project": "p", "path": "x", "copyToOutputDirectory": "sometimes"}),
+    );
+    conforms(
+        "project-set-item-properties.json",
+        "result",
+        &SetItemPropertiesResult {
+            generation: 4,
+            project: "/s/App/App.csproj".into(),
+            written: true,
+        },
+    );
+    conforms(
+        "project-edit-references.json",
+        "params",
+        &EditReferencesParams {
+            generation: 3,
+            project: "/s/App/App.csproj".into(),
+            add: vec![ReferenceEdit {
+                kind: ReferenceKind::Project,
+                reference: "/s/Lib/Lib.csproj".into(),
+            }],
+            remove: vec![ReferenceEdit {
+                kind: ReferenceKind::Assembly,
+                reference: "System.Xml".into(),
+            }],
+        },
+    );
+    conforms(
+        "project-edit-references.json",
+        "result",
+        &EditReferencesResult {
+            generation: 3,
+            project: "/s/App/App.csproj".into(),
+            written: false,
+            refused: vec![RefusedReference {
+                reference: "/s/Lib/Lib.csproj".into(),
+                reason: "cycle: Lib -> App -> Lib".into(),
+            }],
+        },
+    );
+    conforms(
+        "project-set-unloaded.json",
+        "params",
+        &SetUnloadedParams {
+            projects: vec!["/s/Lib/Lib.csproj".into()],
+            unloaded: true,
+        },
+    );
+    rejects(
+        "project-set-unloaded.json",
+        "params",
+        json!({"projects": ["/s/Lib/Lib.csproj"]}),
+    );
+    conforms(
+        "project-set-unloaded.json",
+        "result",
+        &SetUnloadedResult {
+            generation: 5,
+            unloaded: vec!["/s/Lib/Lib.csproj".into()],
+        },
     );
 }
