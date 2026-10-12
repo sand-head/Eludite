@@ -36,7 +36,8 @@ pub use model::{
 };
 pub use persist::{LayoutSource, LayoutStore, LayoutWriter, eludite_config_dir};
 pub use view::{
-    DockHost, DocumentBody, DraggedTool, FloatingView, Persistence, Probe, RenderProbe, ToolBody,
+    DockHost, DocumentBody, DraggedTab, DraggedTool, FloatingView, MOVE_TAB, Persistence, Probe,
+    RenderProbe, ToolBody, tab_menu_items,
 };
 
 #[cfg(test)]

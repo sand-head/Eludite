@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-save-as.output.json",
+  "title": "eludite.file.save_as output",
+  "description": "Where the document now lives.",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "description": "The document's old tab id.",
+      "type": "string"
+    },
+    "new_path": {
+      "type": "string"
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "shown": {
+      "description": "True when the save dialog was shown instead (no new_path).",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

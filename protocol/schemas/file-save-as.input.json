@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-save-as.input.json",
+  "title": "eludite.file.save_as input",
+  "description": "File > Save As: write a text document to a new path and retarget its tab to it. Without new_path the UI shows the save dialog.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "The document: an open file's absolute path, or a path relative to the workspace; the active document when omitted.",
+      "type": "string",
+      "minLength": 1
+    },
+    "new_path": {
+      "description": "Where to write: absolute, or relative to the workspace.",
+      "type": "string",
+      "minLength": 1
+    },
+    "overwrite": {
+      "description": "Replace an existing file at new_path (the dialog asks).",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-exit.input.json",
+  "title": "eludite.file.exit input",
+  "description": "File > Exit (Alt+F4): quit Eludite. With unsaved changes, save says what to do with them; without it the call fails listing them (the UI asks Save, Don't Save, Cancel).",
+  "type": "object",
+  "properties": {
+    "save": {
+      "description": "What to do with unsaved changes: save writes them first, discard drops them. Required when any of the documents is dirty: the UI asks the user (Save, Don't Save, Cancel) and passes the answer.",
+      "enum": [
+        "save",
+        "discard"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

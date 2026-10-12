@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-go-to-last-edit.output.json",
+  "title": "eludite.editor.go_to_last_edit output",
+  "description": "Where the caret went; empty when nothing was edited.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

@@ -189,6 +189,56 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             command: "eludite.test.run",
             args: json!({ "repeat_last": true }),
         },
+        // Brief 0070: File.NewFile, File.OpenFile, File.SaveAll, Window.CloseDocumentWindow, File.Exit, Reopen Closed
+        // Tab, Window.NextDocumentWindowNav (the IDE Navigator), Window.NextDocumentWindow and PreviousDocumentWindow,
+        // Edit.ToggleBookmark, NextBookmark, PreviousBookmark, ClearBookmarks, View.BookmarkWindow and
+        // Edit.GoToLastEditLocation.
+        command("ctrl-n", "Ctrl+N", "eludite.file.new"),
+        command("ctrl-o", "Ctrl+O", "eludite.file.open_file_dialog"),
+        command("ctrl-shift-s", "Ctrl+Shift+S", "eludite.file.save_all"),
+        command("ctrl-f4", "Ctrl+F4", "eludite.file.close"),
+        command("alt-f4", "Alt+F4", "eludite.file.exit"),
+        command(
+            "ctrl-shift-t",
+            "Ctrl+Shift+T",
+            "eludite.window.reopen_closed",
+        ),
+        command("ctrl-tab", "Ctrl+Tab", "eludite.window.navigator"),
+        KeyBindingSpec {
+            keystrokes: "ctrl-shift-tab",
+            display: "Ctrl+Shift+Tab",
+            command: "eludite.window.navigator",
+            args: json!({ "backward": true }),
+        },
+        command(
+            "ctrl-alt-pagedown",
+            "Ctrl+Alt+PgDn",
+            "eludite.window.next_document",
+        ),
+        KeyBindingSpec {
+            keystrokes: "ctrl-alt-pageup",
+            display: "Ctrl+Alt+PgUp",
+            command: "eludite.window.next_document",
+            args: json!({ "backward": true }),
+        },
+        command(
+            "ctrl-k ctrl-k",
+            "Ctrl+K, Ctrl+K",
+            "eludite.bookmarks.toggle",
+        ),
+        command("ctrl-k ctrl-n", "Ctrl+K, Ctrl+N", "eludite.bookmarks.next"),
+        command(
+            "ctrl-k ctrl-p",
+            "Ctrl+K, Ctrl+P",
+            "eludite.bookmarks.previous",
+        ),
+        command("ctrl-k ctrl-l", "Ctrl+K, Ctrl+L", "eludite.bookmarks.clear"),
+        show("ctrl-k ctrl-w", "Ctrl+K, Ctrl+W", "bookmarks"),
+        command(
+            "ctrl-shift-backspace",
+            "Ctrl+Shift+Backspace",
+            "eludite.editor.go_to_last_edit",
+        ),
     ]
 }
 

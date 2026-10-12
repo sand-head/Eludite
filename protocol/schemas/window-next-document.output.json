@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-next-document.output.json",
+  "title": "eludite.window.next_document output",
+  "description": "The tab now active.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

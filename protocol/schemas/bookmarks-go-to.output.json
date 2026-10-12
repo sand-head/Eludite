@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/bookmarks-go-to.output.json",
+  "title": "eludite.bookmarks.go_to output",
+  "description": "Where the caret went.",
+  "type": "object",
+  "required": [
+    "path",
+    "line"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

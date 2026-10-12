@@ -130,6 +130,14 @@ pub fn run(args: Args, t_main: Instant) {
         services.update_setup.ask = !args.benching() && args.exit_after_ms.is_none();
         services.update_setup.updated_from = args.updated_from.clone();
         services.agents.transcript_out = args.transcript_out.clone();
+        // Brief 0070: the workspaces' open documents and bookmarks persist in the config folder, unless this run
+        // persists nothing (`--no-persist`) or measures.
+        services.documents_state_root = (!args.no_persist && !args.benching())
+            .then(|| {
+                eludite_docking::eludite_config_dir()
+                    .map(|d| d.join(crate::settings::WORKSPACES_DIR))
+            })
+            .flatten();
         if let Some(fake) = &args.bench_agent_stream {
             services.agents.registry = Some(vec![eludite_acp::RegisteredAgent {
                 descriptor: eludite_acp::AgentDescriptor {
@@ -217,11 +225,17 @@ pub fn run(args: Args, t_main: Instant) {
             .expect("failed to open the Eludite window");
         let shell = window.entity(cx).expect("shell entity");
         let dock = shell.read(cx).dock().clone();
-        // Closing the main window quits, floating tool windows included.
+        // Closing the main window quits, floating tool windows included; unsaved changes are asked about first
+        // (brief 0070: Save, Don't Save, Cancel).
+        let closing = shell.downgrade();
         let _ = window.update(cx, |_, window, cx| {
-            window.on_window_should_close(cx, |_, cx| {
-                cx.quit();
-                true
+            window.on_window_should_close(cx, move |window, cx| {
+                closing
+                    .update(cx, |shell, cx| shell.should_close_window(window, cx))
+                    .unwrap_or_else(|_| {
+                        cx.quit();
+                        true
+                    })
             });
         });
         // Stop eludite-host on exit, off the UI thread; GPUI waits for quit handlers up to its shutdown timeout.

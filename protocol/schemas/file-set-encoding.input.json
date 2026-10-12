@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-set-encoding.input.json",
+  "title": "eludite.file.set_encoding input",
+  "description": "File > Advanced Save Options (Save With Encoding) and the status bar's encoding and line-ending items: the encoding, byte-order mark and line endings the next save writes. The document becomes dirty when they change. Without any field, reports them.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "The document: an open file's absolute path, or a path relative to the workspace; the active document when omitted.",
+      "type": "string",
+      "minLength": 1
+    },
+    "encoding": {
+      "description": "The encoding label: utf-8, utf-16le, utf-16be, utf-32le, utf-32be, or a code page's WHATWG label (windows-1252, shift_jis, iso-8859-2...).",
+      "type": "string",
+      "minLength": 1
+    },
+    "bom": {
+      "description": "Write a byte-order mark (Unicode encodings only).",
+      "type": "boolean"
+    },
+    "line_ending": {
+      "description": "crlf, lf or cr for every line break.",
+      "enum": [
+        "crlf",
+        "lf",
+        "cr"
+      ]
+    },
+    "reopen": {
+      "description": "Reread the file from disk in encoding instead (Reopen With Encoding); the document must have no unsaved changes.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/bookmarks-clear.input.json",
+  "title": "eludite.bookmarks.clear input",
+  "description": "Clear Bookmarks (Ctrl+K, Ctrl+L): remove every bookmark, or those of one document.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Only this document's bookmarks.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

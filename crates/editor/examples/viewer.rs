@@ -617,7 +617,7 @@ fn main() {
     let bytes = std::fs::read(&path).expect("read file");
     let read_ms = ms(t_read.elapsed());
     let t_buffer = Instant::now();
-    let buffer = Buffer::from_bytes(&bytes).expect("UTF-8 file");
+    let buffer = Buffer::from_bytes(&bytes).expect("a readable file");
     drop(bytes);
     let buffer_ms = ms(t_buffer.elapsed());
     let registry = LanguageRegistry::with_builtins();

@@ -314,6 +314,8 @@ pub struct EditorView {
     emmet: bool,
     /// CodeLens rows (brief 0052).
     pub(crate) lenses: CodeLenses,
+    /// Brief 0070: bookmark glyphs in the margin: the start of each line, and whether it is enabled.
+    pub(crate) bookmark_glyphs: Vec<(Anchor, bool)>,
 }
 
 impl EditorView {
@@ -352,6 +354,8 @@ impl EditorView {
             execution: None,
             emmet: false,
             lenses: CodeLenses::default(),
+            // Brief 0070.
+            bookmark_glyphs: Vec::new(),
         };
         this.schedule_highlight(cx);
         this
@@ -401,6 +405,34 @@ impl EditorView {
 
     pub fn language(&self) -> Option<&Arc<Language>> {
         self.syntax.language.as_ref()
+    }
+
+    /// Brief 0070: highlight the document as `language` from now on (Save As to another extension).
+    pub fn set_language(&mut self, language: Option<Arc<Language>>, cx: &mut Context<Self>) {
+        let language = language.filter(|_| !self.editor.buffer().is_large());
+        let same = match (&language, &self.syntax.language) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            return;
+        }
+        let highlighter = language.clone().map(Highlighter::new);
+        self.syntax = SyntaxState {
+            language,
+            cancel: highlighter.as_ref().map(|h| h.cancel_flag()),
+            highlighter,
+            task: None,
+            highlights: LineHighlights::default(),
+            snapshot: None,
+            complete: false,
+            updates: 0,
+            last_stats: HighlightStats::default(),
+            tree_retain_limit: TREE_RETAIN_LIMIT,
+        };
+        self.schedule_highlight(cx);
+        cx.notify();
     }
 
     pub(crate) fn syntax_language(&self) -> Option<Arc<Language>> {
@@ -1345,6 +1377,8 @@ pub struct PrepaintState {
     lightbulb: Option<(Bounds<Pixels>, Rgba)>,
     /// Breakpoint glyphs and the execution arrow in the margin (brief 0018).
     glyphs: Vec<(Bounds<Pixels>, BreakpointGlyph)>,
+    /// Brief 0070: bookmark glyphs, drawn under the breakpoints.
+    bookmarks: Vec<(Bounds<Pixels>, Rgba, bool)>,
     arrow: Option<(Bounds<Pixels>, ExecutionKind)>,
     quads: Vec<gpui::PaintQuad>,
     carets: Vec<gpui::PaintQuad>,
@@ -1612,6 +1646,19 @@ impl Element for EditorElement {
                     .then(|| (margin_cell(row), *glyph))
             })
             .collect();
+        // Brief 0070: bookmark glyphs in the same margin cells.
+        let bookmarks = v
+            .bookmark_glyphs
+            .iter()
+            .filter_map(|(anchor, enabled)| {
+                let row = snapshot
+                    .offset_to_point(snapshot.offset_for_anchor(anchor))
+                    .row;
+                (first..last)
+                    .contains(&row)
+                    .then(|| crate::bookmarks::glyph(margin_cell(row), *enabled))
+            })
+            .collect();
         let arrow = v.execution.as_ref().and_then(|(r, kind)| {
             let row = snapshot
                 .offset_to_point(snapshot.offset_for_anchor(&r.start))
@@ -1698,6 +1745,8 @@ impl Element for EditorElement {
             lens_height,
             lightbulb,
             glyphs,
+            // Brief 0070.
+            bookmarks,
             arrow,
             quads,
             carets,
@@ -1744,6 +1793,8 @@ impl Element for EditorElement {
                 )
                 .ok();
         }
+        // Brief 0070: bookmarks first, so a breakpoint on the same line draws over them.
+        crate::bookmarks::paint(&state.bookmarks, window);
         for (b, glyph) in &state.glyphs {
             let color = hsla(glyph.color());
             if glyph.is_tracepoint() {

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-open-containing-folder.input.json",
+  "title": "eludite.window.open_containing_folder input",
+  "description": "The tab menu's Open Containing Folder: show the document's folder in the system's file manager.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "The document: an open file's absolute path, or a path relative to the workspace; the active document when omitted.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

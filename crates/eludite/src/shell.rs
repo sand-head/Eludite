@@ -15,6 +15,8 @@
 //! them (see `target`).
 
 pub mod agents;
+// Brief 0070: the document lifecycle, the tab well, bookmarks.
+pub mod bookmarks;
 pub mod browser;
 #[cfg(test)]
 mod browser_tests;
@@ -35,9 +37,12 @@ pub mod configuration_manager;
 pub mod debug;
 pub mod documents;
 #[cfg(test)]
+mod documents_tests;
+#[cfg(test)]
 mod dotnet_languages_tests;
 pub mod error_list;
 pub mod explorer;
+pub mod file_ops;
 pub mod folder;
 pub mod forge;
 #[cfg(test)]
@@ -63,6 +68,7 @@ mod project_properties_tests;
 #[cfg(test)]
 mod refactor_tests;
 pub mod references;
+pub mod reload;
 pub mod rename;
 pub mod resx;
 #[cfg(test)]
@@ -74,6 +80,7 @@ pub mod search;
 mod search_tests;
 pub mod servers;
 pub mod session;
+pub mod session_state;
 pub mod settings;
 #[cfg(test)]
 mod settings_tests;
@@ -224,6 +231,10 @@ pub struct Services {
     pub update: Arc<update::UpdateService>,
     pub update_jobs: UnboundedReceiver<update::UpdateJob>,
     pub update_setup: update::UpdateSetup,
+    /// Brief 0070: `eludite.file.*`, `eludite.window.*` and `eludite.bookmarks.*` from other threads, and where the
+    /// workspaces' open documents and bookmarks persist (`None`: nowhere; the app sets the config folder's).
+    pub documents_jobs: UnboundedReceiver<file_ops::DocumentsJob>,
+    pub documents_state_root: Option<PathBuf>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -334,6 +345,8 @@ pub fn register_workspace(
     let properties_jobs = project_properties::register(commands);
     let resx_jobs = resx::register(commands);
     let (update, update_jobs) = update::register(commands);
+    // Brief 0070.
+    let documents_jobs = file_ops::register(commands);
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -384,6 +397,8 @@ pub fn register_workspace(
         update,
         update_jobs,
         update_setup: update::UpdateSetup::detect(),
+        documents_jobs,
+        documents_state_root: None,
     }
 }
 
@@ -522,6 +537,11 @@ pub struct Shell {
     resx: resx::ResxUi,
     /// The self-updater: the status slot, the Output lines, the question, the restart (brief 0055).
     update: update::UpdateUi,
+    /// Brief 0070: the document lifecycle, reload on outside change, the documents reopened per workspace, bookmarks.
+    docs: file_ops::DocsUi,
+    reload: reload::ReloadState,
+    doc_session: session_state::SessionState,
+    bookmarks: bookmarks::Bookmarks,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
@@ -761,7 +781,12 @@ impl Shell {
             update,
             update_jobs,
             update_setup,
+            documents_jobs,
+            documents_state_root,
         } = services;
+        // Brief 0070.
+        let bookmarks = bookmarks::Bookmarks::new(theme, cx);
+        let bookmarks_window = bookmarks.window.clone();
         let update = update::UpdateUi::new(update);
         let nuget = nuget::NuGetUi::new(nuget, theme, cx);
         let properties = project_properties::PropertiesUi::default();
@@ -790,19 +815,32 @@ impl Shell {
                 controller.clone(),
                 commands.clone(),
                 theme,
-                Rc::new(tool_body(
-                    explorer.clone(),
-                    error_list.clone(),
-                    references_window.clone(),
-                    agents.window.clone(),
-                    output.clone(),
-                    debugger.windows.clone(),
-                    tests_window.clone(),
-                    (git.changes.clone(), git.repository.clone()),
-                    terminal.window.clone(),
-                    search.windows.clone(),
-                    (forge.pulls.clone(), forge.issues.clone()),
-                )),
+                Rc::new({
+                    let body = tool_body(
+                        explorer.clone(),
+                        error_list.clone(),
+                        references_window.clone(),
+                        agents.window.clone(),
+                        output.clone(),
+                        debugger.windows.clone(),
+                        tests_window.clone(),
+                        (git.changes.clone(), git.repository.clone()),
+                        terminal.window.clone(),
+                        search.windows.clone(),
+                        (forge.pulls.clone(), forge.issues.clone()),
+                    );
+                    // Brief 0070: the Bookmarks window.
+                    move |id: &str, theme: &Theme| {
+                        if id == ids::BOOKMARKS {
+                            bookmarks_window
+                                .clone()
+                                .cached(StyleRefinement::default().size_full())
+                                .into_any_element()
+                        } else {
+                            body(id, theme)
+                        }
+                    }
+                }),
                 Rc::new(document_body(
                     views.clone(),
                     agents.reviews.clone(),
@@ -1160,6 +1198,11 @@ impl Shell {
             properties,
             resx,
             update,
+            // Brief 0070.
+            docs: file_ops::DocsUi::new(documents_state_root),
+            reload: reload::ReloadState::default(),
+            doc_session: session_state::SessionState::default(),
+            bookmarks,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -1189,6 +1232,8 @@ impl Shell {
         this.properties_install(properties_jobs, window, cx);
         this.resx_install(resx_jobs, window, cx);
         this.update_install(update_setup, update_jobs, window, cx);
+        // Brief 0070.
+        this.documents_install(documents_jobs, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1350,6 +1395,10 @@ impl Shell {
         if self.run_update(command, &mut args, window, cx) {
             return;
         }
+        // Brief 0070: the unsaved-changes question, Open File, Save As, New File, the IDE Navigator.
+        if self.run_documents(command, &mut args, window, cx) {
+            return;
+        }
         // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).
         if command == eludite_commands::debug::START
             && args.get("debug") != Some(&Value::Bool(false))
@@ -1454,6 +1503,15 @@ impl Shell {
             let outcome =
                 self.apply_resx(request, eludite_commands::Caller::User, None, window, cx);
             resx::stage(outcome);
+        }
+        // Brief 0070.
+        if eludite_commands::documents::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::documents::parse(command, args.clone())
+        {
+            let outcome = self
+                .apply_documents(request, None, window, cx)
+                .unwrap_or_else(|| Err(CommandError::Failed("pending".into())));
+            file_ops::stage(outcome);
         }
         if eludite_commands::test::ALL.contains(&command)
             && let Ok(request) = eludite_commands::test::parse(command, args.clone())

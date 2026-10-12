@@ -393,11 +393,14 @@ impl Shell {
                 platform,
                 system,
                 ..
-            } => match self.start_build(kind, project, configuration, platform, system, window, cx)
-            {
-                Ok((out, ticket)) => (Ok(out), Some(ticket)),
-                Err(e) => (Err(e), None),
-            },
+            } => {
+                // Brief 0070: build.saveBeforeBuild.
+                self.save_before_build(cx);
+                match self.start_build(kind, project, configuration, platform, system, window, cx) {
+                    Ok((out, ticket)) => (Ok(out), Some(ticket)),
+                    Err(e) => (Err(e), None),
+                }
+            }
             BuildRequest::Cancel => {
                 let out = match &self.builds.current {
                     Some(b) => {

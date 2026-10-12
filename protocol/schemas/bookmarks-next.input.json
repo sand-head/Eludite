@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/bookmarks-next.input.json",
+  "title": "eludite.bookmarks.next input",
+  "description": "Next Bookmark (Ctrl+K, Ctrl+N): go to the next enabled bookmark, across documents, wrapping.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

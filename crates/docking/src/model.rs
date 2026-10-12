@@ -79,6 +79,8 @@ pub mod ids {
     /// right beside Git Changes.
     pub const PULL_REQUESTS: &str = "pull_requests";
     pub const ISSUES: &str = "issues";
+    /// View > Bookmark Window, Ctrl+K, Ctrl+W (brief 0070): closed until shown, docked at the bottom.
+    pub const BOOKMARKS: &str = "bookmarks";
     /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout). The program's output is
     /// the Output window's Debug source (brief 0020 retired the Debug Console window).
     pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
@@ -161,6 +163,8 @@ impl ToolWindowRegistry {
             (ids::FIND_RESULTS_2, "Find Results 2", DockSide::Bottom),
             (ids::PULL_REQUESTS, "Pull Requests", DockSide::Right),
             (ids::ISSUES, "Issues", DockSide::Right),
+            // Brief 0070.
+            (ids::BOOKMARKS, "Bookmarks", DockSide::Bottom),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -400,6 +404,46 @@ impl DocumentArea {
                 .tabs
                 .get(ix.min(self.tabs.len().saturating_sub(1)))
                 .map(|t| t.id.clone());
+        }
+        true
+    }
+
+    /// Move a tab to `index` of the tab order (drag to reorder, brief 0070). Pinned tabs stay before the others and
+    /// the preview tab last, so the index is clamped to the tab's band. Returns false when it is not open.
+    pub fn move_to(&mut self, id: &str, index: usize) -> bool {
+        let Some(from) = self.tabs.iter().position(|t| t.id == id) else {
+            return false;
+        };
+        let tab = self.tabs.remove(from);
+        let band = |t: &DocumentTab| {
+            if t.pinned {
+                0
+            } else if t.preview {
+                2
+            } else {
+                1
+            }
+        };
+        let mine = band(&tab);
+        let first = self.tabs.iter().take_while(|t| band(t) < mine).count();
+        let last = self.tabs.iter().take_while(|t| band(t) <= mine).count();
+        self.tabs.insert(index.clamp(first, last), tab);
+        true
+    }
+
+    /// Give an open tab a new id and title (Save As, a rename in the Workspace window; brief 0070), keeping its
+    /// place, pin and active state. Returns false when `old` is not open or `new` is already another tab.
+    pub fn rename(&mut self, old: &str, new: &str, title: &str) -> bool {
+        if old != new && self.get(new).is_some() {
+            return false;
+        }
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.id == old) else {
+            return false;
+        };
+        tab.id = new.to_owned();
+        tab.title = title.to_owned();
+        if self.active.as_deref() == Some(old) {
+            self.active = Some(new.to_owned());
         }
         true
     }
@@ -1355,7 +1399,9 @@ mod tests {
                 ids::FIND_RESULTS_1,
                 ids::FIND_RESULTS_2,
                 ids::PULL_REQUESTS,
-                ids::ISSUES
+                ids::ISSUES,
+                // Brief 0070.
+                ids::BOOKMARKS
             ]
         );
         // The Test Explorer (brief 0035) and the Toolbox open docked left, Properties and the Pull Requests and

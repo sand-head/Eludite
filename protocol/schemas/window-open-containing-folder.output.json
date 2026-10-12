@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-open-containing-folder.output.json",
+  "title": "eludite.window.open_containing_folder output",
+  "description": "The folder shown.",
+  "type": "object",
+  "required": [
+    "folder"
+  ],
+  "properties": {
+    "folder": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

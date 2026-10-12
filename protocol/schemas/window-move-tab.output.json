@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-move-tab.output.json",
+  "title": "eludite.window.move_tab output",
+  "description": "The tab order now.",
+  "type": "object",
+  "required": [
+    "path",
+    "index",
+    "tabs"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "index": {
+      "description": "Where the tab landed.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "tabs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

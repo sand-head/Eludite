@@ -1863,6 +1863,7 @@ dependencies = [
  "clock",
  "eludite-test-support",
  "eludite-ui",
+ "encoding_rs",
  "futures",
  "fuzzy",
  "gpui",

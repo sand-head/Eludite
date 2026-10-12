@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-pin-tab.input.json",
+  "title": "eludite.window.pin_tab input",
+  "description": "The tab menu's Pin Tab and Unpin Tab: a pinned tab stays at the left and survives Close All But Pinned.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "The document: an open file's absolute path, or a path relative to the workspace; the active document when omitted.",
+      "type": "string",
+      "minLength": 1
+    },
+    "pinned": {
+      "description": "Pin (default: toggle).",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/bookmarks-previous.input.json",
+  "title": "eludite.bookmarks.previous input",
+  "description": "Previous Bookmark (Ctrl+K, Ctrl+P): go to the previous enabled bookmark, across documents, wrapping.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

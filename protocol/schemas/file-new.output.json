@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-new.output.json",
+  "title": "eludite.file.new output",
+  "description": "The new document.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Its tab id, untitled:<name>.",
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string"
+    },
+    "shown": {
+      "description": "True when the language picker was shown instead.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

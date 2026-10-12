@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-reopen-closed.input.json",
+  "title": "eludite.window.reopen_closed input",
+  "description": "Reopen Closed Tab (Ctrl+Shift+T): the last closed document, at its caret.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

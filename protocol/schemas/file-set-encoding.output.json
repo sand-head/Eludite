@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-set-encoding.output.json",
+  "title": "eludite.file.set_encoding output",
+  "description": "The document's encoding now.",
+  "type": "object",
+  "required": [
+    "path",
+    "encoding",
+    "bom",
+    "line_ending",
+    "dirty"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "encoding": {
+      "description": "The encoding label: utf-8, utf-16le, utf-16be, utf-32le, utf-32be, or a code page's WHATWG label (windows-1252, shift_jis, iso-8859-2...).",
+      "type": "string",
+      "minLength": 1
+    },
+    "bom": {
+      "type": "boolean"
+    },
+    "line_ending": {
+      "description": "The line endings written on save: crlf, lf or cr. mixed is reported for a file whose line breaks differ; it cannot be set.",
+      "enum": [
+        "crlf",
+        "lf",
+        "cr",
+        "mixed"
+      ]
+    },
+    "dirty": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

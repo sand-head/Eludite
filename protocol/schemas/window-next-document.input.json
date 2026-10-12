@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-next-document.input.json",
+  "title": "eludite.window.next_document input",
+  "description": "Window.NextDocumentWindow (Ctrl+Alt+PgDn) and Window.PreviousDocumentWindow (Ctrl+Alt+PgUp): activate the next tab in tab order, wrapping.",
+  "type": "object",
+  "properties": {
+    "backward": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

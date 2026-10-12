@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-documents.output.json",
+  "title": "eludite.file.documents output",
+  "description": "The documents.",
+  "type": "object",
+  "required": [
+    "documents"
+  ],
+  "properties": {
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "title",
+          "kind",
+          "dirty",
+          "pinned",
+          "preview",
+          "deleted",
+          "active"
+        ],
+        "properties": {
+          "path": {
+            "description": "The document's tab id: its absolute path, or untitled:<name> for a new file not yet saved.",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "text: a text editor; resx: the resource grid; properties: project property pages; other: another document (Welcome, a diff, the Web Browser).",
+            "enum": [
+              "text",
+              "resx",
+              "properties",
+              "other"
+            ]
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "preview": {
+            "description": "The preview tab (italic, replaced by the next preview until edited).",
+            "type": "boolean"
+          },
+          "deleted": {
+            "description": "The file was deleted or moved outside the editor.",
+            "type": "boolean"
+          },
+          "untitled": {
+            "description": "A new file without a path yet.",
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "encoding": {
+            "description": "The encoding label: utf-8, utf-16le, utf-16be, utf-32le, utf-32be, or a code page's WHATWG label (windows-1252, shift_jis, iso-8859-2...).",
+            "type": "string",
+            "minLength": 1
+          },
+          "bom": {
+            "type": "boolean"
+          },
+          "line_ending": {
+            "description": "The line endings written on save: crlf, lf or cr. mixed is reported for a file whose line breaks differ; it cannot be set.",
+            "enum": [
+              "crlf",
+              "lf",
+              "cr",
+              "mixed"
+            ]
+          },
+          "line": {
+            "description": "The caret's 1-based line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "The caret's 1-based column (characters).",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

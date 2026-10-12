@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-reload.output.json",
+  "title": "eludite.file.reload output",
+  "description": "What reloading did.",
+  "type": "object",
+  "required": [
+    "path",
+    "reloaded",
+    "dirty",
+    "deleted"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "reloaded": {
+      "description": "False when the text on disk was the same.",
+      "type": "boolean"
+    },
+    "dirty": {
+      "type": "boolean"
+    },
+    "deleted": {
+      "description": "The file is gone; nothing was reloaded.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

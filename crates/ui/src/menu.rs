@@ -125,11 +125,20 @@ pub fn vs_menus() -> Vec<Menu> {
             "File",
             vec![
                 // A workspace is any folder: a Cargo workspace, a .NET solution, an npm package, any mix, or none.
+                // Brief 0070: New File..., Save As..., Advanced Save Options..., Close, Close All and Reopen Closed
+                // Tab.
+                item("New File...", "eludite.file.new"),
                 item("Open Workspace...", "eludite.workspace.open_folder"),
                 item("Open File...", "eludite.file.open_file_dialog"),
                 Separator,
+                item("Close", "eludite.file.close"),
+                item("Close All", "eludite.file.close_all"),
+                item("Reopen Closed Tab", "eludite.window.reopen_closed"),
+                Separator,
                 item("Save", "eludite.editor.save"),
+                item("Save As...", "eludite.file.save_as"),
                 item("Save All", "eludite.file.save_all"),
+                item("Advanced Save Options...", "eludite.file.set_encoding"),
                 Separator,
                 item("Close Workspace", "eludite.workspace.close"),
                 item("Exit", "eludite.file.exit"),
@@ -156,6 +165,15 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Find All References", "eludite.editor.find_references"),
                 item("Navigate Backward", "eludite.navigation.back"),
                 item("Navigate Forward", "eludite.navigation.forward"),
+                // Brief 0070: Edit.GoToLastEditLocation and Edit > Bookmarks.
+                item("Go To Last Edit Location", "eludite.editor.go_to_last_edit"),
+                item("Bookmarks > Toggle Bookmark", "eludite.bookmarks.toggle"),
+                item("Bookmarks > Next Bookmark", "eludite.bookmarks.next"),
+                item(
+                    "Bookmarks > Previous Bookmark",
+                    "eludite.bookmarks.previous",
+                ),
+                item("Bookmarks > Clear Bookmarks", "eludite.bookmarks.clear"),
                 Separator,
                 // Visual Studio's Edit > Refactor > Rename, the Quick Actions and Refactorings, and Edit > Advanced >
                 // Format Document (brief 0050).
@@ -188,6 +206,8 @@ pub fn vs_menus() -> Vec<Menu> {
                 show("Other Windows > Web Browser", "web_browser"),
                 show("Other Windows > Find Results 1", "find_results_1"),
                 show("Other Windows > Find Results 2", "find_results_2"),
+                // Brief 0070: View > Bookmark Window (Ctrl+K, Ctrl+W).
+                show("Bookmark Window", "bookmarks"),
                 Separator,
                 // Visual Studio's Window menu, folded in: the active tool window's state and the layout.
                 item("Float", "eludite.view.float"),
@@ -195,6 +215,9 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Auto Hide", "eludite.view.auto_hide"),
                 item("Hide", "eludite.view.hide"),
                 item("Reset Window Layout", "eludite.view.reset_layout"),
+                // Brief 0070: Visual Studio's Window > Close All Documents and the next and previous document.
+                item("Close All Documents", "eludite.file.close_all"),
+                item("Next Document Window", "eludite.window.next_document"),
             ],
         ),
         // Visual Studio's Git menu (brief 0040): Commit or Stash... shows Git Changes, Manage Branches the Git

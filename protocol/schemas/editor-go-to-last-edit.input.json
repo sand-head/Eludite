@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-go-to-last-edit.input.json",
+  "title": "eludite.editor.go_to_last_edit input",
+  "description": "Edit.GoToLastEditLocation (Ctrl+Shift+Backspace): the caret goes back to where the last edit was made.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

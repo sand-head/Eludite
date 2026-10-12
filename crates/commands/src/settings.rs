@@ -740,6 +740,14 @@ mod tests {
                 "resx.rules.untranslated",
                 "resx.sortOnSave",
                 "resx.openAsText",
+                // Brief 0070: the document lifecycle.
+                "build.saveBeforeBuild",
+                "files.autoReload",
+                "files.autoSave",
+                "files.autoSaveDelay",
+                "files.encodingFallback",
+                "files.restoreDocuments",
+                "editor.previewTab",
             ]
         );
         // Proposal 0005: the .resx editor's page, last.

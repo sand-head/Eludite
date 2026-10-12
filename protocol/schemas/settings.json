@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "x-eludite-sections": [
     "Environment > Keyboard",
+    "Environment > Documents",
     "Projects and Solutions > Build and Run",
     "Debugging > General",
     "Text Editor > Rust",
@@ -930,6 +931,66 @@
       "default": false,
       "x-eludite-section": "Text Editor > Resources",
       "x-eludite-label": "Open .resx files as text"
+    },
+    "build.saveBeforeBuild": {
+      "description": "Builds, F5, Ctrl+F5 and test runs save every document with unsaved changes first, so they compile what the editor shows (brief 0070; Visual Studio's \"Before building: Save all changes\"). Untitled documents are not saved. false: build what is on disk.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Projects and Solutions > Build and Run",
+      "x-eludite-label": "Before building, save all changes"
+    },
+    "files.autoReload": {
+      "description": "A document whose file changes outside the editor (an agent, a git checkout) reloads at once when it has no unsaved changes, keeping the caret and the scroll position (brief 0070). false: ask first. A document with unsaved changes always asks.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Environment > Documents",
+      "x-eludite-label": "Reload modified files unless there are unsaved changes"
+    },
+    "files.autoSave": {
+      "description": "Save documents without being asked (brief 0070, as Rider does): afterDelay saves a document files.autoSaveDelay milliseconds after its last edit, onFocusChange saves them all when Eludite's window loses focus. Untitled documents are never saved automatically.",
+      "enum": [
+        "off",
+        "afterDelay",
+        "onFocusChange"
+      ],
+      "default": "off",
+      "x-eludite-section": "Environment > Documents",
+      "x-eludite-label": "Save automatically",
+      "x-eludite-enum-labels": [
+        "Off",
+        "After a delay",
+        "When Eludite loses focus"
+      ]
+    },
+    "files.autoSaveDelay": {
+      "description": "With files.autoSave afterDelay: the quiet time after the last edit before a document is saved, in milliseconds.",
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 600000,
+      "default": 1000,
+      "x-eludite-section": "Environment > Documents",
+      "x-eludite-label": "Auto save delay (ms)"
+    },
+    "files.encodingFallback": {
+      "description": "The code page a file is read in when it has no byte-order mark and is not valid UTF-8 (brief 0070): a WHATWG label such as windows-1252, iso-8859-2, shift_jis or gb18030. Saving writes the file back in the code page it was read in.",
+      "type": "string",
+      "default": "windows-1252",
+      "x-eludite-section": "Environment > Documents",
+      "x-eludite-label": "Encoding of files that are not Unicode"
+    },
+    "files.restoreDocuments": {
+      "description": "Reopen the documents that were open, with their carets and the active tab, when a workspace opens again (brief 0070; Visual Studio's .suo). The active document loads first; the others load when their tab is first shown.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Environment > Documents",
+      "x-eludite-label": "Reopen documents on workspace load"
+    },
+    "editor.previewTab": {
+      "description": "A single click on a file in the Workspace window opens it in the preview tab (italic, at the right of the tab well), which the next preview replaces until the document is edited or its tab double-clicked (brief 0070, Visual Studio's preview tab).",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Environment > Documents",
+      "x-eludite-label": "Preview selected files in the Workspace window"
     }
   }
 }

@@ -10,6 +10,9 @@ publish.workspace = true
 
 [dependencies]
 clock.workspace = true
+# Legacy code pages (Windows-1252 and the rest) for files that are not Unicode (brief 0070); MIT OR Apache-2.0 (its
+# generated index data BSD-3-Clause); already in Cargo.lock through the HTTP stack.
+encoding_rs = "0.8"
 futures = "0.3" # MIT OR Apache-2.0; already in the build through GPUI
 # Fuzzy filtering of the completion list (Zed's, by git at the GPUI pin, GPL-3.0-or-later; brief 0013).
 fuzzy.workspace = true

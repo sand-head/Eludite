@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-save-all.input.json",
+  "title": "eludite.file.save_all input",
+  "description": "File > Save All (Ctrl+Shift+S): write every document with unsaved changes (text documents, .resx grids, project property pages). Untitled documents are skipped (save them with eludite.file.save_as).",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

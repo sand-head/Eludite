@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-copy-full-path.output.json",
+  "title": "eludite.window.copy_full_path output",
+  "description": "The path copied.",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

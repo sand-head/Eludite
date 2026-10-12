@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-pin-tab.output.json",
+  "title": "eludite.window.pin_tab output",
+  "description": "The tab's state.",
+  "type": "object",
+  "required": [
+    "path",
+    "pinned"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "pinned": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

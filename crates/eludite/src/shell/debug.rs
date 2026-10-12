@@ -4413,6 +4413,8 @@ impl Shell {
                 let plain = project.is_none() && compound.is_none();
                 let entries = self.start_entries(project, debug, profile, compound);
                 self.check_start(&entries, plain)?;
+                // Brief 0070: build.saveBeforeBuild.
+                self.save_before_build(cx);
                 if entries.len() > 1 && cargo.is_set() {
                     return Err(CommandError::InvalidInput(
                         "the Cargo options (`target`, `test`, `args`) are for one package: the startup projects \

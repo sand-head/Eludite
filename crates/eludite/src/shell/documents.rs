@@ -13,6 +13,11 @@
 //! - **Metadata as source** (brief 0014): a decompiled type from a referenced assembly (a file under
 //!   `<temp>/MetadataAsSource/`, host-rpc.md) opens read-only, titled `Type [from metadata]`, and sends no document
 //!   notifications; the language server answers requests in it from its own metadata workspace.
+//! - **Brief 0070.** Files open in their encoding (`files.encodingFallback` for files that are not Unicode) and save
+//!   back in it; each document remembers its file's disk stamp so a save never overwrites a newer version unasked
+//!   (`reload` watches for outside changes); untitled documents (File > New File) have the id `untitled:<name>` and
+//!   save through Save As; [`Shell::rename_open_document`] and [`Shell::close_document`] are what the Workspace
+//!   window's file operations call.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -34,6 +39,9 @@ use super::session::ServerSession;
 
 /// Quiet time after the last edit before `textDocument/didChange` is sent.
 pub const DIDCHANGE_DEBOUNCE: Duration = Duration::from_millis(50);
+
+/// Brief 0070: the id prefix of an untitled document (File > New File).
+pub const UNTITLED_PREFIX: &str = "untitled:";
 
 /// The decoration layer diagnostics use.
 pub const DIAGNOSTICS_LAYER: &str = "diagnostics";
@@ -60,6 +68,13 @@ pub struct Document {
     saved: clock::Global,
     seen: clock::Global,
     pub dirty: bool,
+    /// Brief 0070: a new file without a path yet (`untitled:<name>`): no LSP traffic, saved through Save As.
+    pub untitled: bool,
+    /// Brief 0070: the file's modification time and length as last read or written, and the stamp the person
+    /// answered No to reloading (a save then overwrites it); `deleted` while the file is gone.
+    pub disk: Option<super::reload::DiskStamp>,
+    pub declined: Option<super::reload::DiskStamp>,
+    pub deleted: bool,
     debounce: Option<Task<()>>,
     /// IntelliSense requests in flight (brief 0013).
     pub(super) intellisense: DocIntellisense,
@@ -280,6 +295,12 @@ impl Shell {
 
     /// The document `path` names, or the active one.
     pub(super) fn document_id(&self, path: Option<&str>) -> Result<String, CommandError> {
+        // Brief 0070: an id as it is (an untitled document's is not a path).
+        if let Some(p) = path
+            && self.documents.contains_key(p)
+        {
+            return Ok(p.to_owned());
+        }
         let id = match path {
             Some(p) => self.resolve_file(p).to_string_lossy().into_owned(),
             None => self
@@ -336,22 +357,29 @@ impl Shell {
         self.controller.open_document(&id, &title(&path));
         let load_path = path.clone();
         let task_id = id.clone();
+        // Brief 0070: the file's encoding is detected, the fallback code page from the settings; the stamp is read
+        // before the bytes, so a change during the read is seen as a change.
+        let fallback = self.encoding_fallback();
         let task = cx.spawn_in(window, async move |this, cx| {
-            let loaded = cx
-                .background_spawn(async move { Buffer::load(&load_path) })
+            let (loaded, stamp) = cx
+                .background_spawn(async move {
+                    let stamp = super::reload::DiskStamp::of(&load_path);
+                    (Buffer::load_with(&load_path, fallback), stamp)
+                })
                 .await;
             let _ = this.update_in(cx, |shell, window, cx| {
-                shell.finish_open(task_id, loaded, window, cx)
+                shell.finish_open(task_id, loaded, stamp, window, cx)
             });
         });
         self.loading.insert(id.clone(), (task, caret));
         output(false)
     }
 
-    fn finish_open(
+    pub(super) fn finish_open(
         &mut self,
         id: String,
         loaded: Result<Buffer, eludite_editor::LoadError>,
+        stamp: Option<super::reload::DiskStamp>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -394,7 +422,14 @@ impl Shell {
         };
         let uri = super::documents::path_to_uri(&path);
         let read_only = super::navigation::is_metadata_path(&path);
-        let (servers, session, language_id) = match self.server_for_path(&path, window, cx) {
+        // Brief 0070: an untitled document talks to no language server until it has a path.
+        let untitled = id.starts_with(UNTITLED_PREFIX);
+        let server = if untitled {
+            None
+        } else {
+            self.server_for_path(&path, window, cx)
+        };
+        let (servers, session, language_id) = match server {
             Some((servers, session, language)) => (servers, session, Some(language)),
             None => (vec![ServerKey::Host], self.session.clone(), None),
         };
@@ -430,6 +465,10 @@ impl Shell {
                 saved: version.clone(),
                 seen: version,
                 dirty: false,
+                untitled,
+                disk: stamp,
+                declined: None,
+                deleted: false,
                 debounce: None,
                 intellisense: DocIntellisense::default(),
                 _observe: observe,
@@ -456,13 +495,17 @@ impl Shell {
         if self.controller.active_document().as_deref() == Some(id.as_str()) {
             view.focus_handle(cx).focus(window, cx);
         }
-        self.explorer.update(cx, |e, cx| e.reveal(&path, cx));
+        if !untitled {
+            self.explorer.update(cx, |e, cx| e.reveal(&path, cx));
+        }
         // Breakpoints and the debugger's execution point (brief 0018).
         self.debug_document_opened(cx);
         // The tab's source control glyph and the change margin (brief 0040).
         self.git_document_opened(&id, cx);
         // CodeLens rows, when the settings show any for the document's language (brief 0052).
         self.code_lens_document_opened(&id, cx);
+        // Brief 0070: its bookmarks, and the session state that lists it.
+        self.documents_opened(&id, cx);
         if self.timings.editable.is_none() {
             // Editable once the frame that shows the editor has been drawn.
             let this = cx.entity().downgrade();
@@ -478,6 +521,10 @@ impl Shell {
 
     fn on_editor_changed(&mut self, id: &str, cx: &mut Context<Self>) {
         self.wake_intellisense_waiters();
+        // Brief 0070: the status bar's Ln, Col, Ch and selection follow the active document's caret.
+        if self.controller.active_document().as_deref() == Some(id) {
+            self.update_document_status(cx);
+        }
         // Breakpoints follow their lines through edits (brief 0018).
         if self
             .documents
@@ -501,6 +548,8 @@ impl Shell {
             doc.dirty = dirty;
             self.controller.set_document_dirty(id, dirty);
         }
+        // Brief 0070: an edit keeps the preview tab, and is where Go To Last Edit Location returns.
+        self.documents_edited(id, cx);
         // The change margin, once the editor is idle (brief 0040).
         self.git_editor_changed(id, cx);
         let Some(doc) = self.documents.get_mut(id) else {
@@ -546,16 +595,32 @@ impl Shell {
         if self.documents[&id].read_only {
             return Err(CommandError::Failed(format!("{id} is read-only")));
         }
+        // Brief 0070: an untitled document has no path yet, and a newer file on disk is not overwritten unasked.
+        if self.documents[&id].untitled {
+            return Err(CommandError::Failed(format!(
+                "{id} has no file yet; save it with eludite.file.save_as"
+            )));
+        }
+        self.check_disk_conflict(&id)?;
         if self.documents[&id].debounce.is_some() {
             self.flush_change(&id, cx);
         }
         let doc = self.documents.get_mut(&id).expect("checked above");
         let (bytes, version) = {
             let b = doc.view.read(cx).editor().buffer();
-            (b.to_file_bytes(), b.version())
+            let bytes = b
+                .try_to_file_bytes()
+                .map_err(|e| CommandError::Failed(format!("{}: {e}", doc.path.display())))?;
+            (bytes, b.version())
         };
         std::fs::write(&doc.path, &bytes)
             .map_err(|e| CommandError::Failed(format!("{}: {e}", doc.path.display())))?;
+        doc.disk = super::reload::DiskStamp::of(&doc.path);
+        doc.declined = None;
+        if std::mem::take(&mut doc.deleted) {
+            self.controller.set_document_deleted(&id, false);
+        }
+        let doc = self.documents.get_mut(&id).expect("checked above");
         doc.saved = version;
         if doc.dirty {
             doc.dirty = false;
@@ -571,6 +636,247 @@ impl Shell {
             bytes: bytes.len() as u64,
             pending: false,
         }))
+    }
+
+    /// Brief 0070: mark a document dirty although its text did not change (a new encoding or line ending to write).
+    pub(super) fn mark_dirty(&mut self, id: &str) {
+        if let Some(doc) = self.documents.get_mut(id) {
+            doc.saved = clock::Global::new();
+            if !doc.dirty {
+                doc.dirty = true;
+                self.controller.set_document_dirty(id, true);
+            }
+        }
+    }
+
+    /// Brief 0070: the document's text is what its file holds now.
+    pub(super) fn mark_saved(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(doc) = self.documents.get_mut(id) {
+            doc.saved = doc.view.read(cx).editor().buffer().version();
+            if doc.dirty {
+                doc.dirty = false;
+                self.controller.set_document_dirty(id, false);
+            }
+        }
+    }
+
+    /// Brief 0070: the code page files that are neither Unicode nor UTF-8 are read in (`files.encodingFallback`).
+    pub(super) fn encoding_fallback(&self) -> &'static eludite_editor::encoding_rs::Encoding {
+        let label = self.settings.lock().string("files.encodingFallback");
+        eludite_editor::encoding_rs::Encoding::for_label(label.trim().as_bytes())
+            .filter(|e| {
+                *e != eludite_editor::encoding_rs::REPLACEMENT
+                    && *e != eludite_editor::encoding_rs::UTF_16LE
+                    && *e != eludite_editor::encoding_rs::UTF_16BE
+            })
+            .unwrap_or(eludite_editor::DEFAULT_FALLBACK)
+    }
+
+    /// Brief 0070: refuse to overwrite a file that changed on disk since the document last read or wrote it, unless
+    /// the person answered No to reloading that version.
+    pub(super) fn check_disk_conflict(&self, id: &str) -> Result<(), CommandError> {
+        let Some(doc) = self.documents.get(id) else {
+            return Ok(());
+        };
+        if doc.deleted || doc.disk.is_none() {
+            return Ok(());
+        }
+        let now = super::reload::DiskStamp::of(&doc.path);
+        if now.is_none() || now == doc.disk || now == doc.declined {
+            return Ok(());
+        }
+        Err(CommandError::Failed(format!(
+            "{id} changed on disk since it was opened; reload it (eludite.file.reload) or overwrite it \
+             (eludite.file.save_as with its own path and \"overwrite\": true)"
+        )))
+    }
+
+    /// Brief 0070: write the document to `target` whatever is on disk there (Save As, and the overwrite answer).
+    /// Returns the bytes written.
+    pub(super) fn write_document_to(
+        &mut self,
+        id: &str,
+        target: &Path,
+        cx: &mut Context<Self>,
+    ) -> Result<u64, CommandError> {
+        let doc = self
+            .documents
+            .get_mut(id)
+            .ok_or_else(|| CommandError::Failed(format!("{id} is not open in an editor")))?;
+        let (bytes, version) = {
+            let b = doc.view.read(cx).editor().buffer();
+            let bytes = b
+                .try_to_file_bytes()
+                .map_err(|e| CommandError::Failed(format!("{}: {e}", target.display())))?;
+            (bytes, b.version())
+        };
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| CommandError::Failed(format!("{}: {e}", parent.display())))?;
+        }
+        std::fs::write(target, &bytes)
+            .map_err(|e| CommandError::Failed(format!("{}: {e}", target.display())))?;
+        if target == doc.path {
+            doc.disk = super::reload::DiskStamp::of(target);
+            doc.declined = None;
+            doc.saved = version;
+            let deleted = std::mem::take(&mut doc.deleted);
+            if doc.dirty {
+                doc.dirty = false;
+                self.controller.set_document_dirty(id, false);
+            }
+            if deleted {
+                self.controller.set_document_deleted(id, false);
+            }
+        }
+        Ok(bytes.len() as u64)
+    }
+
+    /// Brief 0070: apply a reloaded file to the open document as one edit of the text that differs (caret,
+    /// selections and scroll stay), then take the file's encoding and line endings and mark it saved. Returns
+    /// whether the text changed.
+    pub(super) fn apply_reload(
+        &mut self,
+        id: &str,
+        disk: Buffer,
+        stamp: Option<super::reload::DiskStamp>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(doc) = self.documents.get(id) else {
+            return false;
+        };
+        let view = doc.view.clone();
+        let new_text = disk.text();
+        let changed = view.update(cx, |v, cx| {
+            let edit = super::reload::minimal_edit(&v.editor().text(), &new_text);
+            let changed = edit.is_some();
+            v.update_editor(cx, |e| {
+                if let Some((range, text)) = edit {
+                    e.apply_edits(vec![(range, text)]);
+                }
+                let b = e.buffer_mut();
+                b.set_encoding(disk.encoding());
+                b.set_bom(disk.has_bom());
+                if disk.has_mixed_line_endings() {
+                    // A mixed file keeps the dominant ending; its exceptions are the reloaded text's own.
+                    b.set_line_ending(disk.line_ending());
+                } else {
+                    b.set_line_ending(disk.line_ending());
+                }
+            });
+            changed
+        });
+        let version = view.read(cx).editor().buffer().version();
+        if let Some(doc) = self.documents.get_mut(id) {
+            doc.disk = stamp;
+            doc.declined = None;
+            doc.saved = version.clone();
+        }
+        // The edit's own observer marked it dirty; the reload is the file's text, so it is clean.
+        self.on_editor_changed(id, cx);
+        if let Some(doc) = self.documents.get_mut(id)
+            && doc.dirty
+        {
+            doc.dirty = false;
+            self.controller.set_document_dirty(id, false);
+        }
+        changed
+    }
+
+    /// Brief 0070: Save As and a rename in the Workspace window: the open document `old` becomes `new` (its tab, its
+    /// language server registration and its bookmarks follow). Does nothing when `old` is not open.
+    pub fn rename_open_document(
+        &mut self,
+        old: &Path,
+        new: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let old_id = old.to_string_lossy().into_owned();
+        let old_id = if self.documents.contains_key(&old_id) {
+            old_id
+        } else {
+            self.resolve_file(&old_id).to_string_lossy().into_owned()
+        };
+        let new_path = normalize_path(new);
+        let new_id = new_path.to_string_lossy().into_owned();
+        let Some(mut doc) = self.documents.remove(&old_id) else {
+            return false;
+        };
+        if doc.language_id.is_some() && !doc.read_only && !doc.untitled {
+            doc.session.did_close(doc.uri.clone());
+        }
+        self.diagnostics.remove(&doc.uri);
+        doc.path = new_path.clone();
+        doc.uri = path_to_uri(&new_path);
+        doc.untitled = false;
+        doc.deleted = false;
+        doc.disk = super::reload::DiskStamp::of(&new_path);
+        doc.declined = None;
+        let language = self.languages.for_path(&new_path);
+        doc.view.update(cx, |v, cx| v.set_language(language, cx));
+        // The new name may belong to another language server (a .txt saved as .cs).
+        let (servers, session, language_id) = match self.server_for_path(&new_path, window, cx) {
+            Some((servers, session, language)) => (servers, session, Some(language)),
+            None => (vec![ServerKey::Host], self.session.clone(), None),
+        };
+        doc.server = servers.first().cloned().unwrap_or_default();
+        doc.servers = servers;
+        doc.session = session;
+        doc.language_id = language_id;
+        if let Some(lang) = &doc.language_id
+            && !doc.read_only
+        {
+            let text = doc.view.read(cx).editor().buffer().text();
+            doc.lsp_version = 1;
+            doc.sent = doc.view.read(cx).editor().buffer().snapshot().clone();
+            doc.session.did_open(doc.uri.clone(), lang, 1, text);
+        }
+        let view = doc.view.clone();
+        let observe_id = new_id.clone();
+        doc._observe = cx.observe(&view, move |shell, _, cx| {
+            shell.on_editor_changed(&observe_id, cx)
+        });
+        let events_id = new_id.clone();
+        doc._events = cx.subscribe_in(&view, window, move |shell, _, event, window, cx| {
+            shell.on_editor_event(&events_id, event, window, cx)
+        });
+        self.documents.insert(new_id.clone(), doc);
+        {
+            let mut views = self.views.borrow_mut();
+            if let Some(v) = views.remove(&old_id) {
+                views.insert(new_id.clone(), v);
+            }
+        }
+        self.controller
+            .rename_document(&old_id, &new_id, &title(&new_path));
+        self.git_document_closed(&old_id);
+        self.code_lens_document_closed(&old_id);
+        self.git_document_opened(&new_id, cx);
+        self.documents_renamed(&old_id, &new_id, cx);
+        self.update_error_list(cx);
+        cx.notify();
+        true
+    }
+
+    /// Brief 0070: close an open document whatever its state (`discard`: drop unsaved changes; otherwise a dirty
+    /// one stays open and this returns false). For the Workspace window's delete and the like.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn close_document(&mut self, path: &Path, discard: bool, cx: &mut Context<Self>) -> bool {
+        let id = path.to_string_lossy().into_owned();
+        let save = discard.then_some(CloseSave::Discard);
+        self.close_file(&id, save, cx)
+            .is_ok_and(|o| matches!(o, WorkspaceOutput::FileClose(c) if c.closed))
+    }
+
+    /// Brief 0070: the open text documents' paths, untitled ones excluded.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn open_document_paths(&self) -> Vec<PathBuf> {
+        self.documents
+            .values()
+            .filter(|d| !d.untitled)
+            .map(|d| d.path.clone())
+            .collect()
     }
 
     pub(super) fn history(
@@ -673,13 +979,15 @@ impl Shell {
                 Some(CloseSave::Discard) => {}
             }
         }
+        // Brief 0070: Reopen Closed Tab returns to it.
+        self.documents_closing(&id, cx);
         self.loading.remove(&id);
         self.load_waiters.remove(&id);
         let had = match self.documents.remove(&id) {
             Some(mut doc) => {
                 doc.intellisense.cancel_all();
                 self.views.borrow_mut().remove(&id);
-                if doc.language_id.is_some() && !doc.read_only {
+                if doc.language_id.is_some() && !doc.read_only && !doc.untitled {
                     doc.session.did_close(doc.uri.clone());
                 }
                 self.diagnostics.remove(&doc.uri);

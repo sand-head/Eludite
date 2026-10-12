@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-move-tab.input.json",
+  "title": "eludite.window.move_tab input",
+  "description": "Drag a document tab to another place in the tab well. Pinned tabs stay before the others and the preview tab last, so the index is kept within the tab's band.",
+  "type": "object",
+  "required": [
+    "path",
+    "index"
+  ],
+  "properties": {
+    "path": {
+      "description": "The tab's id: an open file's absolute path, or another document tab's id.",
+      "type": "string",
+      "minLength": 1
+    },
+    "index": {
+      "description": "Its new 0-based place in the tab order.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-exit.output.json",
+  "title": "eludite.file.exit output",
+  "description": "Whether Eludite is quitting.",
+  "type": "object",
+  "required": [
+    "exiting",
+    "saved"
+  ],
+  "properties": {
+    "exiting": {
+      "type": "boolean"
+    },
+    "saved": {
+      "description": "Documents saved first.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dirty": {
+      "description": "Documents with unsaved changes when nothing was decided.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

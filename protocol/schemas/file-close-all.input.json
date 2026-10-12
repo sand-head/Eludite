@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-close-all.input.json",
+  "title": "eludite.file.close_all input",
+  "description": "Window > Close All Documents and the tab menu's Close All But This and Close All But Pinned.",
+  "type": "object",
+  "properties": {
+    "except": {
+      "description": "Keep this document open (Close All But This).",
+      "type": "string",
+      "minLength": 1
+    },
+    "keep_pinned": {
+      "description": "Keep pinned tabs open (Close All But Pinned).",
+      "type": "boolean"
+    },
+    "save": {
+      "description": "What to do with unsaved changes: save writes them first, discard drops them. Required when any of the documents is dirty: the UI asks the user (Save, Don't Save, Cancel) and passes the answer.",
+      "enum": [
+        "save",
+        "discard"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

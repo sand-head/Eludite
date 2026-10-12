@@ -54,6 +54,8 @@ pub mod builtins;
 mod caller;
 pub mod debug;
 pub mod diagnostics;
+// Brief 0070: the document lifecycle, the tab well and bookmarks.
+pub mod documents;
 pub mod files;
 pub mod forge;
 pub mod git;

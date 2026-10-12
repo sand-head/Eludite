@@ -1,5 +1,9 @@
 //! The text buffer: Zed's `text::Buffer` plus what a file on disk
-//! needs (byte-order mark, line endings, size limits).
+//! needs (byte-order mark, line endings, size limits) and, since brief 0070,
+//! its text encoding: UTF-8, UTF-16 and UTF-32 by byte-order mark, UTF-8
+//! without one, else a legacy code page through `encoding_rs`
+//! (Windows-1252 unless the caller names another), re-encoded byte for byte
+//! on save.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -18,6 +22,237 @@ use text::{Anchor, Bias, BufferId, BufferSnapshot, Point, ReplicaId, Transaction
 pub const LARGE_FILE_THRESHOLD: usize = 32 * 1024 * 1024;
 
 const BOM: &str = "\u{FEFF}";
+
+/// The fallback code page for files that are neither marked by a byte-order mark nor valid UTF-8 (Visual Studio's
+/// default on a Western Windows system).
+pub const DEFAULT_FALLBACK: &encoding_rs::Encoding = encoding_rs::WINDOWS_1252;
+
+/// A file's text encoding (brief 0070).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextEncoding {
+    Utf8,
+    Utf16Le,
+    Utf16Be,
+    Utf32Le,
+    Utf32Be,
+    /// A single- or multi-byte legacy code page (`windows-1252`, `shift_jis`, ...).
+    Legacy(&'static encoding_rs::Encoding),
+}
+
+impl TextEncoding {
+    /// The label commands and the status bar use: `utf-8`, `utf-16le`, `utf-16be`, `utf-32le`, `utf-32be`, or the
+    /// WHATWG name of a code page in lower case (`windows-1252`).
+    pub fn label(self) -> String {
+        match self {
+            TextEncoding::Utf8 => "utf-8".into(),
+            TextEncoding::Utf16Le => "utf-16le".into(),
+            TextEncoding::Utf16Be => "utf-16be".into(),
+            TextEncoding::Utf32Le => "utf-32le".into(),
+            TextEncoding::Utf32Be => "utf-32be".into(),
+            TextEncoding::Legacy(e) => e.name().to_ascii_lowercase(),
+        }
+    }
+
+    /// As Visual Studio's status bar names it: `UTF-8`, `UTF-16 LE`, `Windows-1252`.
+    pub fn display_name(self) -> String {
+        match self {
+            TextEncoding::Utf8 => "UTF-8".into(),
+            TextEncoding::Utf16Le => "UTF-16 LE".into(),
+            TextEncoding::Utf16Be => "UTF-16 BE".into(),
+            TextEncoding::Utf32Le => "UTF-32 LE".into(),
+            TextEncoding::Utf32Be => "UTF-32 BE".into(),
+            TextEncoding::Legacy(e) => {
+                let name = e.name();
+                match name.strip_prefix("windows-") {
+                    Some(rest) => format!("Windows-{rest}"),
+                    None => name.to_owned(),
+                }
+            }
+        }
+    }
+
+    /// From a label (case-insensitive): the Unicode forms above (`utf-16` is little endian, `unicode` too, as .NET
+    /// names it), else any WHATWG label `encoding_rs` knows (`latin1`, `cp1252`, `shift_jis`).
+    pub fn from_label(label: &str) -> Option<Self> {
+        let l = label.trim().to_ascii_lowercase();
+        match l.as_str() {
+            "utf-8" | "utf8" => Some(TextEncoding::Utf8),
+            "utf-16le" | "utf-16" | "utf16" | "unicode" => Some(TextEncoding::Utf16Le),
+            "utf-16be" | "unicodefffe" => Some(TextEncoding::Utf16Be),
+            "utf-32le" | "utf-32" | "utf32" => Some(TextEncoding::Utf32Le),
+            "utf-32be" => Some(TextEncoding::Utf32Be),
+            "cp1252" => Some(TextEncoding::Legacy(encoding_rs::WINDOWS_1252)),
+            _ => {
+                let e = encoding_rs::Encoding::for_label(l.as_bytes())?;
+                // encoding_rs maps the UTF-16 labels to its decoder-only UTF-16 encodings: handled above.
+                if e == encoding_rs::UTF_8 {
+                    Some(TextEncoding::Utf8)
+                } else if e == encoding_rs::UTF_16LE {
+                    Some(TextEncoding::Utf16Le)
+                } else if e == encoding_rs::UTF_16BE {
+                    Some(TextEncoding::Utf16Be)
+                } else if e == encoding_rs::REPLACEMENT || e == encoding_rs::X_USER_DEFINED {
+                    None
+                } else {
+                    Some(TextEncoding::Legacy(e))
+                }
+            }
+        }
+    }
+
+    /// Whether the encoding can carry a byte-order mark (the Unicode forms).
+    pub fn is_unicode(self) -> bool {
+        !matches!(self, TextEncoding::Legacy(_))
+    }
+
+    fn bom(self) -> &'static [u8] {
+        match self {
+            TextEncoding::Utf8 => b"\xEF\xBB\xBF",
+            TextEncoding::Utf16Le => b"\xFF\xFE",
+            TextEncoding::Utf16Be => b"\xFE\xFF",
+            TextEncoding::Utf32Le => b"\xFF\xFE\x00\x00",
+            TextEncoding::Utf32Be => b"\x00\x00\xFE\xFF",
+            TextEncoding::Legacy(_) => b"",
+        }
+    }
+}
+
+/// Why the text cannot be written in the buffer's encoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncodeError {
+    pub encoding: String,
+    /// The first character the encoding has no byte for.
+    pub character: char,
+}
+
+impl fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} cannot represent {:?} (U+{:04X}); save it with another encoding (File > Advanced Save Options)",
+            self.encoding, self.character, self.character as u32
+        )
+    }
+}
+
+impl std::error::Error for EncodeError {}
+
+/// Detect a file's encoding: its byte-order mark, else UTF-16 by the zero bytes of mostly-ASCII text, else valid
+/// UTF-8, else `fallback`. Returns the encoding and the BOM's length.
+pub fn detect_encoding(
+    bytes: &[u8],
+    fallback: &'static encoding_rs::Encoding,
+) -> (TextEncoding, usize) {
+    for enc in [
+        TextEncoding::Utf32Le,
+        TextEncoding::Utf32Be,
+        TextEncoding::Utf8,
+        TextEncoding::Utf16Le,
+        TextEncoding::Utf16Be,
+    ] {
+        if bytes.starts_with(enc.bom()) {
+            return (enc, enc.bom().len());
+        }
+    }
+    // UTF-16 without a BOM: in ASCII-heavy text every other byte is zero.
+    let head = &bytes[..bytes.len().min(4096) & !1];
+    if head.len() >= 4 {
+        let pairs = head.len() / 2;
+        let even = head.iter().step_by(2).filter(|b| **b == 0).count();
+        let odd = head.iter().skip(1).step_by(2).filter(|b| **b == 0).count();
+        if odd * 10 >= pairs * 7 && even == 0 {
+            return (TextEncoding::Utf16Le, 0);
+        }
+        if even * 10 >= pairs * 7 && odd == 0 {
+            return (TextEncoding::Utf16Be, 0);
+        }
+    }
+    if std::str::from_utf8(bytes).is_ok() {
+        return (TextEncoding::Utf8, 0);
+    }
+    let fallback = if fallback == encoding_rs::UTF_8 {
+        encoding_rs::WINDOWS_1252
+    } else {
+        fallback
+    };
+    (TextEncoding::Legacy(fallback), 0)
+}
+
+/// Decode `bytes` (without their BOM) from `encoding`. Malformed sequences become U+FFFD.
+fn decode(bytes: &[u8], encoding: TextEncoding) -> String {
+    match encoding {
+        TextEncoding::Utf8 => String::from_utf8_lossy(bytes).into_owned(),
+        TextEncoding::Utf16Le | TextEncoding::Utf16Be => {
+            let units = bytes.chunks_exact(2).map(|c| {
+                if encoding == TextEncoding::Utf16Le {
+                    u16::from_le_bytes([c[0], c[1]])
+                } else {
+                    u16::from_be_bytes([c[0], c[1]])
+                }
+            });
+            let mut out: String = char::decode_utf16(units)
+                .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect();
+            if bytes.len() % 2 == 1 {
+                out.push(char::REPLACEMENT_CHARACTER);
+            }
+            out
+        }
+        TextEncoding::Utf32Le | TextEncoding::Utf32Be => {
+            let mut out: String = bytes
+                .chunks_exact(4)
+                .map(|c| {
+                    let v = if encoding == TextEncoding::Utf32Le {
+                        u32::from_le_bytes([c[0], c[1], c[2], c[3]])
+                    } else {
+                        u32::from_be_bytes([c[0], c[1], c[2], c[3]])
+                    };
+                    char::from_u32(v).unwrap_or(char::REPLACEMENT_CHARACTER)
+                })
+                .collect();
+            if bytes.len() % 4 != 0 {
+                out.push(char::REPLACEMENT_CHARACTER);
+            }
+            out
+        }
+        TextEncoding::Legacy(e) => e.decode_without_bom_handling(bytes).0.into_owned(),
+    }
+}
+
+/// Encode `text` (BOM excluded) in `encoding`.
+fn encode(text: &str, encoding: TextEncoding) -> Result<Vec<u8>, EncodeError> {
+    Ok(match encoding {
+        TextEncoding::Utf8 => text.as_bytes().to_vec(),
+        TextEncoding::Utf16Le => text.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+        TextEncoding::Utf16Be => text.encode_utf16().flat_map(u16::to_be_bytes).collect(),
+        TextEncoding::Utf32Le => text
+            .chars()
+            .flat_map(|c| (c as u32).to_le_bytes())
+            .collect(),
+        TextEncoding::Utf32Be => text
+            .chars()
+            .flat_map(|c| (c as u32).to_be_bytes())
+            .collect(),
+        TextEncoding::Legacy(e) => {
+            let mut encoder = e.new_encoder();
+            let mut out = Vec::with_capacity(
+                encoder
+                    .max_buffer_length_from_utf8_without_replacement(text.len())
+                    .unwrap_or(text.len() * 4),
+            );
+            let (result, read) =
+                encoder.encode_from_utf8_to_vec_without_replacement(text, &mut out, true);
+            if let encoding_rs::EncoderResult::Unmappable(character) = result {
+                return Err(EncodeError {
+                    encoding: TextEncoding::Legacy(e).display_name(),
+                    character,
+                });
+            }
+            debug_assert_eq!(read, text.len());
+            out
+        }
+    })
+}
 
 /// A line terminator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -53,19 +288,12 @@ impl LineEnding {
 #[derive(Debug)]
 pub enum LoadError {
     Io(std::io::Error),
-    /// The file is not UTF-8. Other encodings are not supported yet.
-    InvalidUtf8 {
-        valid_up_to: usize,
-    },
 }
 
 impl fmt::Display for LoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LoadError::Io(e) => write!(f, "{e}"),
-            LoadError::InvalidUtf8 { valid_up_to } => {
-                write!(f, "not valid UTF-8 (first bad byte at {valid_up_to})")
-            }
         }
     }
 }
@@ -94,8 +322,9 @@ struct EndingException {
 /// recorded on load and restored by [`Buffer::to_file_bytes`]: the dominant
 /// ending is applied to every line break, and line breaks that had a
 /// different ending in the file keep it for as long as they exist (mixed
-/// files round-trip byte for byte). A leading UTF-8 byte-order mark is
-/// stripped from the text and restored on save.
+/// files round-trip byte for byte). A leading byte-order mark is
+/// stripped from the text and restored on save, and the text is re-encoded
+/// in the file's [`TextEncoding`].
 ///
 /// Offsets are UTF-8 byte offsets into the `\n`-normalized text.
 pub struct Buffer {
@@ -103,6 +332,7 @@ pub struct Buffer {
     line_ending: LineEnding,
     exceptions: Vec<EndingException>,
     has_bom: bool,
+    encoding: TextEncoding,
 }
 
 impl fmt::Debug for Buffer {
@@ -111,6 +341,7 @@ impl fmt::Debug for Buffer {
             .field("len", &self.len())
             .field("line_ending", &self.line_ending)
             .field("has_bom", &self.has_bom)
+            .field("encoding", &self.encoding)
             .finish_non_exhaustive()
     }
 }
@@ -143,27 +374,106 @@ impl Buffer {
             line_ending,
             exceptions,
             has_bom,
+            encoding: TextEncoding::Utf8,
         }
     }
 
-    /// Decode file contents. Only UTF-8 (with or without BOM) is supported.
+    /// Decode file contents: the encoding is detected ([`detect_encoding`], Windows-1252 as the fallback).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoadError> {
-        let text = std::str::from_utf8(bytes).map_err(|e| LoadError::InvalidUtf8 {
-            valid_up_to: e.valid_up_to(),
-        })?;
-        Ok(Self::new(text))
+        Ok(Self::from_bytes_with(bytes, DEFAULT_FALLBACK))
+    }
+
+    /// Decode file contents, reading bytes that are neither Unicode nor UTF-8 as `fallback`.
+    pub fn from_bytes_with(bytes: &[u8], fallback: &'static encoding_rs::Encoding) -> Self {
+        let (encoding, bom) = detect_encoding(bytes, fallback);
+        Self::decoded(bytes, encoding, bom)
+    }
+
+    /// Decode file contents as `encoding` (Reopen With Encoding); a BOM of that encoding is kept.
+    pub fn from_bytes_as(bytes: &[u8], encoding: TextEncoding) -> Self {
+        let bom = if bytes.starts_with(encoding.bom()) {
+            encoding.bom().len()
+        } else {
+            0
+        };
+        Self::decoded(bytes, encoding, bom)
+    }
+
+    fn decoded(bytes: &[u8], encoding: TextEncoding, bom: usize) -> Self {
+        let mut buffer = match encoding {
+            // The common case decodes nothing: the bytes are the text.
+            TextEncoding::Utf8 if bom == 0 => match std::str::from_utf8(bytes) {
+                Ok(text) => Self::new(text),
+                Err(_) => Self::new(&decode(bytes, encoding)),
+            },
+            _ => Self::new(&decode(&bytes[bom..], encoding)),
+        };
+        buffer.has_bom = bom > 0;
+        buffer.encoding = encoding;
+        buffer
     }
 
     pub fn load(path: &Path) -> Result<Self, LoadError> {
         Self::from_bytes(&std::fs::read(path)?)
     }
 
-    /// The file contents: BOM if the file had one, and the recorded line endings.
-    pub fn to_file_bytes(&self) -> Vec<u8> {
-        let mut out = String::with_capacity(self.len() + self.line_count() as usize + 3);
-        if self.has_bom {
-            out.push_str(BOM);
+    /// As [`Buffer::load`], with the fallback code page.
+    pub fn load_with(
+        path: &Path,
+        fallback: &'static encoding_rs::Encoding,
+    ) -> Result<Self, LoadError> {
+        Ok(Self::from_bytes_with(&std::fs::read(path)?, fallback))
+    }
+
+    /// The file's encoding.
+    pub fn encoding(&self) -> TextEncoding {
+        self.encoding
+    }
+
+    /// Save in `encoding` from now on (File > Advanced Save Options). A legacy code page carries no BOM.
+    pub fn set_encoding(&mut self, encoding: TextEncoding) {
+        self.encoding = encoding;
+        if !encoding.is_unicode() {
+            self.has_bom = false;
         }
+    }
+
+    /// The file contents: BOM if the file had one, the recorded line endings, in the file's encoding. A character
+    /// the encoding cannot carry is written as UTF-8 would have it; [`Buffer::try_to_file_bytes`] refuses instead.
+    pub fn to_file_bytes(&self) -> Vec<u8> {
+        self.try_to_file_bytes().unwrap_or_else(|_| {
+            let mut b = if self.has_bom {
+                BOM.as_bytes().to_vec()
+            } else {
+                Vec::new()
+            };
+            b.extend(self.file_text().into_bytes());
+            b
+        })
+    }
+
+    /// The file contents, or why the encoding cannot carry the text.
+    pub fn try_to_file_bytes(&self) -> Result<Vec<u8>, EncodeError> {
+        let text = self.file_text();
+        if self.encoding == TextEncoding::Utf8 {
+            let mut out = Vec::with_capacity(text.len() + 3);
+            if self.has_bom {
+                out.extend_from_slice(BOM.as_bytes());
+            }
+            out.extend(text.into_bytes());
+            return Ok(out);
+        }
+        let mut out = Vec::new();
+        if self.has_bom {
+            out.extend_from_slice(self.encoding.bom());
+        }
+        out.extend(encode(&text, self.encoding)?);
+        Ok(out)
+    }
+
+    /// The text with the file's line endings, without BOM.
+    fn file_text(&self) -> String {
+        let mut out = String::with_capacity(self.len() + self.line_count() as usize + 3);
         let snapshot = self.text.snapshot();
         let exceptions: HashMap<usize, LineEnding> = self
             .exceptions
@@ -190,11 +500,14 @@ impl Buffer {
             out.push_str(rest);
             offset += rest.len();
         }
-        out.into_bytes()
+        out
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        std::fs::write(path, self.to_file_bytes())
+        let bytes = self
+            .try_to_file_bytes()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(path, bytes)
     }
 
     /// The `\n`-normalized text, without BOM.
@@ -627,9 +940,125 @@ mod tests {
     }
 
     #[test]
-    fn invalid_utf8_is_rejected() {
-        let err = Buffer::from_bytes(b"ok\xFF").unwrap_err();
-        assert!(matches!(err, LoadError::InvalidUtf8 { valid_up_to: 2 }));
+    fn invalid_utf8_reads_as_the_fallback_code_page() {
+        let b = Buffer::from_bytes(b"ok\xFF").unwrap();
+        assert_eq!(
+            b.encoding(),
+            TextEncoding::Legacy(encoding_rs::WINDOWS_1252)
+        );
+        assert_eq!(b.text(), "ok\u{FF}");
+        assert_eq!(b.to_file_bytes(), b"ok\xFF");
+    }
+
+    /// Brief 0070's fixtures: each opens and saves unchanged byte for byte, and an edit is written in the file's
+    /// encoding.
+    #[test]
+    fn encodings_round_trip_byte_for_byte() {
+        let text = "// caf\u{e9} \u{20ac}\r\nclass C { }\r\n";
+        let utf16le: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain(text.encode_utf16().flat_map(u16::to_le_bytes))
+            .collect();
+        let utf16be: Vec<u8> = [0xFE, 0xFF]
+            .into_iter()
+            .chain(text.encode_utf16().flat_map(u16::to_be_bytes))
+            .collect();
+        let utf32le: Vec<u8> = [0xFF, 0xFE, 0, 0]
+            .into_iter()
+            .chain(text.chars().flat_map(|c| (c as u32).to_le_bytes()))
+            .collect();
+        let utf32be: Vec<u8> = [0, 0, 0xFE, 0xFF]
+            .into_iter()
+            .chain(text.chars().flat_map(|c| (c as u32).to_be_bytes()))
+            .collect();
+        // Windows-1252: é is E9, € is 80; the five undefined bytes (81, 8D, 8F, 90, 9D) survive too.
+        let cp1252 = b"// caf\xE9 \x80 \x81\x8D\x8F\x90\x9D\r\nclass C { }\r\n".to_vec();
+        let utf8_plain = text.as_bytes().to_vec();
+        let utf16_no_bom: Vec<u8> = "class C { }\r\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        for (bytes, encoding, bom) in [
+            (&utf16le, TextEncoding::Utf16Le, true),
+            (&utf16be, TextEncoding::Utf16Be, true),
+            (&utf32le, TextEncoding::Utf32Le, true),
+            (&utf32be, TextEncoding::Utf32Be, true),
+            (
+                &cp1252,
+                TextEncoding::Legacy(encoding_rs::WINDOWS_1252),
+                false,
+            ),
+            (&utf8_plain, TextEncoding::Utf8, false),
+            (&utf16_no_bom, TextEncoding::Utf16Le, false),
+        ] {
+            let mut b = Buffer::from_bytes(bytes).unwrap();
+            assert_eq!(b.encoding(), encoding, "{}", encoding.label());
+            assert_eq!(b.has_bom(), bom, "{}", encoding.label());
+            assert_eq!(b.line_ending(), LineEnding::CrLf);
+            assert!(b.text().contains("class C"), "{}", encoding.label());
+            assert_eq!(&b.to_file_bytes(), bytes, "{}", encoding.label());
+            // An edit is written in the same encoding.
+            b.edit([(0..0, "x")]);
+            let again = Buffer::from_bytes(&b.to_file_bytes()).unwrap();
+            assert_eq!(again.encoding(), encoding);
+            assert_eq!(again.text(), b.text());
+        }
+    }
+
+    #[test]
+    fn a_code_page_refuses_characters_it_cannot_carry() {
+        let mut b = Buffer::from_bytes(b"caf\xE9\n").unwrap();
+        b.edit([(0..0, "\u{4e2d}")]);
+        let err = b.try_to_file_bytes().unwrap_err();
+        assert_eq!(err.character, '\u{4e2d}');
+        assert!(err.to_string().contains("Windows-1252"), "{err}");
+        // Save With Encoding: UTF-8 with a BOM carries it.
+        b.set_encoding(TextEncoding::Utf8);
+        b.set_bom(true);
+        assert_eq!(
+            b.try_to_file_bytes().unwrap(),
+            "\u{FEFF}\u{4e2d}caf\u{e9}\n".as_bytes()
+        );
+    }
+
+    #[test]
+    fn encoding_labels() {
+        assert_eq!(TextEncoding::from_label("UTF-8"), Some(TextEncoding::Utf8));
+        assert_eq!(
+            TextEncoding::from_label("unicode"),
+            Some(TextEncoding::Utf16Le)
+        );
+        assert_eq!(
+            TextEncoding::from_label("utf-16be"),
+            Some(TextEncoding::Utf16Be)
+        );
+        assert_eq!(
+            TextEncoding::from_label("cp1252")
+                .map(TextEncoding::label)
+                .as_deref(),
+            Some("windows-1252")
+        );
+        assert_eq!(
+            TextEncoding::from_label("latin1")
+                .map(TextEncoding::display_name)
+                .as_deref(),
+            Some("Windows-1252")
+        );
+        assert_eq!(
+            TextEncoding::from_label("shift_jis")
+                .map(TextEncoding::label)
+                .as_deref(),
+            Some("shift_jis")
+        );
+        assert_eq!(TextEncoding::from_label("nope"), None);
+        // A fallback of UTF-8 cannot fail over to itself.
+        let b = Buffer::from_bytes_with(b"\xFF", encoding_rs::UTF_8);
+        assert_eq!(
+            b.encoding(),
+            TextEncoding::Legacy(encoding_rs::WINDOWS_1252)
+        );
+        let b = Buffer::from_bytes_with(b"\x82\xA0", encoding_rs::SHIFT_JIS);
+        assert_eq!(b.text(), "\u{3042}");
     }
 
     #[test]

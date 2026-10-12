@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/bookmarks-list.input.json",
+  "title": "eludite.bookmarks.list input",
+  "description": "The Bookmarks window's rows (View > Bookmark Window, Ctrl+K, Ctrl+W).",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

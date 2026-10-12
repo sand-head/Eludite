@@ -106,9 +106,11 @@
 //! In the editor view: no IME composition (composed text is inserted as typed), no soft wrap,
 //! folding, minimap or sticky scroll, no right-to-left text, grapheme
 //! clusters are not respected by cursor movement (characters are), very long
-//! lines are shaped whole, find is ASCII case-insensitive only, and files
-//! must be UTF-8.
+//! lines are shaped whole, and find is ASCII case-insensitive only. Files may be
+//! UTF-8, UTF-16, UTF-32 or a legacy code page ([`TextEncoding`], brief 0070).
 
+// Brief 0070: bookmark glyphs in the margin.
+mod bookmarks;
 mod buffer;
 mod codelens;
 mod debugging;
@@ -120,11 +122,15 @@ mod popups;
 pub mod syntax;
 mod view;
 
-pub use buffer::{Buffer, LARGE_FILE_THRESHOLD, LineEnding, LoadError};
+pub use buffer::{
+    Buffer, DEFAULT_FALLBACK, EncodeError, LARGE_FILE_THRESHOLD, LineEnding, LoadError,
+    TextEncoding, detect_encoding,
+};
 pub use debugging::{BreakpointGlyph, ExecutionKind};
 pub use display::{RowHit, VerticalLayout};
 pub use editor::{ClickKind, Editor, FindQuery, Selection, SelectionRange};
 pub use eludite_ui::CompletionKind;
+pub use encoding_rs;
 pub use input::{INPUT_KEY_CONTEXT, InputLayout, TextInput, TextInputEvent};
 pub use intellisense::{
     AcceptedCompletion, CodeLens, CodeLensSnapshot, CompletionEdit, CompletionItem,

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-copy-full-path.input.json",
+  "title": "eludite.window.copy_full_path input",
+  "description": "The tab menu's Copy Full Path: put the document's path on the clipboard.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "The document: an open file's absolute path, or a path relative to the workspace; the active document when omitted.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

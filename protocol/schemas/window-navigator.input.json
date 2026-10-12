@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-navigator.input.json",
+  "title": "eludite.window.navigator input",
+  "description": "The IDE Navigator (Ctrl+Tab, Ctrl+Shift+Tab): the open documents and tool windows in most-recently-used order. The UI shows it while Ctrl is held and activates the selected item when Ctrl is released; from an agent it only lists, unless activate is given.",
+  "type": "object",
+  "properties": {
+    "backward": {
+      "type": "boolean"
+    },
+    "activate": {
+      "description": "Activate the item at this index of items.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

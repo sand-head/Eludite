@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/bookmarks-update.output.json",
+  "title": "eludite.bookmarks.update output",
+  "description": "The bookmark now.",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "path",
+    "line",
+    "enabled"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "line": {
+      "description": "1-based; follows edits of the open document.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "enabled": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

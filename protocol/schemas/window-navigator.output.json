@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-navigator.output.json",
+  "title": "eludite.window.navigator output",
+  "description": "The navigator's items.",
+  "type": "object",
+  "required": [
+    "items"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "document",
+              "tool_window"
+            ]
+          }
+        }
+      }
+    },
+    "selected": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "activated": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

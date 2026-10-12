@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-close-all.output.json",
+  "title": "eludite.file.close_all output",
+  "description": "What closing did.",
+  "type": "object",
+  "required": [
+    "closed",
+    "saved"
+  ],
+  "properties": {
+    "closed": {
+      "description": "Tabs closed.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "saved": {
+      "description": "Documents saved before closing.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

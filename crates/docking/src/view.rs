@@ -88,6 +88,81 @@ impl Render for NoGhost {
 const MIN_CENTER: f32 = 200.;
 const SPLITTER_PX: f32 = 4.;
 
+/// Drag payload for a document tab (brief 0070: drag to reorder).
+#[derive(Clone, Debug)]
+pub struct DraggedTab {
+    pub id: String,
+    pub title: SharedString,
+}
+
+/// The command a tab dropped on another runs (brief 0070).
+pub const MOVE_TAB: &str = eludite_commands::documents::MOVE_TAB;
+
+/// A document tab's context menu (brief 0070), in Visual Studio's order: (selector key, label, command, arguments,
+/// enabled); an empty key is a separator.
+pub fn tab_menu_items(
+    id: &str,
+    pinned: bool,
+    file: bool,
+) -> Vec<(&'static str, &'static str, &'static str, Value, bool)> {
+    use eludite_commands::documents as d;
+    vec![
+        (
+            "close",
+            "Close",
+            workspace::FILE_CLOSE,
+            json!({ "path": id }),
+            true,
+        ),
+        ("close-all", "Close All Tabs", d::CLOSE_ALL, json!({}), true),
+        (
+            "close-others",
+            "Close All But This",
+            d::CLOSE_ALL,
+            json!({ "except": id }),
+            true,
+        ),
+        (
+            "close-unpinned",
+            "Close All But Pinned",
+            d::CLOSE_ALL,
+            json!({ "keep_pinned": true }),
+            true,
+        ),
+        ("", "", "", Value::Null, false),
+        (
+            "pin",
+            if pinned { "Unpin Tab" } else { "Pin Tab" },
+            d::PIN_TAB,
+            json!({ "path": id, "pinned": !pinned }),
+            true,
+        ),
+        ("", "", "", Value::Null, false),
+        (
+            "copy-path",
+            "Copy Full Path",
+            d::COPY_FULL_PATH,
+            json!({ "path": id }),
+            file,
+        ),
+        (
+            "open-folder",
+            "Open Containing Folder",
+            d::OPEN_CONTAINING_FOLDER,
+            json!({ "path": id }),
+            file,
+        ),
+        ("", "", "", Value::Null, false),
+        (
+            "reopen",
+            "Reopen Closed Tab",
+            d::REOPEN_CLOSED,
+            json!({}),
+            true,
+        ),
+    ]
+}
+
 /// Drag payload for a tool window tab or title bar.
 #[derive(Clone, Debug)]
 pub struct DraggedTool {
@@ -150,6 +225,12 @@ pub struct DockHost {
     probe: Option<Probe>,
     last_error: Option<String>,
     resizing: Option<Resizing>,
+    /// Brief 0070: the tab whose context menu is open and where, the drop-down's state, the tab well's scrolling.
+    tab_menu: Option<(String, gpui::Point<Pixels>)>,
+    overflow_open: bool,
+    tab_scroll: gpui::ScrollHandle,
+    /// Brief 0070: the IDE Navigator while Ctrl is held: its items (id, title, is a document) and the selection.
+    navigator: Option<(Vec<(String, String, bool)>, usize)>,
     _watch: Task<()>,
 }
 
@@ -187,6 +268,10 @@ impl DockHost {
             probe: None,
             last_error: None,
             resizing: None,
+            tab_menu: None,
+            overflow_open: false,
+            tab_scroll: gpui::ScrollHandle::new(),
+            navigator: None,
             _watch: watch,
         }
     }
@@ -255,6 +340,22 @@ impl DockHost {
         let snap = self.controller.snapshot();
         if snap.revision == self.snap.revision {
             return;
+        }
+        // Brief 0070: keep the active tab in view when it changes.
+        let active = snap.layout.documents.active.clone();
+        if active != self.snap.layout.documents.active
+            && let Some(ix) = active
+                .as_deref()
+                .and_then(|a| snap.layout.documents.tabs.iter().position(|t| t.id == a))
+        {
+            self.tab_scroll.scroll_to_item(ix);
+        }
+        if self
+            .tab_menu
+            .as_ref()
+            .is_some_and(|(id, _)| snap.layout.documents.get(id).is_none())
+        {
+            self.tab_menu = None;
         }
         self.snap = snap;
         if self.saved.as_ref() != Some(&self.snap.layout) {
@@ -367,7 +468,7 @@ impl DockHost {
     fn render_documents(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
         let docs = &self.snap.layout.documents;
-        let tabs = docs.tabs.iter().map(|d| {
+        let tabs = docs.tabs.iter().enumerate().map(|(ix, d)| {
             let id = d.id.clone();
             let style = TabStyle {
                 active: docs.active.as_deref() == Some(d.id.as_str()),
@@ -377,11 +478,15 @@ impl DockHost {
             };
             let sel = format!("doc-tab-{}", d.id);
             let dirty = self.snap.dirty.contains(&d.id);
-            let title = if dirty {
+            let mut title = if dirty {
                 format!("{}*", d.title)
             } else {
                 d.title.clone()
             };
+            // Brief 0070: a file deleted outside the editor.
+            if self.snap.deleted.contains(&d.id) {
+                title.push_str(" [deleted]");
+            }
             let close_id = d.id.clone();
             // Closing goes through `eludite.file.close` (the shell asks about unsaved changes first).
             let close = icon_button(
@@ -413,6 +518,15 @@ impl DockHost {
                     .child(glyph.clone())
             });
             let sel_badge = format!("doc-badge-{}", d.id);
+            // Brief 0070: middle click closes, right click opens the tab's context menu, a drag reorders, a double
+            // click keeps the preview tab.
+            let middle_id = d.id.clone();
+            let menu_id = d.id.clone();
+            let promote_id = d.id.clone();
+            let dragged = DraggedTab {
+                id: d.id.clone(),
+                title: SharedString::from(d.title.clone()),
+            };
             tab(&t, title, style)
                 .children(badge.map(|b| b.debug_selector(move || sel_badge)))
                 .child(close)
@@ -424,14 +538,65 @@ impl DockHost {
                 .relative()
                 .children(self.probe_bounds(sel))
                 .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, _| {
+                .on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, _| {
                     let _ = this.invoke(view::SHOW, json!({ "id": id }));
+                    if e.click_count() >= 2 {
+                        this.controller.promote_document(&promote_id);
+                    }
+                }))
+                .on_mouse_down(
+                    MouseButton::Middle,
+                    cx.listener(move |_, _, window, cx| {
+                        cx.stop_propagation();
+                        window.dispatch_action(
+                            Box::new(RunCommand::new(
+                                workspace::FILE_CLOSE,
+                                json!({ "path": middle_id }),
+                            )),
+                            cx,
+                        );
+                    }),
+                )
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.tab_menu = Some((menu_id.clone(), e.position));
+                        this.overflow_open = false;
+                        cx.notify();
+                    }),
+                )
+                .on_drag(dragged, move |d: &DraggedTab, _, _, cx| {
+                    let title = d.title.clone();
+                    cx.new(|_| DragGhost { title, theme: t })
+                })
+                .drag_over::<DraggedTab>(move |s, _, _, _| s.bg(t.guide.alpha(0.4)))
+                .on_drop(cx.listener(move |this, d: &DraggedTab, window, cx| {
+                    // `eludite.window.move_tab`, as every layout change is a command.
+                    window.dispatch_action(
+                        Box::new(RunCommand::new(
+                            MOVE_TAB,
+                            json!({ "path": d.id, "index": ix }),
+                        )),
+                        cx,
+                    );
+                    this.overflow_open = false;
                 }))
         });
         let body = match docs.active_tab() {
             Some(d) => (self.document_body)(d, &t),
             None => div().into_any_element(),
         };
+        // Brief 0070: the tab well scrolls; the drop-down at its right lists every open document.
+        let overflow = icon_button("doc-overflow", "\u{25BE}", &t)
+            .debug_selector(|| "doc-overflow".into())
+            .flex_none()
+            .mx_1()
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.overflow_open = !this.overflow_open;
+                this.tab_menu = None;
+                cx.notify();
+            }));
         div()
             .id("documents")
             .debug_selector(|| "documents".into())
@@ -452,11 +617,25 @@ impl DockHost {
                     .flex()
                     .flex_row()
                     .flex_none()
+                    .items_center()
                     .h(t.typography.tab_height)
                     .bg(t.chrome)
                     .border_b_2()
                     .border_color(t.tab_strip_rule)
-                    .children(tabs),
+                    .child(
+                        div()
+                            .id("doc-tabs")
+                            .debug_selector(|| "doc-tabs".into())
+                            .flex()
+                            .flex_row()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_x_scroll()
+                            .track_scroll(&self.tab_scroll)
+                            .children(tabs),
+                    )
+                    .child(overflow),
             )
             .child(
                 // The body fills the area; a document view (the editor) brings its own margins.
@@ -470,7 +649,238 @@ impl DockHost {
                     .text_size(t.typography.body)
                     .child(body),
             )
+            .children(self.render_tab_menu(cx))
+            .children(self.render_overflow(cx))
             .children(self.probe_bounds("documents".into()))
+    }
+
+    /// Brief 0070: show the IDE Navigator (Ctrl+Tab) over `items` (id, title, is a document) with `selected`
+    /// highlighted; releasing Ctrl activates the selection through `eludite.window.navigator`.
+    pub fn show_navigator(
+        &mut self,
+        items: Vec<(String, String, bool)>,
+        selected: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if items.is_empty() {
+            return;
+        }
+        let selected = selected.min(items.len() - 1);
+        self.navigator = Some((items, selected));
+        cx.notify();
+    }
+
+    /// Brief 0070: Ctrl+Tab again while the navigator shows moves the selection. Returns false when it is closed.
+    pub fn navigator_step(&mut self, backward: bool, cx: &mut Context<Self>) -> bool {
+        let Some((items, selected)) = self.navigator.as_mut() else {
+            return false;
+        };
+        let n = items.len();
+        *selected = if backward {
+            (*selected + n - 1) % n
+        } else {
+            (*selected + 1) % n
+        };
+        cx.notify();
+        true
+    }
+
+    /// Brief 0070: the navigator's selection, while it shows.
+    pub fn navigator_selection(&self) -> Option<(String, usize)> {
+        let (items, selected) = self.navigator.as_ref()?;
+        Some((items.get(*selected)?.0.clone(), *selected))
+    }
+
+    /// Brief 0070: close the navigator, activating its selection (`commit`) or not.
+    pub fn close_navigator(&mut self, commit: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, selected)) = self.navigator.take() else {
+            return;
+        };
+        if commit {
+            window.dispatch_action(
+                Box::new(RunCommand::new(
+                    eludite_commands::documents::NAVIGATOR,
+                    json!({ "activate": selected }),
+                )),
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
+    fn render_navigator(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (items, selected) = self.navigator.as_ref()?;
+        let t = self.theme;
+        let column = |title: &'static str, documents: bool| {
+            let rows = items
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, _, d))| *d == documents)
+                .map(|(ix, (id, label, _))| {
+                    eludite_ui::menu_row(
+                        format!("navigator-item-{id}"),
+                        label.clone(),
+                        0,
+                        ix == *selected,
+                        false,
+                        false,
+                        &t,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Some((_, sel)) = this.navigator.as_mut() {
+                            *sel = ix;
+                        }
+                        this.close_navigator(true, window, cx);
+                    }))
+                });
+            div()
+                .flex()
+                .flex_col()
+                .min_w(px(220.))
+                .child(div().px_2().py_1().text_color(t.text_muted).child(title))
+                .children(rows)
+        };
+        Some(
+            gpui::deferred(
+                div()
+                    .absolute()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        eludite_ui::popup::popup_panel(&t)
+                            .id("navigator")
+                            .debug_selector(|| "navigator".into())
+                            .occlude()
+                            .p_2()
+                            .flex()
+                            .flex_row()
+                            .gap_4()
+                            .child(column("Active Tool Windows", false))
+                            .child(column("Active Files", true)),
+                    ),
+            )
+            .with_priority(4)
+            .into_any_element(),
+        )
+    }
+
+    /// Brief 0070: the document tab's context menu (Visual Studio's order).
+    fn render_tab_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (id, at) = self.tab_menu.clone()?;
+        let tab = self.snap.layout.documents.get(&id)?;
+        let t = self.theme;
+        let pinned = tab.pinned;
+        let file = std::path::Path::new(&id).is_absolute();
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for (key, label, command, args, enabled) in tab_menu_items(&id, pinned, file) {
+            if key.is_empty() {
+                rows.push(
+                    div()
+                        .h(px(1.))
+                        .mx_1()
+                        .my_1()
+                        .bg(t.border)
+                        .into_any_element(),
+                );
+                continue;
+            }
+            let row = eludite_ui::menu_row(
+                format!("doc-menu-{key}"),
+                label,
+                0,
+                false,
+                false,
+                !enabled,
+                &t,
+            )
+            .min_w(px(220.));
+            let row = if enabled {
+                row.on_click(cx.listener(move |this, _, window, cx| {
+                    this.tab_menu = None;
+                    window.dispatch_action(Box::new(RunCommand::new(command, args.clone())), cx);
+                    cx.notify();
+                }))
+            } else {
+                row
+            };
+            rows.push(row.into_any_element());
+        }
+        Some(
+            gpui::deferred(
+                gpui::anchored().position(at).child(
+                    eludite_ui::popup::popup_panel(&t)
+                        .id("doc-tab-menu")
+                        .debug_selector(|| "doc-tab-menu".into())
+                        .occlude()
+                        .py_1()
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.tab_menu = None;
+                            cx.notify();
+                        }))
+                        .children(rows),
+                ),
+            )
+            .with_priority(3)
+            .into_any_element(),
+        )
+    }
+
+    /// Brief 0070: the tab well's drop-down: every open document, the active one marked.
+    fn render_overflow(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.overflow_open {
+            return None;
+        }
+        let t = self.theme;
+        let docs = &self.snap.layout.documents;
+        let rows = docs.tabs.iter().map(|d| {
+            let id = d.id.clone();
+            let active = docs.active.as_deref() == Some(d.id.as_str());
+            let mut label = d.title.clone();
+            if self.snap.dirty.contains(&d.id) {
+                label.push('*');
+            }
+            eludite_ui::menu_row(
+                format!("doc-overflow-item-{}", d.id),
+                label,
+                0,
+                active,
+                false,
+                false,
+                &t,
+            )
+            .min_w(px(240.))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.overflow_open = false;
+                let _ = this.invoke(view::SHOW, json!({ "id": id }));
+                cx.notify();
+            }))
+        });
+        Some(
+            div()
+                .absolute()
+                .top(t.typography.tab_height)
+                .right(px(4.))
+                .child(
+                    gpui::deferred(
+                        eludite_ui::popup::popup_panel(&t)
+                            .id("doc-overflow-list")
+                            .debug_selector(|| "doc-overflow-list".into())
+                            .occlude()
+                            .py_1()
+                            .max_h(px(480.))
+                            .overflow_y_scroll()
+                            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                this.overflow_open = false;
+                                cx.notify();
+                            }))
+                            .children(rows),
+                    )
+                    .with_priority(3),
+                )
+                .into_any_element(),
+        )
     }
 
     /// Docking guides, drawn over the document area during a drag.
@@ -879,6 +1289,7 @@ impl Render for DockHost {
         let _ = window;
         div()
             .id("dock-host")
+            .relative()
             .flex()
             .flex_col()
             .flex_1()
@@ -907,8 +1318,17 @@ impl Render for DockHost {
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| this.commit_resize(cx)),
             )
+            // Brief 0070: releasing Ctrl ends the IDE Navigator on its selection.
+            .on_modifiers_changed(cx.listener(
+                |this, e: &gpui::ModifiersChangedEvent, window, cx| {
+                    if this.navigator.is_some() && !e.modifiers.control {
+                        this.close_navigator(true, window, cx);
+                    }
+                },
+            ))
             .child(row)
             .children(self.render_strip(DockSide::Bottom, cx))
+            .children(self.render_navigator(cx))
     }
 }
 

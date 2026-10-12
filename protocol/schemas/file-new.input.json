@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-new.input.json",
+  "title": "eludite.file.new input",
+  "description": "File > New File (Ctrl+N): an untitled text document in the given language, saved later with Save As. Without language the UI asks for one.",
+  "type": "object",
+  "properties": {
+    "language": {
+      "description": "A language id (csharp, vb, fsharp, rust, typescript, json, xml, text...) or a file extension (.cs, cs).",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-reload.input.json",
+  "title": "eludite.file.reload input",
+  "description": "Reload a document from disk, as the question after an outside change does (Yes). A document with unsaved changes reloads only with discard.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "The document: an open file's absolute path, or a path relative to the workspace; the active document when omitted.",
+      "type": "string",
+      "minLength": 1
+    },
+    "discard": {
+      "description": "Drop unsaved changes.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

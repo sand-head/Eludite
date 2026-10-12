@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-documents.input.json",
+  "title": "eludite.file.documents input",
+  "description": "The open documents in tab order, with their unsaved state, encoding and line endings.",
+  "type": "object",
+  "properties": {
+    "dirty_only": {
+      "description": "Only the documents with unsaved changes.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

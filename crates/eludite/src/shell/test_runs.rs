@@ -1723,6 +1723,8 @@ impl Shell {
                 "test run {cur} is going; cancel it (eludite.test.cancel) or wait for it"
             )));
         }
+        // Brief 0070: build.saveBeforeBuild.
+        self.save_before_build(cx);
         if (selection.failed_only || selection.repeat_last) && self.tests.last_run().is_none() {
             return Err(CommandError::Failed(
                 "no test has run yet: there is no last run".into(),

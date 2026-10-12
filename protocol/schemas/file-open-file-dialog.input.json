@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-open-file-dialog.input.json",
+  "title": "eludite.file.open_file_dialog input",
+  "description": "File > Open File... (Ctrl+O): show the open dialog; the chosen files open in editors. Agents open files with eludite.file.open.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

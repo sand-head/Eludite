@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/window-reopen-closed.output.json",
+  "title": "eludite.window.reopen_closed output",
+  "description": "The document reopened.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

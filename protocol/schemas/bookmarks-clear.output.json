@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/bookmarks-clear.output.json",
+  "title": "eludite.bookmarks.clear output",
+  "description": "How many were removed.",
+  "type": "object",
+  "required": [
+    "removed"
+  ],
+  "properties": {
+    "removed": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

@@ -53,6 +53,12 @@ pub struct Snapshot {
     /// A glyph and its color (`0xRRGGBB`) drawn before a document tab's title: the file's source control status
     /// (brief 0040). Not persisted.
     pub badges: BTreeMap<String, (String, u32)>,
+    /// Brief 0070: the open documents and the tool windows shown, most recently active first (the IDE Navigator's
+    /// order, Ctrl+Tab). Not persisted.
+    pub mru: Vec<String>,
+    /// Brief 0070: document tabs whose file was deleted or moved outside the editor (drawn `[deleted]`). Not
+    /// persisted.
+    pub deleted: BTreeSet<String>,
     /// Bumped on every change.
     pub revision: u64,
 }
@@ -60,6 +66,8 @@ pub struct Snapshot {
 struct State {
     snapshot: Snapshot,
     subscribers: Vec<UnboundedSender<()>>,
+    /// Brief 0070: the active document and tool window the MRU order last saw.
+    seen: (Option<String>, Option<String>),
 }
 
 /// Cheap to clone; all clones share one layout.
@@ -88,9 +96,12 @@ impl DockController {
                     flyout: None,
                     dirty: BTreeSet::new(),
                     badges: BTreeMap::new(),
+                    mru: Vec::new(),
+                    deleted: BTreeSet::new(),
                     revision: 0,
                 },
                 subscribers: Vec::new(),
+                seen: (None, None),
             })),
         }
     }
@@ -121,8 +132,144 @@ impl DockController {
     }
 
     fn changed(state: &mut State) {
+        Self::touch_mru(state);
         state.snapshot.revision += 1;
         state.subscribers.retain(|tx| tx.unbounded_send(()).is_ok());
+    }
+
+    /// Brief 0070: keep the MRU order: the active document and the active tool window move to the front, closed
+    /// documents and hidden tool windows leave it.
+    fn touch_mru(state: &mut State) {
+        let snap = &mut state.snapshot;
+        let open = |snap: &Snapshot, id: &str| {
+            snap.layout.documents.get(id).is_some()
+                || (snap.registry.contains(id)
+                    && !matches!(snap.layout.find(id), None | Some(Place::Hidden { .. })))
+        };
+        let mut mru = std::mem::take(&mut snap.mru);
+        mru.retain(|id| open(snap, id));
+        let now = (
+            snap.layout.documents.active.clone(),
+            snap.active_tool.clone(),
+        );
+        // What became active since the last change moves to the front.
+        for (was, is) in [(&state.seen.0, &now.0), (&state.seen.1, &now.1)] {
+            if let Some(id) = is
+                && was.as_ref() != Some(id)
+                && open(snap, id)
+            {
+                mru.retain(|m| m != id);
+                mru.insert(0, id.clone());
+            }
+        }
+        // Open documents never active yet still count, after the others.
+        for t in &snap.layout.documents.tabs {
+            if !mru.contains(&t.id) {
+                mru.push(t.id.clone());
+            }
+        }
+        snap.mru = mru;
+        state.seen = now;
+    }
+
+    /// Brief 0070: put `id` (a document or a tool window) at the front of the MRU order, as activating it by mouse
+    /// does even when it already was the active one.
+    pub fn touch(&self, id: &str) {
+        let mut s = self.lock();
+        if s.snapshot.mru.first().map(String::as_str) != Some(id) {
+            s.snapshot.mru.retain(|m| m != id);
+            s.snapshot.mru.insert(0, id.to_owned());
+            Self::changed(&mut s);
+        }
+    }
+
+    /// Brief 0070: open a document in the preview tab (a single click in the Workspace window), replacing the
+    /// previous preview.
+    pub fn open_document_preview(&self, id: &str, title: &str) {
+        let mut s = self.lock();
+        s.snapshot.layout.documents.open_preview(id, title);
+        Self::changed(&mut s);
+    }
+
+    /// Brief 0070: keep the preview tab as a normal tab (an edit, a double click). Returns false when not open.
+    pub fn promote_document(&self, id: &str) -> bool {
+        let mut s = self.lock();
+        let was = s
+            .snapshot
+            .layout
+            .documents
+            .get(id)
+            .is_some_and(|t| t.preview);
+        if was {
+            s.snapshot.layout.documents.promote(id);
+            Self::changed(&mut s);
+        }
+        was
+    }
+
+    /// Brief 0070: pin or unpin a document tab. Returns false when not open.
+    pub fn set_document_pinned(&self, id: &str, pinned: bool) -> bool {
+        let mut s = self.lock();
+        let ok = s.snapshot.layout.documents.set_pinned(id, pinned);
+        if ok {
+            Self::changed(&mut s);
+        }
+        ok
+    }
+
+    /// Brief 0070: activate an open document tab. Returns false when not open.
+    pub fn activate_document(&self, id: &str) -> bool {
+        let mut s = self.lock();
+        let ok = s.snapshot.layout.documents.activate(id);
+        if ok {
+            Self::changed(&mut s);
+        }
+        ok
+    }
+
+    /// Brief 0070: move a document tab to `index` (drag to reorder), within its band (pinned, normal, preview).
+    pub fn move_document(&self, id: &str, index: usize) -> bool {
+        let mut s = self.lock();
+        let ok = s.snapshot.layout.documents.move_to(id, index);
+        if ok {
+            Self::changed(&mut s);
+        }
+        ok
+    }
+
+    /// Brief 0070: retarget a document tab after Save As or a rename: its id, title, dirty mark and MRU place move
+    /// with it. Returns false when `old` is not open or `new` is another open tab.
+    pub fn rename_document(&self, old: &str, new: &str, title: &str) -> bool {
+        let mut s = self.lock();
+        if !s.snapshot.layout.documents.rename(old, new, title) {
+            return false;
+        }
+        let snap = &mut s.snapshot;
+        if snap.dirty.remove(old) {
+            snap.dirty.insert(new.to_owned());
+        }
+        snap.deleted.remove(old);
+        if let Some(b) = snap.badges.remove(old) {
+            snap.badges.insert(new.to_owned(), b);
+        }
+        for m in snap.mru.iter_mut().filter(|m| *m == old) {
+            *m = new.to_owned();
+        }
+        Self::changed(&mut s);
+        true
+    }
+
+    /// Brief 0070: mark a document tab's file as deleted outside the editor (or not).
+    pub fn set_document_deleted(&self, id: &str, deleted: bool) {
+        let mut s = self.lock();
+        let changed = if deleted {
+            s.snapshot.deleted.insert(id.to_owned())
+        } else {
+            s.snapshot.deleted.remove(id)
+        };
+        if changed {
+            Self::changed(&mut s);
+        }
     }
 
     /// Slide the auto-hide fly-out back in (clicking elsewhere). Transient view
@@ -151,6 +298,7 @@ impl DockController {
         let closed = s.snapshot.layout.documents.close(id);
         s.snapshot.dirty.remove(id);
         s.snapshot.badges.remove(id);
+        s.snapshot.deleted.remove(id);
         if closed {
             Self::changed(&mut s);
         }
@@ -489,13 +637,76 @@ mod tests {
         assert_eq!(out["group"], json!(["output", "toolbox", "error_list"]));
 
         let out = r.invoke(view::RESET_LAYOUT, json!({})).unwrap();
-        assert_eq!(out["tool_windows"].as_array().unwrap().len(), 21);
+        // Brief 0070's Bookmarks window is the 22nd.
+        assert_eq!(out["tool_windows"].as_array().unwrap().len(), 22);
         // Reset restores the default, which has no Properties or Toolbox.
         assert_eq!(
             c.layout(),
             DockLayout::default_vs(&ToolWindowRegistry::vs_default())
         );
         assert!(c.snapshot().active_tool.is_none());
+    }
+
+    /// Brief 0070: the IDE Navigator's order: the document or tool window most recently active first.
+    #[test]
+    fn mru_order_follows_activation_and_forgets_closed_tabs() {
+        let (c, r) = setup();
+        c.open_document("/w/a.cs", "a.cs");
+        c.open_document("/w/b.cs", "b.cs");
+        c.open_document("/w/c.cs", "c.cs");
+        assert_eq!(&c.snapshot().mru[..3], ["/w/c.cs", "/w/b.cs", "/w/a.cs"]);
+        assert!(c.activate_document("/w/a.cs"));
+        assert_eq!(&c.snapshot().mru[..2], ["/w/a.cs", "/w/c.cs"]);
+        r.invoke(view::SHOW, json!({"id": "output"})).unwrap();
+        assert_eq!(c.snapshot().mru[0], "output");
+        c.close_document("/w/c.cs");
+        assert!(!c.snapshot().mru.iter().any(|m| m == "/w/c.cs"));
+        c.touch("/w/b.cs");
+        assert_eq!(c.snapshot().mru[0], "/w/b.cs");
+    }
+
+    /// Brief 0070: drag to reorder keeps pinned tabs first and the preview last; a rename keeps the tab's place.
+    #[test]
+    fn tabs_move_within_their_band_and_rename_in_place() {
+        let (c, _) = setup();
+        c.retain_documents(|_| false);
+        for id in ["/w/a.cs", "/w/b.cs", "/w/c.cs"] {
+            c.open_document(id, id);
+        }
+        c.open_document_preview("/w/p.cs", "p.cs");
+        assert!(c.set_document_pinned("/w/c.cs", true));
+        let order = |c: &DockController| -> Vec<String> {
+            c.layout()
+                .documents
+                .tabs
+                .iter()
+                .map(|t| t.id.clone())
+                .collect()
+        };
+        assert_eq!(order(&c), ["/w/c.cs", "/w/a.cs", "/w/b.cs", "/w/p.cs"]);
+        assert!(
+            c.move_document("/w/b.cs", 0),
+            "clamped after the pinned tab"
+        );
+        assert_eq!(order(&c), ["/w/c.cs", "/w/b.cs", "/w/a.cs", "/w/p.cs"]);
+        assert!(c.move_document("/w/b.cs", 99), "clamped before the preview");
+        assert_eq!(order(&c), ["/w/c.cs", "/w/a.cs", "/w/b.cs", "/w/p.cs"]);
+        assert!(!c.move_document("/w/x.cs", 0));
+        // An edit keeps the preview tab.
+        assert!(c.promote_document("/w/p.cs"));
+        assert!(!c.promote_document("/w/p.cs"));
+        c.set_document_dirty("/w/a.cs", true);
+        assert!(c.rename_document("/w/a.cs", "/w/A2.cs", "A2.cs"));
+        assert_eq!(order(&c)[1], "/w/A2.cs");
+        assert!(c.snapshot().dirty.contains("/w/A2.cs"));
+        assert!(
+            !c.rename_document("/w/b.cs", "/w/A2.cs", "x"),
+            "another tab's id"
+        );
+        c.set_document_deleted("/w/b.cs", true);
+        assert!(c.snapshot().deleted.contains("/w/b.cs"));
+        c.close_document("/w/b.cs");
+        assert!(c.snapshot().deleted.is_empty());
     }
 
     #[test]
